@@ -400,7 +400,10 @@ def check_eq(a: Any, b: Any) -> None:
 # !command -v ffmpeg >/dev/null || (apt update && apt install -y ffmpeg)
 
 # %%
-# !pip install -q hhoppe-tools jupytext matplotlib mediapy opencv-python-headless 'Pillow>=9.1.0' scikit-image tensorflow-cpu torch torchvision>=0.13.0
+# !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
+
+# %%
+# !pip install -q hhoppe-tools jupytext matplotlib mediapy 'Pillow>=9.1.0' scikit-image tensorflow-cpu torch 'torchvision>=0.13.0'
 
 # %% tags=[]
 import copy
