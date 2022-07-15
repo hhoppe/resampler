@@ -339,10 +339,10 @@
 # %% tags=[]
 """resampler: efficient, flexible, differentiable resizing and warping of grids.
 
-&nbsp; [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
-&nbsp; [**[GitHub source]**](https://github.com/hhoppe/resampler)
-&nbsp; [**[API docs]**](https://hhoppe.github.io/resampler/)
-&nbsp; [**[PyPI package]**](https://pypi.org/project/resampler/)
+[Open in Colab](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+[GitHub source](https://github.com/hhoppe/resampler)
+[API docs](https://hhoppe.github.io/resampler/)
+[PyPI package](https://pypi.org/project/resampler/)
 """;
 
 # %% tags=[]
@@ -400,7 +400,7 @@ def check_eq(a: Any, b: Any) -> None:
 # !command -v ffmpeg >/dev/null || (apt update && apt install -y ffmpeg)
 
 # %%
-# !pip install -q hhoppe-tools jupytext matplotlib mediapy opencv-python-headless 'Pillow>=9' scikit-image tensorflow-cpu torch torchvision
+# !pip install -q hhoppe-tools jupytext matplotlib mediapy opencv-python-headless 'Pillow>=9.1.0' scikit-image tensorflow-cpu torch torchvision>=0.13.0
 
 # %% tags=[]
 import copy
@@ -6444,6 +6444,7 @@ def _get_pil_font(font_size: int, font_name: str = 'cmr10') -> Any:
       '/usr/local/lib/python*/dist-packages/matplotlib/mpl-data/fonts/ttf/',
       '~/.local/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
       '/opt/conda/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
+      '/shared-libs/python*/py/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
       '/usr/local/lib/**/',
   ]
   font_file = next(filter(None, (find(dir_pattern) for dir_pattern in FONT_DIR_PATTERNS)))
@@ -7956,6 +7957,12 @@ show_added_global_variables_sorted_by_type()
 # %% tags=[]
 print(f'EFFORT={EFFORT}')
 hh.show_notebook_cell_top_times()
+# # ??
+# Local: ~50 s.
+# Colab: ~? s
+# Kaggle: ~85 s.
+# MyBinder: ~? s.
+# DeepNote: ~130 s.
 
 # %%
 # EFFORT=1:

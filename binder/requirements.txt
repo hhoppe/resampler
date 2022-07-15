@@ -6,9 +6,9 @@ mediapy
 numba>=0.55.1
 numpy
 opencv-python-headless
-Pillow>=9
+Pillow>=9.1.0
 scipy
 scikit-image
 tensorflow-cpu
 torch
-torchvision
+torchvision>=0.13.0
