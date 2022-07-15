@@ -97,7 +97,7 @@
 #
 # ```python
 # rng = np.random.default_rng(seed=1)
-# array = rng.random((4, 6, 3))  # 4x4 RGB image.
+# array = rng.random((4, 6, 3))  # 4x6 RGB image.
 # upsampled = resampler.resize(array, (128, 192))  # To 128x192 resolution.
 # media.show_images({'4x6': array, '128x192': upsampled}, height=128)
 # ```
@@ -4561,7 +4561,7 @@ if EFFORT >= 2:
 # boundary: BORDER_REFLECT_101!  # or REFLECT, WRAP, REPLICATE, CONSTANT, TRANSPARENT, ISOLATED
 # The CUBIC is sharpcubic.
 # Only 2D domain.
-# Only good downsampling prefilter is AREA, which isn't too bad.
+# Only good downsampling prefilter is AREA, which is not too bad.
 
 # %% tags=[]
 def cv_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
@@ -7169,9 +7169,10 @@ visualize_rotational_symmetry_of_gaussian_filter()
 
 # %% tags=[]
 def generate_graphics_for_example_usage() -> None:
+  array: Any
 
   rng = np.random.default_rng(seed=1)
-  array = rng.random((4, 6, 3))  # 4x4 RGB image.
+  array = rng.random((4, 6, 3))  # 4x6 RGB image.
   upsampled = resize(array, (128, 192))  # To 128x192 resolution.
   media.show_images({'4x6': array, '128x192': upsampled}, height=128)
 
@@ -7806,7 +7807,8 @@ def run_spell_check(filename: str, commit_new_words: bool = False) -> None:
   path = pathlib.Path(filename)
   if path.is_file():
     # -Fxvif: fixed_string, match_whole_line, invert_match, case_insensitive, patterns_from_file.
-    find = f"""cat {path} | sed "s/'/ /g" | spell | sort -u | grep -Fxvif {path.stem}.spell"""
+    find = f"""cat {path} | perl -pe "s@https?:/.*?[)> ]@@g; s/'/ /g" | spell | \
+               sort -u | grep -Fxvif {path.stem}.spell"""
     if commit_new_words:
       hh.run(f'{find} >v.spell; cat v.spell >>{path.stem}.spell && rm v.spell')
     else:
