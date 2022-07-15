@@ -1,6 +1,6 @@
 """resampler: efficient, flexible, differentiable resizing and warping of grids.
 
-&nbsp; [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler.ipynb)
+&nbsp; [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 &nbsp; [**[GitHub source]**](https://github.com/hhoppe/resampler)
 &nbsp; [**[API docs]**](https://hhoppe.github.io/resampler/)
 &nbsp; [**[PyPI package]**](https://pypi.org/project/resampler/)
@@ -16,8 +16,7 @@ import dataclasses
 import functools
 import math
 import typing
-from typing import Any, Callable, Dict, Iterable, List
-from typing import Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import scipy.interpolate
