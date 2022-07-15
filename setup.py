@@ -19,7 +19,9 @@ def get_long_description():
 
 
 def get_requirements():
-  with open('requirements_lib.txt') as f:
+  import os
+  os.system('ls -al resampler')  # ??
+  with open('resampler/requirements.txt') as f:
     return [line.strip() for line in f]
 
 
@@ -34,7 +36,7 @@ setuptools.setup(
   url=f'https://github.com/hhoppe/{NAME}.git',
   packages=setuptools.find_packages(),
   package_data={
-    package: ['py.typed'] for package in setuptools.find_packages()
+    package: ['py.typed', 'requirements.txt'] for package in setuptools.find_packages()
   },
   classifiers=[
     'Programming Language :: Python :: 3',

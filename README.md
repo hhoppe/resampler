@@ -62,32 +62,32 @@ It supports:
 
 ## Example usage
 
-> ```python
+```python
 !pip install -q mediapy resampler
 import mediapy as media
 import numpy as np
 import resampler
-> ```
+```
 
-> ```python
+```python
 array = np.random.rand(4, 4, 3)  # 4x4 RGB image.
 upsampled = resampler.resize(array, (128, 128))  # To 128x128 resolution.
 media.show_images({'4x4': array, '128x128': upsampled}, height=128)
-> ```
-<img src="https://drive.google.com/uc?export=download&id=1tXm7Z8_ILYpTOsW1a5Z4S-Dvd1vcn7Q5"/>
+```
+> <img src="https://drive.google.com/uc?export=download&id=1tXm7Z8_ILYpTOsW1a5Z4S-Dvd1vcn7Q5"/>
 
-> ```python
+```python
 image = media.read_image('https://github.com/hhoppe/data/raw/main/image.png')
 downsampled = resampler.resize(image, (32, 32))
 media.show_images({'128x128': image, '32x32': downsampled}, height=128)
-> ```
-<img src="https://drive.google.com/uc?export=download&id=1OiVNvszGZP3COh8mhI0dd2v00cMw2TA0"/>
+```
+> <img src="https://drive.google.com/uc?export=download&id=1OiVNvszGZP3COh8mhI0dd2v00cMw2TA0"/>
 
-> ```python
+```python
 import matplotlib.pyplot as plt
-> ```
+```
 
-> ```python
+```python
 array = [3.0, 5.0, 8.0, 7.0]
 new_dual = resampler.resize(array, (32,))  # (default gridtype='dual') 8x resolution.
 new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
@@ -98,17 +98,17 @@ axs[0].plot((np.arange(len(new_dual)) + 0.5) / len(new_dual), new_dual, '.')
 axs[1].set_title('gridtype primal')
 axs[1].plot(np.arange(len(array)) / (len(array) - 1), array, 'o')
 axs[1].plot(np.arange(len(new_primal)) / (len(new_primal) - 1), new_primal, '.')
-> ```
-<img src="https://drive.google.com/uc?export=download&id=1VGjyX2nvBKaWyGbrMt3g0Nd3G1YdtFjg"/>
+```
+> <img src="https://drive.google.com/uc?export=download&id=1VGjyX2nvBKaWyGbrMt3g0Nd3G1YdtFjg"/>
 
-> ```python
+```python
 batch_size = 4
 batch_of_images = media.moving_circle((16, 16), batch_size)
 spacer = np.ones((64, 16, 3))
 upsampled = resampler.resize(batch_of_images, (batch_size, 64, 64))
 media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
-> ```
-<img src="https://drive.google.com/uc?export=download&id=1PLHu5mCpmb-_54ybvfr6kLUUTHD6l73t"/>
+```
+> <img src="https://drive.google.com/uc?export=download&id=1PLHu5mCpmb-_54ybvfr6kLUUTHD6l73t"/>
 
 Most examples above use the default
 `resize()` settings:
@@ -125,26 +125,26 @@ Most examples above use the default
 
 Advanced usage:
 
-> Map an image to a wider grid using custom `scale` and `translate` vectors,
+Map an image to a wider grid using custom `scale` and `translate` vectors,
 with horizontal `'reflect'` and vertical `'natural'` boundary rules,
 providing a constant value for the exterior,
 using different filters (Lanczos and O-MOMS) in the two dimensions,
 disabling gamma correction, performing computations in double-precision,
 and returning an output array in single-precision:
->
-> ```python
+
+```python
 new = resampler.resize(
     image, (128, 512), boundary=('natural', 'reflect'), cval=(0.2, 0.7, 0.3),
     filter=('lanczos3', 'omoms5'), gamma='identity', scale=(0.8, 0.25),
     translate=(0.1, 0.35), precision='float64', dtype='float32')
 media.show_images({'image': image, 'new': new})
-> ```
-<img src="https://drive.google.com/uc?export=download&id=1WUsrghao2Py9hSCPWfinVYg6Lga55h1X"/>
+```
+> <img src="https://drive.google.com/uc?export=download&id=1WUsrghao2Py9hSCPWfinVYg6Lga55h1X"/>
 
-> Warp an image by transforming it using
-> [polar coordinates](https://en.wikipedia.org/wiki/Polar_coordinate_system):
->
-> ```python
+Warp an image by transforming it using
+[polar coordinates](https://en.wikipedia.org/wiki/Polar_coordinate_system):
+
+```python
 shape = image.shape[:2]
 yx = ((np.indices(shape).T + 0.5) / shape - 0.5).T  # [-0.5, 0.5]^2
 radius, angle = np.linalg.norm(yx, axis=0), np.arctan2(*yx)
@@ -152,8 +152,8 @@ angle += (0.8 - radius).clip(0, 1) * 2.0 - 0.6
 coords = np.dstack((np.sin(angle) * radius, np.cos(angle) * radius)) + 0.5
 resampled = resampler.resample(image, coords, boundary='constant')
 media.show_images({'image': image, 'resampled': resampled})
-> ```
-<img src="https://drive.google.com/uc?export=download&id=1vqnNGeAw5uTNvMEt8hzQY3uXOJugMtJY"/>
+```
+> <img src="https://drive.google.com/uc?export=download&id=1vqnNGeAw5uTNvMEt8hzQY3uXOJugMtJY"/>
 
 
 Limitations:
