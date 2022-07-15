@@ -31,7 +31,7 @@ import resampler
 
 # %% tags=[]
 rng = np.random.default_rng(seed=1)
-array = rng.random((4, 6, 3))  # 4x4 RGB image.
+array = rng.random((4, 6, 3))  # 4x6 RGB image.
 upsampled = resampler.resize(array, (128, 192))  # To 128x192 resolution.
 media.show_images({'4x6': array, '128x192': upsampled}, height=128)
 
@@ -66,7 +66,7 @@ spacer = np.ones((64, 16, 3))
 media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
 
 # %% tags=[]
-media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
+media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1, border=True)
 
 # %% [markdown]
 # <!-- For Emacs:

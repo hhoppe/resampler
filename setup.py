@@ -19,8 +19,6 @@ def get_long_description():
 
 
 def get_requirements():
-  import os
-  os.system('ls -al resampler')  # ??
   with open('resampler/requirements.txt') as f:
     return [line.strip() for line in f]
 
