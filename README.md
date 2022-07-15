@@ -123,7 +123,7 @@ Most examples above use the default
 - default `precision` and output `dtype`.
 
 
-Advanced usage:
+**Advanced usage:**
 
 Map an image to a wider grid using custom `scale` and `translate` vectors,
 with horizontal `'reflect'` and vertical `'natural'` boundary rules,
@@ -156,7 +156,7 @@ media.show_images({'image': image, 'resampled': resampled})
 > <img src="https://drive.google.com/uc?export=download&id=1vqnNGeAw5uTNvMEt8hzQY3uXOJugMtJY"/>
 
 
-Limitations:
+**Limitations:**
 
 - Filters are assumed to be [separable](https://en.wikipedia.org/wiki/Separable_filter).
 For rotation equivariance (e.g., bandlimit the signal uniformly in all directions),
