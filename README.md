@@ -23,7 +23,6 @@ This Python notebook has several roles:
 # Overview of resampler library
 
 `resampler` enables fast differentiable resizing and warping of arbitrary grids.
-
 It supports:
 
 - grids of arbitrary dimension (e.g., 1D audio, 2D images, 3D video, 4D batches of videos),

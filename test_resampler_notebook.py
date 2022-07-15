@@ -23,7 +23,7 @@
 # ## Example Usage
 
 # %% tags=[]
-# # !pip install -q mediapy resampler
+# # !pip install -q mediapy resampler  # ??
 # !pip install -q mediapy
 import mediapy as media
 import numpy as np
@@ -47,6 +47,7 @@ import matplotlib.pyplot as plt
 array = [3.0, 5.0, 8.0, 7.0]  # 4 source samples in 1D.
 new_dual = resampler.resize(array, (32,))  # (default gridtype='dual') 8x resolution.
 new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
+
 _, axs = plt.subplots(1, 2, figsize=(9, 1.5))
 axs[0].set_title('gridtype dual')
 axs[0].plot((np.arange(len(array)) + 0.5) / len(array), array, 'o')
@@ -59,9 +60,13 @@ plt.show()
 # %% tags=[]
 batch_size = 4
 batch_of_images = media.moving_circle((16, 16), batch_size)
-spacer = np.ones((64, 16, 3))
 upsampled = resampler.resize(batch_of_images, (batch_size, 64, 64))
+
+spacer = np.ones((64, 16, 3))
 media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
+
+# %% tags=[]
+media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
 
 # %% [markdown]
 # <!-- For Emacs:

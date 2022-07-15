@@ -593,9 +593,10 @@ class Gridtype:
   source domain and `dst_gridtype` for the destination domain.  Moreover, the grid-type may be
   specified per domain dimension.
 
-  >>> resize(source, shape, gridtype='primal')  # Sets both src and dst.
-  >>> resize(source, shape, src_gridtype=['dual', 'primal'],
-  ...        dst_gridtype='dual')  # Source is dual in dim0 and primal in dim1.
+  Examples:
+    resize(source, shape, gridtype='primal')  # Sets both src and dst.
+    resize(source, shape, src_gridtype=['dual', 'primal'],
+           dst_gridtype='dual')  # Source is dual in dim0 and primal in dim1.
   """
 
   name: str
@@ -2018,6 +2019,9 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   Returns:
     An array of the same class (`np.ndarray`, `tf.Tensor`, or `torch.Tensor`) as the source `array`,
     with shape `shape + array.shape[len(shape):]` and data type `dtype`.
+
+  >>> result = resize([1.0, 4.0, 5.0], shape=(4,))
+  >>> assert np.allclose(result, [0.74240461, 2.88088827, 4.68647155, 5.02641199]), result
   """
   if isinstance(array, (tuple, list)):
     array = np.asarray(array)
@@ -2195,8 +2199,7 @@ def resize_in_numpy(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray:
 
 
 def resize_in_tensorflow(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray:
-  """Evaluate the `resize()` operation using a Tensorflow Tensor representation
-  and its associated operations.
+  """Evaluate the `resize()` operation using Tensorflow's Tensor representation and operations.
 
   Args:
     array: Grid of source samples, represented as a numpy array.
@@ -2212,8 +2215,7 @@ def resize_in_tensorflow(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray
 
 
 def resize_in_torch(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray:
-  """Evaluate the `resize()` operation using a Torch Tensor representation and its associated
-  operations.
+  """Evaluate the `resize()` operation using Torch's Tensor representation and operations.
 
   Args:
     array: Grid of source samples, represented as a numpy array.
@@ -2279,18 +2281,6 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
   - Map a grayscale image through a color map by using `array.shape = 256, 3` and
     `coords.shape = height, width`.
 
-  For reference, the identity resampling for a scalar-valued grid with the default grid-type
-  'dual' is:
-  >>> array = np.random.rand(5, 7, 3)
-  >>> coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
-  >>> new_array = resample(array, coords)
-  >>> assert np.allclose(new_array, array)
-
-  It is more efficient to use the function `resize` for the special case where the `coords` are
-  obtained as simple scaling and translation of a new regular grid over the source domain:
-  >>> coords = (np.moveaxis(np.indices(new_shape), 0, -1) + 0.5) / new_shape
-  >>> coords = (coords - translate) / scale
-
   Args:
     array: Grid of source sample values.  It must be an array-like object from a library in
       `ARRAYLIBS`.  The array must have numeric type.  The coordinate dimensions appear first, and
@@ -2339,6 +2329,24 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     A new sample grid of shape `coords.shape[:-1]`, represented as an array of shape
     `coords.shape[:-1] + array.shape[coords.shape[-1]:]`, of the same array library type as
     the source array.
+
+  For reference, the identity resampling for a scalar-valued grid with the default grid-type
+  'dual' is:
+
+  >>> array = np.random.rand(5, 7, 3)
+  >>> coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
+  >>> new_array = resample(array, coords)
+  >>> assert np.allclose(new_array, array)
+
+  It is more efficient to use the function `resize` for the special case where the `coords` are
+  obtained as simple scaling and translation of a new regular grid over the source domain:
+
+  >>> scale, translate, new_shape = (1.1, 1.2), (0.1, -0.2), (6, 8)
+  >>> coords = (np.moveaxis(np.indices(new_shape), 0, -1) + 0.5) / new_shape
+  >>> coords = (coords - translate) / scale
+  >>> resampled = resample(array, coords)
+  >>> resized = resize(array, new_shape, scale=scale, translate=translate)
+  >>> assert np.allclose(resampled, resized)
   """
   if isinstance(array, (tuple, list)):
     array = np.asarray(array)
@@ -2549,7 +2557,7 @@ def resample_affine(
 ) -> _NDArray:
   """Resample a source array using an affinely transformed grid of given shape.
 
-  The transformation can be linear:
+  The `matrix` transformation can be linear:
     source_point = matrix @ destination_point.
   or it can be affine where the last matrix column is an offset vector:
     source_point = matrix @ (destination_point, 1.0)
@@ -2651,9 +2659,12 @@ def resize_using_resample(array: _Array, shape: Iterable[int], *,
   return resample_affine(array, shape, matrix, **kwargs)
 
 
-def rotation_about_center_in_2d(src_shape: Any, angle: float, dst_shape: Any = None,
+def rotation_about_center_in_2d(src_shape: Any,
+                                angle: float,
+                                dst_shape: Any = None,
                                 scale: float = 1.0) -> _NDArray:
   """Return the 3x3 matrix mapping destination into a source unit domain.
+
   The returned matrix accounts for the possibly non-square domain shapes.
 
   Args:
@@ -2690,8 +2701,11 @@ def rotation_about_center_in_2d(src_shape: Any, angle: float, dst_shape: Any = N
   return matrix
 
 
-def rotate_image_about_center(image: _NDArray, angle: float, new_shape: Any = None,
-                              scale: float = 1.0, num_rotations: int = 1,
+def rotate_image_about_center(image: _NDArray,
+                              angle: float,
+                              new_shape: Any = None,
+                              scale: float = 1.0,
+                              num_rotations: int = 1,
                               **kwargs: Any) -> _NDArray:
   """Return a copy of `image` rotated about its center.
 
