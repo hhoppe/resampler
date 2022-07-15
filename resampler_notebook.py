@@ -19,10 +19,10 @@
 # [Hugues Hoppe](https://hhoppe.com/)
 # &nbsp;&nbsp; Aug 2022.
 #
-# [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler.ipynb)
-# &nbsp; [**[in Kaggle]**](https://www.kaggle.com/notebooks/welcome?src=https://github.com/hhoppe/resampler/blob/main/resampler.ipynb)
-# &nbsp; [**[in MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/main?filepath=resampler.ipynb)
-# &nbsp; [**[in DeepNote]**](https://deepnote.com/launch?url=https%3A%2F%2Fgithub.com%2Fhhoppe%2Fresampler%2Fblob%2Fmain%2Fresampler.ipynb)
+# [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+# &nbsp; [**[in Kaggle]**](https://www.kaggle.com/notebooks/welcome?src=https://github.com/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+# &nbsp; [**[in MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/main?filepath=resampler_notebook.ipynb)
+# &nbsp; [**[in DeepNote]**](https://deepnote.com/launch?url=https%3A%2F%2Fgithub.com%2Fhhoppe%2Fresampler%2Fblob%2Fmain%2Fresampler_notebook.ipynb)
 # &nbsp; [**[GitHub source]**](https://github.com/hhoppe/resampler)
 # &nbsp; [**[API docs]**](https://hhoppe.github.io/resampler/)
 # &nbsp; [**[PyPI package]**](https://pypi.org/project/resampler/)
@@ -366,8 +366,7 @@
 
 # %%
 # Export: none.
-# !pip install -qU hhoppe-tools
-# !pip install -q hhoppe-tools jupytext matplotlib mediapy 'numba>=0.55.1' opencv-python 'Pillow>=9' scipy scikit-image tensorflow-cpu torch torchvision
+# !pip install -q hhoppe-tools jupytext matplotlib mediapy 'numba>=0.55.1' opencv-python-headless 'Pillow>=9' scipy scikit-image tensorflow-cpu torch torchvision
 
 # %% tags=[]
 __docformat__ = 'google'
@@ -7196,6 +7195,8 @@ def generate_graphics_for_example_usage() -> None:
   spacer = np.ones((64, 16, 3))
   upsampled = resize(batch_of_images, (batch_size, 64, 64))
   media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
+
+  media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
 
   new = resize(image, (128, 512), boundary=('natural', 'reflect'), cval=(0.2, 0.7, 0.3),
                filter=('lanczos3', 'omoms5'), gamma='identity', scale=(0.8, 0.25),
