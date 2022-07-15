@@ -91,33 +91,34 @@
 # ## Example usage
 
 # %% [markdown]
-# > ```python
+# ```python
 # !pip install -q mediapy resampler
 # import mediapy as media
 # import numpy as np
 # import resampler
-# > ```
+# ```
 #
-# > ```python
-# array = np.random.rand(4, 4, 3)  # 4x4 RGB image.
-# upsampled = resampler.resize(array, (128, 128))  # To 128x128 resolution.
-# media.show_images({'4x4': array, '128x128': upsampled}, height=128)
-# > ```
-# <img src="https://drive.google.com/uc?export=download&id=1tXm7Z8_ILYpTOsW1a5Z4S-Dvd1vcn7Q5"/>
+# ```python
+# rng = np.random.default_rng(seed=1)
+# array = rng.random((4, 6, 3))  # 4x4 RGB image.
+# upsampled = resampler.resize(array, (128, 192))  # To 128x192 resolution.
+# media.show_images({'4x6': array, '128x192': upsampled}, height=128)
+# ```
+# > <img src="https://drive.google.com/uc?export=download&id=1tXm7Z8_ILYpTOsW1a5Z4S-Dvd1vcn7Q5"/>
 #
-# > ```python
+# ```python
 # image = media.read_image('https://github.com/hhoppe/data/raw/main/image.png')
 # downsampled = resampler.resize(image, (32, 32))
 # media.show_images({'128x128': image, '32x32': downsampled}, height=128)
-# > ```
-# <img src="https://drive.google.com/uc?export=download&id=1OiVNvszGZP3COh8mhI0dd2v00cMw2TA0"/>
+# ```
+# > <img src="https://drive.google.com/uc?export=download&id=1OiVNvszGZP3COh8mhI0dd2v00cMw2TA0"/>
 #
-# > ```python
+# ```python
 # import matplotlib.pyplot as plt
-# > ```
+# ```
 #
-# > ```python
-# array = [3.0, 5.0, 8.0, 7.0]
+# ```python
+# array = [3.0, 5.0, 8.0, 7.0]  # 4 source samples in 1D.
 # new_dual = resampler.resize(array, (32,))  # (default gridtype='dual') 8x resolution.
 # new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
 # _, axs = plt.subplots(1, 2, figsize=(7, 1.5))
@@ -127,17 +128,18 @@
 # axs[1].set_title('gridtype primal')
 # axs[1].plot(np.arange(len(array)) / (len(array) - 1), array, 'o')
 # axs[1].plot(np.arange(len(new_primal)) / (len(new_primal) - 1), new_primal, '.')
-# > ```
-# <img src="https://drive.google.com/uc?export=download&id=1VGjyX2nvBKaWyGbrMt3g0Nd3G1YdtFjg"/>
+# plt.show()
+# ```
+# > <img src="https://drive.google.com/uc?export=download&id=1VGjyX2nvBKaWyGbrMt3g0Nd3G1YdtFjg"/>
 #
-# > ```python
+# ```python
 # batch_size = 4
 # batch_of_images = media.moving_circle((16, 16), batch_size)
 # spacer = np.ones((64, 16, 3))
 # upsampled = resampler.resize(batch_of_images, (batch_size, 64, 64))
 # media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
-# > ```
-# <img src="https://drive.google.com/uc?export=download&id=1PLHu5mCpmb-_54ybvfr6kLUUTHD6l73t"/>
+# ```
+# > <img src="https://drive.google.com/uc?export=download&id=1PLHu5mCpmb-_54ybvfr6kLUUTHD6l73t"/>
 #
 # Most examples above use the default
 # [`resize()`](#Resize) settings:
@@ -152,28 +154,28 @@
 # - default `precision` and output `dtype`.
 
 # %% [markdown]
-# Advanced usage:
+# **Advanced usage:**
 #
-# > Map an image to a wider grid using custom `scale` and `translate` vectors,
+# Map an image to a wider grid using custom `scale` and `translate` vectors,
 # with horizontal `'reflect'` and vertical `'natural'` boundary rules,
 # providing a constant value for the exterior,
 # using different filters (Lanczos and O-MOMS) in the two dimensions,
 # disabling gamma correction, performing computations in double-precision,
 # and returning an output array in single-precision:
-# >
-# > ```python
+#
+# ```python
 # new = resampler.resize(
 #     image, (128, 512), boundary=('natural', 'reflect'), cval=(0.2, 0.7, 0.3),
 #     filter=('lanczos3', 'omoms5'), gamma='identity', scale=(0.8, 0.25),
 #     translate=(0.1, 0.35), precision='float64', dtype='float32')
 # media.show_images({'image': image, 'new': new})
-# > ```
-# <img src="https://drive.google.com/uc?export=download&id=1WUsrghao2Py9hSCPWfinVYg6Lga55h1X"/>
+# ```
+# > <img src="https://drive.google.com/uc?export=download&id=1WUsrghao2Py9hSCPWfinVYg6Lga55h1X"/>
 #
-# > Warp an image by transforming it using
-# > [polar coordinates](https://en.wikipedia.org/wiki/Polar_coordinate_system):
-# >
-# > ```python
+# Warp an image by transforming it using
+# [polar coordinates](https://en.wikipedia.org/wiki/Polar_coordinate_system):
+#
+# ```python
 # shape = image.shape[:2]
 # yx = ((np.indices(shape).T + 0.5) / shape - 0.5).T  # [-0.5, 0.5]^2
 # radius, angle = np.linalg.norm(yx, axis=0), np.arctan2(*yx)
@@ -181,11 +183,11 @@
 # coords = np.dstack((np.sin(angle) * radius, np.cos(angle) * radius)) + 0.5
 # resampled = resampler.resample(image, coords, boundary='constant')
 # media.show_images({'image': image, 'resampled': resampled})
-# > ```
-# <img src="https://drive.google.com/uc?export=download&id=1vqnNGeAw5uTNvMEt8hzQY3uXOJugMtJY"/>
+# ```
+# > <img src="https://drive.google.com/uc?export=download&id=1vqnNGeAw5uTNvMEt8hzQY3uXOJugMtJY"/>
 
 # %% [markdown]
-# Limitations:
+# **Limitations:**
 #
 # - Filters are assumed to be [separable](https://en.wikipedia.org/wiki/Separable_filter).
 # For rotation equivariance (e.g., bandlimit the signal uniformly in all directions),
@@ -7141,11 +7143,11 @@ visualize_rotational_symmetry_of_gaussian_filter()
 
 # %% tags=[]
 def generate_graphics_for_example_usage() -> None:
-  np.random.seed(1)
 
-  array: Any = np.random.rand(4, 4, 3)  # 4x4 RGB image.
-  upsampled = resize(array, (128, 128))  # Upsampled to 128x128 resolution.
-  media.show_images({'4x4': array, '128x128': upsampled}, height=128)
+  rng = np.random.default_rng(seed=1)
+  array = rng.random((4, 6, 3))  # 4x4 RGB image.
+  upsampled = resize(array, (128, 192))  # To 128x192 resolution.
+  media.show_images({'4x6': array, '128x192': upsampled}, height=128)
 
   image = media.read_image('https://github.com/hhoppe/data/raw/main/image.png')
   downsampled = resize(image, (32, 32))
@@ -7154,7 +7156,7 @@ def generate_graphics_for_example_usage() -> None:
   array = [3.0, 5.0, 8.0, 7.0]
   new_dual = resize(array, (32,))  # (default gridtype='dual') 8x resolution.
   new_primal = resize(array, (25,), gridtype='primal')  # 8x resolution.
-  _, axs = plt.subplots(1, 2, figsize=(7, 1.5))
+  _, axs = plt.subplots(1, 2, figsize=(9, 1.5))
   axs[0].set_title('gridtype dual')
   axs[0].plot((np.arange(len(array)) + 0.5) / len(array), array, 'o')
   axs[0].plot((np.arange(len(new_dual)) + 0.5) / len(new_dual), new_dual, '.')
@@ -7776,7 +7778,8 @@ if 0 and EFFORT >= 3:  # Doubles the already slow runtime.
 
 # %%
 if 0:
-  hh.run('(apt update && apt install -y python3.7-venv)')  # To get "ensurepip".
+  # hh.run('(apt update && apt install -y python3.7-venv)')  # To get "ensurepip".
+  # hh.run('(apt update && apt install -y python3.10-venv)')  # To get "ensurepip".
   # hh.run('pip install -q build twine')
   hh.run('git clone -q https://github.com/hhoppe/resampler')
   hh.run('(cd resampler; python3 -m build)')  # Creates dist/*.
