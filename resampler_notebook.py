@@ -20,19 +20,23 @@
 # &nbsp;&nbsp; Aug 2022.
 #
 # [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
-# &nbsp; [**[in Kaggle]**](https://www.kaggle.com/notebooks/welcome?src=https://github.com/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
-# &nbsp; [**[in MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/main?filepath=resampler_notebook.ipynb)
-# &nbsp; [**[in DeepNote]**](https://deepnote.com/launch?url=https%3A%2F%2Fgithub.com%2Fhhoppe%2Fresampler%2Fblob%2Fmain%2Fresampler_notebook.ipynb)
-# &nbsp; [**[GitHub source]**](https://github.com/hhoppe/resampler)
-# &nbsp; [**[API docs]**](https://hhoppe.github.io/resampler/)
-# &nbsp; [**[PyPI package]**](https://pypi.org/project/resampler/)
+# &nbsp;
+# [**[in Kaggle]**](https://www.kaggle.com/notebooks/welcome?src=https://github.com/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+# &nbsp;
+# [**[in MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/main?filepath=resampler_notebook.ipynb)
+# &nbsp;
+# [**[in DeepNote]**](https://deepnote.com/launch?url=https%3A%2F%2Fgithub.com%2Fhhoppe%2Fresampler%2Fblob%2Fmain%2Fresampler_notebook.ipynb)
+# &nbsp;
+# [**[GitHub source]**](https://github.com/hhoppe/resampler)
+# &nbsp;
+# [**[API docs]**](https://hhoppe.github.io/resampler/)
+# &nbsp;
+# [**[PyPI package]**](https://pypi.org/project/resampler/)
 
 # %% [markdown]
-# This Python notebook has several roles:
-# - Source code for the `resampler` library in PyPI.
-# - Illustrated documentation and usage examples.
-# - Unit tests, lint, build, and export.
-# - Signal-processing experiments to justify choices.
+# This Python notebook hosts the source code for the
+# [resampler library in PyPI](https://pypi.org/project/resampler/),
+# interleaved with documentation, usage examples, unit tests, and signal-processing experiments.
 
 # %% [markdown]
 # # <a name="Overview"></a>Overview
@@ -82,6 +86,8 @@
 #
 # - [**faster resizing**](#Test-other-libraries) than the C++ implementations
 #   in `tf.image`, `torch.nn`, and `torchvision`.
+#
+# A key idea is to build on existing sparse matrix representations and operations.
 
 # %% [markdown]
 # ## Example usage
@@ -328,16 +334,97 @@
 # -->
 
 # %% [markdown]
-# # <a name="Imports"></a>Imports
+# # <a name="Library-header"></a>Library header
 
 # %% tags=[]
 """resampler: efficient, flexible, differentiable resizing and warping of grids.
 
-&nbsp; [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler.ipynb)
+&nbsp; [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 &nbsp; [**[GitHub source]**](https://github.com/hhoppe/resampler)
 &nbsp; [**[API docs]**](https://hhoppe.github.io/resampler/)
 &nbsp; [**[PyPI package]**](https://pypi.org/project/resampler/)
 """;
+
+# %% tags=[]
+__docformat__ = 'google'
+__version__ = '0.3.0'
+__version_info__ = tuple(int(num) for num in __version__.split('.'))
+
+# %%
+# Export: outside library.
+# # !pip install -qU pip
+# !pip install -q 'numba>=0.55.1' numpy scipy
+
+# %% tags=[]
+import dataclasses
+import functools
+import math
+import typing
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+
+import numpy as np
+import scipy.interpolate
+import scipy.linalg
+import scipy.ndimage
+import scipy.sparse.linalg
+
+# %% tags=[]
+try:
+  import numba
+except ModuleNotFoundError:
+  pass
+
+# %%
+_DType = Any
+_NDArray = Any  # To document np.ndarray[Any, Any] without enforcement.
+_TensorflowTensor = Any  # To document tf.Tensor without enforcement.
+_TorchTensor = Any  # To document torch.Tensor without enforcement.
+_Array = Any  # To document any array class supported by _Arraylib.
+
+
+# %%
+def check_eq(a: Any, b: Any) -> None:
+  """If the two values or arrays are not equal, raise an exception with a useful message."""
+  equal = np.all(a == b) if isinstance(a, np.ndarray) else a == b
+  if not equal:
+    raise AssertionError(f'{a!r} == {b!r}')
+
+
+# %% [markdown]
+# # Notebook header
+
+# %% tags=[]
+# Export: begin notebook header.
+
+# %%
+# !command -v ffmpeg >/dev/null || (apt update && apt install -y ffmpeg)
+
+# %%
+# !pip install -q hhoppe-tools jupytext matplotlib mediapy opencv-python-headless 'Pillow>=9' scikit-image tensorflow-cpu torch torchvision
+
+# %% tags=[]
+import copy
+import collections
+import glob
+import itertools
+import os
+import pathlib
+from typing import Mapping
+import warnings
+
+import hhoppe_tools as hh  # https://github.com/hhoppe/hhoppe-tools/blob/main/hhoppe_tools/__init__.py
+import IPython
+import matplotlib  # pylint: disable=unused-import
+import matplotlib.pyplot as plt
+import mediapy as media  # https://github.com/google/mediapy
+import re
+import scipy.signal
+import skimage.metrics
+import skimage.transform
+from typing import Iterator
+
+# %%
+EFFORT = 1  # 0..3: Controls the breadth and precision of the notebook experiments.
 
 # %%
 # TODO:
@@ -359,90 +446,6 @@
 # %%
 # Useful resources:
 # https://legacy.imagemagick.org/Usage/filter/
-
-# %%
-# Export: none.
-# !command -v ffmpeg >/dev/null || (apt update && apt install -y ffmpeg)
-
-# %%
-# Export: none.
-# !pip install -q hhoppe-tools jupytext matplotlib mediapy 'numba>=0.55.1' opencv-python-headless 'Pillow>=9' scipy scikit-image tensorflow-cpu torch torchvision
-
-# %% tags=[]
-__docformat__ = 'google'
-__version__ = '0.3.0'
-__version_info__ = tuple(int(num) for num in __version__.split('.'))
-
-# %% tags=[]
-import dataclasses
-import functools
-import math
-import typing
-from typing import Any, Callable, Dict, Iterable, List
-from typing import Optional, Sequence, Tuple, Union
-
-import numpy as np
-import scipy.interpolate
-import scipy.linalg
-import scipy.ndimage
-import scipy.sparse.linalg
-
-# %% tags=[]
-try:
-  import numba
-except ModuleNotFoundError:
-  pass
-
-# %% tags=[]
-# Export: outside library.
-import copy
-import collections
-import glob
-import itertools
-import os
-import pathlib
-from typing import Mapping
-import warnings
-
-import hhoppe_tools as hh  # https://github.com/hhoppe/hhoppe-tools/blob/main/hhoppe_tools/__init__.py
-import IPython
-import matplotlib          # pylint: disable=unused-import
-import matplotlib.pyplot as plt
-import mediapy as media  # https://github.com/google/mediapy
-import scipy.signal
-import skimage.metrics
-import skimage.transform
-# End-of-notebook-imports.
-
-# %%
-# Export: none.
-import re
-from typing import Iterator
-
-# %%
-_DType = Any
-_NDArray = Any  # To document np.ndarray[Any, Any] without enforcement.
-_TensorflowTensor = Any  # To document tf.Tensor without enforcement.
-_TorchTensor = Any  # To document torch.Tensor without enforcement.
-_Array = Any  # To document any array class supported by _Arraylib.
-
-
-# %%
-def check_eq(a: Any, b: Any) -> None:
-  """If the two values or arrays are not equal, raise an exception with a useful message."""
-  equal = np.all(a == b) if isinstance(a, np.ndarray) else a == b
-  if not equal:
-    raise AssertionError(f'{a!r} == {b!r}')
-
-
-# %% [markdown]
-# # Notebook definitions
-
-# %% tags=[]
-# Export: begin notebook definitions.
-
-# %%
-EFFORT = 1  # 0..3: Controls the breadth and precision of the notebook experiments.
 
 # %%
 _ORIGINAL_GLOBALS = list(globals())
@@ -639,7 +642,7 @@ test_checkerboard()
 
 
 # %%
-# Export: end notebook definitions.
+# Export: end notebook header.
 
 # %% [markdown]
 # # Library
@@ -3520,7 +3523,6 @@ if 0:  # For testing.
 
 # %%
 # Export: outside library.
-
 def resize_showing_domain_boundary(array: _NDArray, shape, *,
                                    translate=0.2, scale=0.6, **kwargs) -> _NDArray:
   array = np.asarray(resize(array, shape, translate=translate, scale=scale, **kwargs))
@@ -5309,7 +5311,13 @@ def overwrite_outside_circle(image: _NDArray, cval: Any = 0, margin: float = 0.0
   image[outside_circle] = cval
   return image
 
-# media.show_image(overwrite_outside_circle(EXAMPLE_IMAGE))
+
+# %%
+def test_overwrite_outside_circle() -> None:
+  media.show_image(overwrite_outside_circle(EXAMPLE_IMAGE))
+
+if 0:
+  test_overwrite_outside_circle()
 
 
 # %%
@@ -6306,7 +6314,6 @@ experiment_gamma_downsample_image()
 
 # %%
 # Export: outside library.
-
 def radial1(shape=(24, 48), frame_center=(0.75, 0.5), reference_shape=None) -> _NDArray:
   del reference_shape
   yx = (np.moveaxis(np.indices(shape), 0, -1) + (0.5, 0.5)) / min(shape)
@@ -7706,10 +7713,10 @@ test_downsample_timing()
 
 
 # %% tags=[]
-def get_notebook_code(filename: str) -> Iterator[str]:
+def notebook_code_cells_text(filename: str) -> Iterator[str]:
   """Yield notebook code cells as multiline strings."""
 
-  def code_cells_from_notebook(notebook: Dict[str, Any]) -> Iterator[str]:
+  def code_cells_multiline_str(notebook: Dict[str, Any]) -> Iterator[str]:
     """Yield notebook code cells from a JSON notebook."""
     for cell in notebook['cells']:
       if cell['cell_type'] == 'code':
@@ -7724,7 +7731,7 @@ def get_notebook_code(filename: str) -> Iterator[str]:
     # Load the notebook JSON; takes ~10 s.
     # pylint: disable-next=protected-access
     nb = google.colab._message.blocking_request('get_ipynb', timeout_sec=60)
-    yield from code_cells_from_notebook(nb['ipynb'])
+    yield from code_cells_multiline_str(nb['ipynb'])
     return
 
   # Yield code cells as they were last saved by jupytext.
@@ -7734,7 +7741,7 @@ def get_notebook_code(filename: str) -> Iterator[str]:
   except (ModuleNotFoundError, FileNotFoundError):
     pass
   else:
-    yield from code_cells_from_notebook(notebook)
+    yield from code_cells_multiline_str(notebook)
     return
 
   # Yield code cells as they were first ran within the notebook.
@@ -7749,53 +7756,41 @@ def get_notebook_code(filename: str) -> Iterator[str]:
 
 
 # %% tags=[]
-def save_notebook_inputs_to_python_files(filename: str) -> None:
+def write_library_python_file() -> None:
+  """Write the python library source file by concatenating a subset of the notebook code cells."""
+  within_notebook_header = False
+  cells_text = []
 
-  def contains_only_comments(cell: str) -> bool:
-    return not re.sub(r'(?m)^ *#.*$', r'', cell).strip()
+  def contains_only_comments(cell_text: str) -> bool:
+    return not re.sub(r'(?m)^ *#.*$', r'', cell_text).strip()
 
-  within_notebook_definitions = False
-  text_lib = []
-  text_all = []
-  for cell in get_notebook_code(filename):
-    if cell == '# Export: end.':
+  for cell_text in notebook_code_cells_text('resampler_notebook.py'):
+    if cell_text == '# Export: end.':
       break
-    if '# Export: none.' in cell:
+    if cell_text == '# Export: begin notebook header.':
+      within_notebook_header = True
       continue
-    if cell == '# Export: begin notebook definitions.':
-      within_notebook_definitions = True
+    if cell_text == '# Export: end notebook header.':
+      within_notebook_header = False
       continue
-    if cell == '# Export: end notebook definitions.':
-      within_notebook_definitions = False
-      continue
-
-    cell = re.sub(r'""";$', '"""', cell)
-
-    outside_lib = within_notebook_definitions or contains_only_comments(cell) or any(
-        s in cell for s in ['# Export: outside library.', 'def test', 'def experiment',
-                            'def visualize', 'def generate_graphics'])
+    cell_text = re.sub(r'""";$', '"""', cell_text)
+    outside_lib = within_notebook_header or contains_only_comments(cell_text) or any(
+        s in cell_text for s in ['# Export: outside library.', 'def test', 'def experiment',
+                                 'def visualize', 'def generate_graphics'])
     if not outside_lib:
-      text_lib.append(cell)
+      cells_text.append(cell_text)
 
-    cell = cell.replace('# End-of-notebook-imports.\n',
-                        'matplotlib.use("PDF")\n'
-                        'media.set_max_output_height = lambda x: None\n')
-    cell = re.sub(r'# Export: outside library.\n+', '', cell)
-    text_all.append(cell)
-
-  text = '\n\n\n'.join(text_lib) + '\n'
+  text = '\n\n\n'.join(cells_text) + '\n'
   text += '\n\n# For Emacs:\n# Local Variables: *\n# fill-column: 100 *\n# End: *\n'
   hh.run('mkdir -p ./resampler')
   pathlib.Path('resampler/__init__.py').write_text(text)
 
-  text = '\n\n\n'.join(text_all) + '\n'
-  pathlib.Path('resampler_all.py').write_text(text)
-
-save_notebook_inputs_to_python_files('resampler_notebook.py')
+write_library_python_file()
 
 
 # %% tags=[]
 def run_doctest(filename: str, debug: bool = False) -> None:
+  """Run tests within the function doc strings."""
   hh.run(f'python3 -m doctest{" -v" if debug else ""} {filename}')
 
 run_doctest('resampler/__init__.py')
@@ -7830,9 +7825,9 @@ def run_lint(filename: str, strict: bool = False) -> None:
   s = '' if strict else 'type annotation for one or more arguments|'
   mypy_grep = f'egrep -v "{s}gradgradcheck|Untyped decorator|Name .In| errors? in 1 file"'
   autopep8_args = '-aaa --max-line-length 100 --indent-size 2 --diff --ignore'
-  autopep8_ignore = 'E265,E121,E125,E128,E129,E131,E226,E302,E305,E703'  # E501
+  autopep8_ignore = 'E265,E121,E125,E128,E129,E131,E226,E302,E305,E703,E402'  # E501
   pylint_disabled = ('C0301,C0302,W0125,C0114,R0913,W0301,R0902,W1514,R0914,C0103,C0415'
-                     ',R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412')
+                     ',R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412,C0413')
   pylint_args = f'--indent-string="  " --disable={pylint_disabled}'
   pylint_grep = (' | egrep -v "E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)'
                  '|W0221.*(forward|backward)|colab"' +
@@ -7852,15 +7847,11 @@ if EFFORT >= 2 or 0:
 if EFFORT >= 2 or 0:
   run_lint('resampler/__init__.py', strict=True)
 
-# %% tags=[]
-if EFFORT >= 2 or 0:
-  run_lint('resampler_all.py')
-
 
 # %% [markdown]
 # From Windows Emacs, `compile` command:
 # ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'f=resampler_notebook.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "type annotation for one or more arguments|gradgradcheck|Untyped decorator|Name .In| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0302,C0415,R0902,R0903,R0913,R0914,W0640,W0125,C0413,W1514 --disable=C0301,C0114,W0301,R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412 "$f" | egrep -v "E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)|W0221.*(forward|backward)|colab"; echo All ran.'
+# c:/windows/sysnative/wsl -e bash -lc 'f=resampler_notebook.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "type annotation for one or more arguments|gradgradcheck|Untyped decorator|Name .In| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703,E402 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0302,C0415,R0902,R0903,R0913,R0914,W0640,W0125,C0413,W1514 --disable=C0301,C0114,W0301,R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412 "$f" | egrep -v "E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)|W0221.*(forward|backward)|colab"; echo All ran.'
 # ```
 
 # %% [markdown]
@@ -7869,32 +7860,23 @@ if EFFORT >= 2 or 0:
 # c:/windows/sysnative/wsl -e bash -lc 'f=resampler/__init__.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "gradgradcheck|Untyped decorator| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0301,C0302,R0903,R0913,R0914,W0125,W0301,W0511,W0622,W0640 "$f" | egrep -v "E1101: Module .(torch|cv2)|Method .(jvp|vjp)|W0221.*(forward|backward)|C0415.*(tensorflow|torch|PIL|cv2)"; echo All ran.'
 # ```
 
-# %% tags=[]
-def run_exported_python_code() -> None:
-  hh.run('pip install -qU matplotlib')  # Was necessary (+restart).
-  hh.run('python3 resampler/__init__.py')
-  hh.run('python3 resampler_all.py')
-
-if 0 and EFFORT >= 3:  # Doubles the already slow runtime.
-  run_exported_python_code()
-
 # %%
-if 0:
-  # hh.run('(apt update && apt install -y python3.7-venv)')  # To get "ensurepip".
-  # hh.run('(apt update && apt install -y python3.10-venv)')  # To get "ensurepip".
-  # hh.run('pip install -q build twine')
-  hh.run('git clone -q https://github.com/hhoppe/resampler')
-  hh.run('(cd resampler; python3 -m build)')  # Creates dist/*.
-  hh.run('(cd resampler; python3 -m twine upload dist/*)')  # Uploads to pypi.org.
-  hh.run('echo "Update should be visible soon at https://pypi.org/project/resampler/."')
+def build_pypi_package(upload: bool = False) -> None:
+  # hh.run('git clone -q https://github.com/hhoppe/resampler')
+  if 0:
+    hh.run('(sudo apt update && sudo apt install -y python3.10-venv)')
+  hh.run('pip install -q build')
+  hh.run('rm dist/*')
+  hh.run('python3 -m build')  # Creates dist/*.
+  if upload:
+    hh.run('pip install -q twine')
+    hh.run('python3 -m twine upload dist/*')  # Uploads to pypi.org.
+  print('Update should be visible soon at https://pypi.org/project/resampler/.')
 
-# %%
+if 0:  # Remember to increment __version__ to allow a new pypi package.
+  build_pypi_package()
 if 0:
-  # hh.run('git clone -q https://github.com/google/mediapy')
-  hh.run('(apt update && apt install -y python3.7-venv)')  # To get "ensurepip".
-  # hh.run('pip install -q build twine')
-  hh.run('(cd mediapy; python -m build)')  # Creates dist/*.
-  hh.run('(cd mediapy; python -m twine upload dist/*)')  # Uploads to pypi.org.
+  build_pypi_package(upload=True)
 
 
 # %% tags=[]
