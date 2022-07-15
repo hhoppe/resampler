@@ -14,17 +14,16 @@
 # ---
 
 # %% [markdown]
-# # Test Reampler Notebook
+# # Test Resampler Notebook
 #
-# [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_example_usage_notebook.ipynb)
+# [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/test_resampler_notebook.ipynb)
 # &nbsp; [**[GitHub source]**](https://github.com/hhoppe/resampler)
 
 # %% [markdown]
 # ## Example Usage
 
 # %% tags=[]
-# # !pip install -q mediapy resampler  # ??
-# !pip install -q mediapy
+# !pip install -q mediapy resampler
 import mediapy as media
 import numpy as np
 import resampler

@@ -1,4 +1,4 @@
-# Resampler Notebook
+# Resampler
 
 [Hugues Hoppe](https://hhoppe.com/)
 &nbsp;&nbsp; Aug 2022.
@@ -20,9 +20,9 @@ This Python notebook has several roles:
 - Lint, build, and export the package and its documentation.
 
 
-# Overview of resampler library
+# Overview
 
-`resampler` enables fast differentiable resizing and warping of arbitrary grids.
+The `resampler` library enables fast differentiable resizing and warping of arbitrary grids.
 It supports:
 
 - grids of arbitrary dimension (e.g., 1D audio, 2D images, 3D video, 4D batches of videos),

@@ -14,7 +14,7 @@
 # ---
 
 # %% [markdown]
-# # <a name="Resampler-Notebook"></a>Resampler Notebook
+# # <a name="Resampler"></a>Resampler
 #
 # [Hugues Hoppe](https://hhoppe.com/)
 # &nbsp;&nbsp; Aug 2022.
@@ -35,20 +35,19 @@
 # - Signal-processing experiments to justify choices.
 
 # %% [markdown]
-# # <a name="Overview-of-resampler-library"></a>Overview of resampler library
+# # <a name="Overview"></a>Overview
 
 # %% [markdown]
 # <!--
 # resize, warp, or interpolate arbitrary data arrays
 #
-# A general-purpose library for resizing, scaling, transforming,
-# and warping data sampled on regular grids.
+# A general-purpose library for resizing, scaling, transforming, and warping data sampled
+# on regular grids.
 #
-# flexible, differentiable resampling of arbitrary grids
-# for efficient resizing and warping.
+# flexible, differentiable resampling of arbitrary grids for efficient resizing and warping.
 # -->
 #
-# `resampler` enables fast differentiable resizing and warping of arbitrary grids.
+# The `resampler` library enables fast differentiable resizing and warping of arbitrary grids.
 # It supports:
 #
 # - grids of arbitrary dimension (e.g., 1D audio, 2D images, 3D video, 4D batches of videos),
