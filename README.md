@@ -112,11 +112,7 @@ media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64
 ```python
 media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
 ```
-> <span>original
-  <img src="https://drive.google.com/uc?export=download&id=1WCwwbgYZordX14-XvHiV2Gc_60I1KD39"/>
-  upsampled
-  <img src="https://drive.google.com/uc?export=download&id=11Of3Gbv6p2BTxJD2rO0zAWEEv4w3BIe5"/>
-  </span>
+> original<img src="https://drive.google.com/uc?export=download&id=1WCwwbgYZordX14-XvHiV2Gc_60I1KD39"/>&nbsp; upsampled<img src="https://drive.google.com/uc?export=download&id=11Of3Gbv6p2BTxJD2rO0zAWEEv4w3BIe5"/>
 
 Most examples above use the default
 `resize()` settings:
