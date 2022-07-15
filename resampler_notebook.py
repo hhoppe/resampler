@@ -29,12 +29,10 @@
 
 # %% [markdown]
 # This Python notebook has several roles:
-# - Source code for the `resampler` library.
-# - Illustrated documentation.
-# - Usage examples.
-# - Unit tests.
+# - Source code for the `resampler` library in PyPI.
+# - Illustrated documentation and usage examples.
+# - Unit tests, lint, build, and export.
 # - Signal-processing experiments to justify choices.
-# - Lint, build, and export the package and its documentation.
 
 # %% [markdown]
 # # <a name="Overview-of-resampler-library"></a>Overview of resampler library
@@ -51,7 +49,6 @@
 # -->
 #
 # `resampler` enables fast differentiable resizing and warping of arbitrary grids.
-#
 # It supports:
 #
 # - grids of arbitrary dimension (e.g., 1D audio, 2D images, 3D video, 4D batches of videos),
@@ -135,11 +132,19 @@
 # ```python
 # batch_size = 4
 # batch_of_images = media.moving_circle((16, 16), batch_size)
-# spacer = np.ones((64, 16, 3))
 # upsampled = resampler.resize(batch_of_images, (batch_size, 64, 64))
+# spacer = np.ones((64, 16, 3))
 # media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
 # ```
 # > <img src="https://drive.google.com/uc?export=download&id=1PLHu5mCpmb-_54ybvfr6kLUUTHD6l73t"/>
+#
+# ```python
+# media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
+# ```
+# > original
+# <img src="https://drive.google.com/uc?export=download&id=1WCwwbgYZordX14-XvHiV2Gc_60I1KD39"/>
+# upsampled
+# <img src="https://drive.google.com/uc?export=download&id=11Of3Gbv6p2BTxJD2rO0zAWEEv4w3BIe5"/>
 #
 # Most examples above use the default
 # [`resize()`](#Resize) settings:
@@ -1455,9 +1460,10 @@ class Gridtype:
   source domain and `dst_gridtype` for the destination domain.  Moreover, the grid-type may be
   specified per domain dimension.
 
-  >>> resize(source, shape, gridtype='primal')  # Sets both src and dst.
-  >>> resize(source, shape, src_gridtype=['dual', 'primal'],
-  ...        dst_gridtype='dual')  # Source is dual in dim0 and primal in dim1.
+  Examples:
+    resize(source, shape, gridtype='primal')  # Sets both src and dst.
+    resize(source, shape, src_gridtype=['dual', 'primal'],
+           dst_gridtype='dual')  # Source is dual in dim0 and primal in dim1.
   """
 
   name: str
@@ -3293,6 +3299,9 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   Returns:
     An array of the same class (`np.ndarray`, `tf.Tensor`, or `torch.Tensor`) as the source `array`,
     with shape `shape + array.shape[len(shape):]` and data type `dtype`.
+
+  >>> result = resize([1.0, 4.0, 5.0], shape=(4,))
+  >>> assert np.allclose(result, [0.74240461, 2.88088827, 4.68647155, 5.02641199]), result
   """
   if isinstance(array, (tuple, list)):
     array = np.asarray(array)
@@ -3473,8 +3482,7 @@ def resize_in_numpy(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray:
 
 # %% tags=[]
 def resize_in_tensorflow(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray:
-  """Evaluate the `resize()` operation using a Tensorflow Tensor representation
-  and its associated operations.
+  """Evaluate the `resize()` operation using Tensorflow's Tensor representation and operations.
 
   Args:
     array: Grid of source samples, represented as a numpy array.
@@ -3491,8 +3499,7 @@ def resize_in_tensorflow(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray
 
 # %% tags=[]
 def resize_in_torch(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray:
-  """Evaluate the `resize()` operation using a Torch Tensor representation and its associated
-  operations.
+  """Evaluate the `resize()` operation using Torch's Tensor representation and operations.
 
   Args:
     array: Grid of source samples, represented as a numpy array.
@@ -3735,18 +3742,6 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
   - Map a grayscale image through a color map by using `array.shape = 256, 3` and
     `coords.shape = height, width`.
 
-  For reference, the identity resampling for a scalar-valued grid with the default grid-type
-  'dual' is:
-  >>> array = np.random.rand(5, 7, 3)
-  >>> coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
-  >>> new_array = resample(array, coords)
-  >>> assert np.allclose(new_array, array)
-
-  It is more efficient to use the function `resize` for the special case where the `coords` are
-  obtained as simple scaling and translation of a new regular grid over the source domain:
-  >>> coords = (np.moveaxis(np.indices(new_shape), 0, -1) + 0.5) / new_shape
-  >>> coords = (coords - translate) / scale
-
   Args:
     array: Grid of source sample values.  It must be an array-like object from a library in
       `ARRAYLIBS`.  The array must have numeric type.  The coordinate dimensions appear first, and
@@ -3795,6 +3790,24 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     A new sample grid of shape `coords.shape[:-1]`, represented as an array of shape
     `coords.shape[:-1] + array.shape[coords.shape[-1]:]`, of the same array library type as
     the source array.
+
+  For reference, the identity resampling for a scalar-valued grid with the default grid-type
+  'dual' is:
+
+  >>> array = np.random.rand(5, 7, 3)
+  >>> coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
+  >>> new_array = resample(array, coords)
+  >>> assert np.allclose(new_array, array)
+
+  It is more efficient to use the function `resize` for the special case where the `coords` are
+  obtained as simple scaling and translation of a new regular grid over the source domain:
+
+  >>> scale, translate, new_shape = (1.1, 1.2), (0.1, -0.2), (6, 8)
+  >>> coords = (np.moveaxis(np.indices(new_shape), 0, -1) + 0.5) / new_shape
+  >>> coords = (coords - translate) / scale
+  >>> resampled = resample(array, coords)
+  >>> resized = resize(array, new_shape, scale=scale, translate=translate)
+  >>> assert np.allclose(resampled, resized)
   """
   if isinstance(array, (tuple, list)):
     array = np.asarray(array)
@@ -4195,7 +4208,7 @@ def resample_affine(
 ) -> _NDArray:
   """Resample a source array using an affinely transformed grid of given shape.
 
-  The transformation can be linear:
+  The `matrix` transformation can be linear:
     source_point = matrix @ destination_point.
   or it can be affine where the last matrix column is an offset vector:
     source_point = matrix @ (destination_point, 1.0)
@@ -4355,9 +4368,12 @@ if EFFORT >= 2:
 #         0.327    0.327 numpy.ndarray.astype
 
 # %% tags=[]
-def rotation_about_center_in_2d(src_shape: Any, angle: float, dst_shape: Any = None,
+def rotation_about_center_in_2d(src_shape: Any,
+                                angle: float,
+                                dst_shape: Any = None,
                                 scale: float = 1.0) -> _NDArray:
   """Return the 3x3 matrix mapping destination into a source unit domain.
+
   The returned matrix accounts for the possibly non-square domain shapes.
 
   Args:
@@ -4395,8 +4411,11 @@ def rotation_about_center_in_2d(src_shape: Any, angle: float, dst_shape: Any = N
 
 
 # %% tags=[]
-def rotate_image_about_center(image: _NDArray, angle: float, new_shape: Any = None,
-                              scale: float = 1.0, num_rotations: int = 1,
+def rotate_image_about_center(image: _NDArray,
+                              angle: float,
+                              new_shape: Any = None,
+                              scale: float = 1.0,
+                              num_rotations: int = 1,
                               **kwargs: Any) -> _NDArray:
   """Return a copy of `image` rotated about its center.
 
@@ -4424,10 +4443,10 @@ if 0:  # For testing.
 
 
 # %% [markdown]
-# # Other resampling libraries
+# # Other libs (PIL, cv, tf, torch, ...)
 
 # %% tags=[]
-def test_resizer_produces_correct_shape(resizer, filter: str) -> None:
+def test_resizer_produces_correct_shape(resizer, filter: str = 'lanczos3') -> None:
   np.allclose(resizer(np.ones((11,)), (13,), filter=filter),
               np.ones((13,)), rtol=0, atol=1e-7)
   np.allclose(resizer(np.ones((8, 8)), (5, 20), filter=filter),
@@ -4436,8 +4455,15 @@ def test_resizer_produces_correct_shape(resizer, filter: str) -> None:
               np.ones((13, 7, 3)), rtol=0, atol=1e-7)
 
 
+# %% tags=[]
+# Export: outside library.
+test_resizer_produces_correct_shape(resize)
+test_resizer_produces_correct_shape(resize_in_tensorflow)
+test_resizer_produces_correct_shape(resize_in_torch)
+
+
 # %% [markdown]
-# ## PIL.Image.resize
+# **PIL.Image.resize:**
 
 # %% tags=[]
 # https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize
@@ -4477,7 +4503,7 @@ def pil_image_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
 
 # %% tags=[]
 # Export: outside library.
-test_resizer_produces_correct_shape(pil_image_resize, 'lanczos3')
+test_resizer_produces_correct_shape(pil_image_resize)
 
 
 # %% tags=[]
@@ -4525,7 +4551,7 @@ if EFFORT >= 2:
 # impulse response is not normalized.  (2) The boundary effect is identical to 'natural'.
 
 # %% [markdown]
-# ## cv.resize
+# **cv.resize:**
 
 # %% tags=[]
 # https://docs.opencv.org/3.4/da/d54/group__imgproc__transform.html
@@ -4602,7 +4628,7 @@ if EFFORT >= 2:
 
 
 # %% [markdown]
-# ## scipy.ndimage.map_coordinates
+# **scipy.ndimage.map_coordinates:**
 
 # %% tags=[]
 # https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.resample.html
@@ -4667,7 +4693,7 @@ def test_scipy_ndimage_resize() -> None:
 test_scipy_ndimage_resize()
 
 # %% [markdown]
-# ## skimage.transform
+# **skimage.transform.resize:**
 
 # %% tags=[]
 # https://scikit-image.org/docs/dev/api/skimage.transform.html#skimage.transform.resize
@@ -4680,7 +4706,7 @@ test_scipy_ndimage_resize()
 # # ??
 
 # %% [markdown]
-# ## tf.image.resize
+# **tf.image.resize:**
 
 # %% tags=[]
 # https://www.tensorflow.org/api_docs/python/tf/image/resize
@@ -4725,7 +4751,7 @@ def tfi_resize(array: Any, shape: Sequence[int], filter: str = 'lanczos3',
 
 # %% tags=[]
 # Export: outside library.
-test_resizer_produces_correct_shape(tfi_resize, 'lanczos5')
+test_resizer_produces_correct_shape(tfi_resize)
 
 
 # %% tags=[]
@@ -4754,7 +4780,7 @@ if EFFORT >= 1:
   test_tfi_resize()
 
 # %% [markdown]
-# ## torch interpolate
+# **torch.nn.functional.interpolate:**
 
 # %% tags=[]
 # https://pytorch.org/docs/master/generated/torch.nn.functional.interpolate.html
@@ -4829,7 +4855,7 @@ test_torch_nn_resize()
 
 
 # %% [markdown]
-# ## torchvision resize
+# **torchvision.transforms.functional.resize:**
 
 # %% tags=[]
 # https://pytorch.org/vision/stable/transforms.html#torchvision.transforms.functional.resize
@@ -7768,6 +7794,80 @@ save_notebook_inputs_to_python_files('resampler_notebook.py')
 
 
 # %% tags=[]
+def run_doctest(filename: str, debug: bool = False) -> None:
+  hh.run(f'python3 -m doctest{" -v" if debug else ""} {filename}')
+
+run_doctest('resampler/__init__.py')
+
+
+# %% tags=[]
+def run_spell_check(filename: str, commit_new_words: bool = False) -> None:
+  """Look for misspelled words in notebook."""
+  path = pathlib.Path(filename)
+  if path.is_file():
+    # -Fxvif: fixed_string, match_whole_line, invert_match, case_insensitive, patterns_from_file.
+    find = f"""cat {path} | sed "s/'/ /g" | spell | sort -u | grep -Fxvif {path.stem}.spell"""
+    if commit_new_words:
+      hh.run(f'{find} >v.spell; cat v.spell >>{path.stem}.spell && rm v.spell')
+    else:
+      hh.run(f'{find} || true')
+
+run_spell_check('resampler_notebook.py')
+
+# %% tags=[]
+if 0:  # To commit new words to local dictionary.
+  run_spell_check('resampler_notebook.py', commit_new_words=True)
+
+
+# %% tags=[]
+def run_lint(filename: str, strict: bool = False) -> None:
+  """Run checks on *.py notebook code (saved using jupytext or from menu)."""
+  if not pathlib.Path(filename).is_file():
+    return
+  mypy_args = '--strict --ignore-missing-imports'
+  s = '' if strict else 'type annotation for one or more arguments|'
+  mypy_grep = f'egrep -v "{s}gradgradcheck|Untyped decorator|Name .In| errors? in 1 file"'
+  autopep8_args = '-aaa --max-line-length 100 --indent-size 2 --diff --ignore'
+  autopep8_ignore = 'E265,E121,E125,E128,E129,E131,E226,E302,E305,E703'  # E501
+  pylint_disabled = ('C0301,C0302,W0125,C0114,R0913,W0301,R0902,W1514,R0914,C0103,C0415'
+                     ',R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412')
+  pylint_args = f'--indent-string="  " --disable={pylint_disabled}'
+  pylint_grep = (' | egrep -v "E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)'
+                 '|W0221.*(forward|backward)|colab"' +
+                 ("" if strict else " | grep -v 'Missing function or method docstring'"))
+  hh.run(f'echo mypy; mypy {mypy_args} "{filename}" | {mypy_grep} || true')
+  hh.run(f'echo autopep8; autopep8 {autopep8_args} {autopep8_ignore} "{filename}"')
+  hh.run(f'echo pylint; pylint {pylint_args} "{filename}" {pylint_grep} || echo Error.')
+  # hh.run(f'echo doctest; python3 -m doctest -v "{filename}"')
+  print('All ran.')
+
+
+# %% tags=[]
+if EFFORT >= 2 or 0:
+  run_lint('resampler_notebook.py')
+
+# %% tags=[]
+if EFFORT >= 2 or 0:
+  run_lint('resampler/__init__.py', strict=True)
+
+# %% tags=[]
+if EFFORT >= 2 or 0:
+  run_lint('resampler_all.py')
+
+
+# %% [markdown]
+# From Windows Emacs, `compile` command:
+# ```shell
+# c:/windows/sysnative/wsl -e bash -lc 'f=resampler_notebook.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "type annotation for one or more arguments|gradgradcheck|Untyped decorator|Name .In| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0302,C0415,R0902,R0903,R0913,R0914,W0640,W0125,C0413,W1514 --disable=C0301,C0114,W0301,R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412 "$f" | egrep -v "E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)|W0221.*(forward|backward)|colab"; echo All ran.'
+# ```
+
+# %% [markdown]
+# From Windows Emacs, `compile` command:
+# ```shell
+# c:/windows/sysnative/wsl -e bash -lc 'f=resampler/__init__.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "gradgradcheck|Untyped decorator| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0301,C0302,R0903,R0913,R0914,W0125,W0301,W0511,W0622,W0640 "$f" | egrep -v "E1101: Module .(torch|cv2)|Method .(jvp|vjp)|W0221.*(forward|backward)|C0415.*(tensorflow|torch|PIL|cv2)"; echo All ran.'
+# ```
+
+# %% tags=[]
 def run_exported_python_code() -> None:
   hh.run('pip install -qU matplotlib')  # Was necessary (+restart).
   hh.run('python3 resampler/__init__.py')
@@ -7870,8 +7970,8 @@ def show_added_global_variables_sorted_by_type() -> None:
 show_added_global_variables_sorted_by_type()
 
 # %% tags=[]
+print(f'EFFORT={EFFORT}')
 hh.show_notebook_cell_top_times()
-
 
 # %%
 # EFFORT=1:
@@ -7922,72 +8022,6 @@ hh.show_notebook_cell_top_times()
 
 # EFFORT=3
 # Total time: 668.15 s
-
-# %% tags=[]
-def run_spell_check(filename: str, commit_new_words: bool = False) -> None:
-  """Look for misspelled words in notebook."""
-  path = pathlib.Path(filename)
-  if path.is_file():
-    # -Fxvif: fixed_string, match_whole_line, invert_match, case_insensitive, patterns_from_file.
-    find = f"""cat {path} | sed "s/'/ /g" | spell | sort -u | grep -Fxvif {path.stem}.spell"""
-    if commit_new_words:
-      hh.run(f'{find} >v.spell; cat v.spell >>{path.stem}.spell && rm v.spell')
-    else:
-      hh.run(f'{find} || true')
-
-run_spell_check('resampler_notebook.py')
-
-# %% tags=[]
-if 0:  # To commit new words to local dictionary.
-  run_spell_check('resampler_notebook.py', commit_new_words=True)
-
-
-# %% tags=[]
-def run_lint(filename: str, strict: bool = False) -> None:
-  """Run checks on *.py notebook code (saved using jupytext or from menu)."""
-  if not pathlib.Path(filename).is_file():
-    return
-  mypy_args = '--strict --ignore-missing-imports'
-  s = '' if strict else 'type annotation for one or more arguments|'
-  mypy_grep = f'egrep -v "{s}gradgradcheck|Untyped decorator|Name .In| errors? in 1 file"'
-  autopep8_args = '-aaa --max-line-length 100 --indent-size 2 --diff --ignore'
-  autopep8_ignore = 'E265,E121,E125,E128,E129,E131,E226,E302,E305,E703'  # E501
-  pylint_disabled = ('C0301,C0302,W0125,C0114,R0913,W0301,R0902,W1514,R0914,C0103,C0415'
-                     ',R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412')
-  pylint_args = f'--indent-string="  " --disable={pylint_disabled}'
-  pylint_grep = (' | egrep -v "E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)'
-                 '|W0221.*(forward|backward)|colab"' +
-                 ("" if strict else " | grep -v 'Missing function or method docstring'"))
-  hh.run(f'echo mypy; mypy {mypy_args} "{filename}" | {mypy_grep} || true')
-  hh.run(f'echo autopep8; autopep8 {autopep8_args} {autopep8_ignore} "{filename}"')
-  hh.run(f'echo pylint; pylint {pylint_args} "{filename}" {pylint_grep} || echo Error.')
-  # hh.run(f'echo doctest; python3 -m doctest -v "{filename}"')
-  print('All ran.')
-
-
-# %% tags=[]
-if EFFORT >= 2 or 0:
-  run_lint('resampler_notebook.py')
-
-# %% tags=[]
-if EFFORT >= 2 or 0:
-  run_lint('resampler/__init__.py', strict=True)
-
-# %% tags=[]
-if EFFORT >= 2 or 0:
-  run_lint('resampler_all.py')
-
-# %% [markdown]
-# From Windows Emacs, `compile` command:
-# ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'f=resampler_notebook.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "type annotation for one or more arguments|gradgradcheck|Untyped decorator|Name .In| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0302,C0415,R0902,R0903,R0913,R0914,W0640,W0125,C0413,W1514 --disable=C0301,C0114,W0301,R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412 "$f" | egrep -v "E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)|W0221.*(forward|backward)|colab"; echo All ran.'
-# ```
-
-# %% [markdown]
-# From Windows Emacs, `compile` command:
-# ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'f=resampler/__init__.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "gradgradcheck|Untyped decorator| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0301,C0302,R0903,R0913,R0914,W0125,W0301,W0511,W0622,W0640 "$f" | egrep -v "E1101: Module .(torch|cv2)|Method .(jvp|vjp)|W0221.*(forward|backward)|C0415.*(tensorflow|torch|PIL|cv2)"; echo All ran.'
-# ```
 
 # %% [markdown]
 # # End
