@@ -386,7 +386,7 @@ _Array = Any  # To document any array class supported by _Arraylib.
 
 
 # %%
-def check_eq(a: Any, b: Any) -> None:
+def _check_eq(a: Any, b: Any) -> None:
   """If the two values or arrays are not equal, raise an exception with a useful message."""
   equal = np.all(a == b) if isinstance(a, np.ndarray) else a == b
   if not equal:
@@ -510,10 +510,10 @@ display_html('<style>.jp-Cell.jp-MarkdownCell { max-width: 1016px!important; }</
 def must_be_int(x: Any) -> _NDArray:
   """Return float cast as int, asserting that there was no fractional part."""
   result: _NDArray = np.array(x).astype(int, copy=False)
-  check_eq(result, x)
+  _check_eq(result, x)
   return result
 
-check_eq(must_be_int(6 / 2), 3)
+_check_eq(must_be_int(6 / 2), 3)
 
 
 # %%
@@ -592,11 +592,11 @@ def crop_array(array: Any, width: Any, cval: Any = 0) -> _NDArray:
 # %%
 def test_crop_array() -> None:
   array1 = np.arange(15).reshape(3, 5)
-  check_eq(crop_array(array1, 1), [[6, 7, 8]])
-  check_eq(crop_array(array1, (1, 2)), [[7]])
-  check_eq(crop_array(array1, ((2, 1), (-1, 2))), [[11, 12], [0, 0]])
-  check_eq(crop_array([1], -3, cval=5), [5, 5, 5, 1, 5, 5, 5])
-  check_eq(crop_array([1], [[-2], [-1]], cval=5), [5, 5, 1, 5])
+  _check_eq(crop_array(array1, 1), [[6, 7, 8]])
+  _check_eq(crop_array(array1, (1, 2)), [[7]])
+  _check_eq(crop_array(array1, ((2, 1), (-1, 2))), [[11, 12], [0, 0]])
+  _check_eq(crop_array([1], -3, cval=5), [5, 5, 5, 1, 5, 5, 5])
+  _check_eq(crop_array([1], [[-2], [-1]], cval=5), [5, 5, 1, 5])
 
 test_crop_array()
 
@@ -605,7 +605,7 @@ test_crop_array()
 def show_grid_values(array, figsize=(14, 4), cmap='gray', **kwargs) -> None:
   """Show the values of a 2D grayscale array."""
   array = np.asarray(array)
-  check_eq(array.ndim, 2)
+  _check_eq(array.ndim, 2)
   _, ax = plt.subplots(figsize=figsize)
   ax.matshow(array, cmap=cmap, **kwargs)
   for yx in np.ndindex(array.shape):
@@ -637,9 +637,9 @@ def create_checkerboard(output_shape, block_shape=(1, 1), dtype=np.float32) -> _
 # %% tags=[]
 def test_checkerboard(shape=(5, 7), debug=False) -> None:
   image = create_checkerboard(shape)
-  check_eq(image.dtype, np.float32)
-  check_eq(image.shape, shape)
-  check_eq(image.sum(), np.prod(shape) // 2)
+  _check_eq(image.dtype, np.float32)
+  _check_eq(image.shape, shape)
+  _check_eq(image.sum(), np.prod(shape) // 2)
   if debug:
     media.show_image(image, border=True, height=image.shape[0] * 8)
 
@@ -678,12 +678,12 @@ def _get_precision(precision: Any, dtypes: List[_DType], weight_dtypes: List[_DT
 
 # %%
 def test_precision() -> None:
-  check_eq(_real_precision(np.dtype(np.float32)), np.float32)
-  check_eq(_real_precision(np.dtype(np.float64)), np.float64)
-  check_eq(_real_precision(np.dtype(np.complex64)), np.float32)
-  check_eq(_real_precision(np.dtype(np.complex128)), np.float64)
+  _check_eq(_real_precision(np.dtype(np.float32)), np.float32)
+  _check_eq(_real_precision(np.dtype(np.float64)), np.float64)
+  _check_eq(_real_precision(np.dtype(np.complex64)), np.float32)
+  _check_eq(_real_precision(np.dtype(np.complex128)), np.float64)
 
-  check_eq(_get_precision(None, [np.dtype(np.complex64)], [np.dtype(np.float64)]), np.complex128)
+  _check_eq(_get_precision(None, [np.dtype(np.complex64)], [np.dtype(np.float64)]), np.complex128)
 
 test_precision()
 
@@ -705,8 +705,8 @@ def _sinc(x: Any) -> _NDArray:
 
 # %%
 def test_sinc() -> None:
-  check_eq(_sinc(np.array([-3, -2, -1, 0], dtype=np.float32)), [0, 0, 0, 1])
-  check_eq(_sinc(0), 1.0)
+  _check_eq(_sinc(np.array([-3, -2, -1, 0], dtype=np.float32)), [0, 0, 0, 1])
+  _check_eq(_sinc(0), 1.0)
 
 test_sinc()
 
@@ -738,7 +738,7 @@ def _cache_sampled_1d_function(
     if not enable:
       @functools.wraps(func)
       def original_func(x: Any, *, mode: str = '') -> _NDArray:
-        check_eq(mode, '')
+        _check_eq(mode, '')
         return func(x)
       return original_func
 
@@ -833,7 +833,7 @@ class _DownsampleIn2dUsingBoxFilter:
   def __call__(self, array: _NDArray, shape: Tuple[int, int]) -> _NDArray:
     assert 'numba' in globals()
     assert array.ndim in (2, 3), array.ndim
-    check_eq(len(shape), 2)
+    _check_eq(len(shape), 2)
     dtype = array.dtype
     a = array[..., None] if array.ndim == 2 else array
     height, width, ch = a.shape
@@ -905,12 +905,12 @@ def test_downsample_in_2d_using_box_filter() -> None:
     for ch in [1, 2, 3, 4]:
       array = np.ones((*shape, ch), dtype=np.float32)
       new = _downsample_in_2d_using_box_filter(array, (2, 2))
-      check_eq(new.shape, (2, 2, ch))
+      _check_eq(new.shape, (2, 2, ch))
       assert np.allclose(new, 1.0)
   for shape in [(6, 6), (4, 4)]:
     array = np.ones(shape, dtype=np.float32)
     new = _downsample_in_2d_using_box_filter(array, (2, 2))
-    check_eq(new.shape, (2, 2))
+    _check_eq(new.shape, (2, 2))
     assert np.allclose(new, 1.0)
 
 if EFFORT >= 1:
@@ -1373,9 +1373,9 @@ def test_split_2d() -> None:
     blocks = _split_array_into_blocks(array, [2, 3])
     blocks = _map_function_over_blocks(blocks, lambda x: 2 * x)
     new = _merge_array_from_blocks(blocks)
-    check_eq(_arr_arraylib(new), arraylib)
-    check_eq(np.sum(_map_function_over_blocks(blocks, lambda _: 1)), 9)
-    check_eq(_arr_numpy(new), 2 * numpy_array)
+    _check_eq(_arr_arraylib(new), arraylib)
+    _check_eq(np.sum(_map_function_over_blocks(blocks, lambda _: 1)), 9)
+    _check_eq(_arr_numpy(new), 2 * numpy_array)
 
 test_split_2d()
 
@@ -1392,8 +1392,8 @@ def test_split_3d() -> None:
       blocks = _split_array_into_blocks(array, block_shape)
       blocks = _map_function_over_blocks(blocks, lambda x: x**2)
       new = _merge_array_from_blocks(blocks)
-      check_eq(_arr_arraylib(new), arraylib)
-      check_eq(_arr_numpy(new), numpy_array**2)
+      _check_eq(_arr_arraylib(new), arraylib)
+      _check_eq(_arr_numpy(new), numpy_array**2)
 
       def check_block_shape(block) -> None:
         assert np.all(np.array(block.shape) >= 1)
@@ -1415,11 +1415,11 @@ def test_split_prefix_dims() -> None:
 
     new_blocks = _map_function_over_blocks(blocks, lambda x: x**2)
     new = _merge_array_from_blocks(new_blocks)
-    check_eq(new, array**2)
+    _check_eq(new, array**2)
 
     new_blocks = _map_function_over_blocks(blocks, lambda x: x.sum(axis=-1))
     new = _merge_array_from_blocks(new_blocks)
-    check_eq(new, array.sum(axis=-1))
+    _check_eq(new, array.sum(axis=-1))
 
 test_split_prefix_dims()
 
@@ -2056,7 +2056,7 @@ def test_sparse_csr_matrix_duplicate_entries_are_summed() -> None:
   indices = np.array([0, 2, 2, 0, 1, 0])
   data = np.array([1, 2, 3, 4, 5, 3])
   new = scipy.sparse.csr_matrix((data, indices, indptr), shape=(3, 3)).toarray()
-  check_eq(new, [[1, 0, 2], [0, 0, 3], [7, 5, 0]])
+  _check_eq(new, [[1, 0, 2], [0, 0, 3], [7, 5, 0]])
 
 test_sparse_csr_matrix_duplicate_entries_are_summed()
 
@@ -2701,13 +2701,13 @@ def test_gamma() -> None:
     array_numpy = np.array(values, dtype=dtype)
     array = _make_array(array_numpy, arraylib)
     decoded = gamma.decode(array, np.dtype(precision))
-    check_eq(_arr_dtype(decoded), precision)
+    _check_eq(_arr_dtype(decoded), precision)
     decoded_numpy = _arr_numpy(decoded)
     assert decoded_numpy.min() >= 0.0 and decoded_numpy.max() <= 1.0
     encoded = gamma.encode(decoded, dtype=dtype)
-    check_eq(_arr_dtype(encoded), dtype)
+    _check_eq(_arr_dtype(encoded), dtype)
     encoded_numpy = _arr_numpy(encoded)
-    check_eq(encoded_numpy, array_numpy)
+    _check_eq(encoded_numpy, array_numpy)
 
   for config2 in itertools.product(
       ARRAYLIBS, GAMMAS, 'float32 float64'.split(), 'float32 float64'.split()):
@@ -2716,9 +2716,9 @@ def test_gamma() -> None:
     array_numpy = np.linspace(0.0, 1.0, 100, dtype=dtype)
     array = _make_array(array_numpy, arraylib)
     decoded = gamma.decode(array, np.dtype(precision))
-    check_eq(_arr_dtype(decoded), precision)
+    _check_eq(_arr_dtype(decoded), precision)
     encoded = gamma.encode(decoded, dtype=dtype)
-    check_eq(_arr_dtype(encoded), dtype)
+    _check_eq(_arr_dtype(encoded), dtype)
     assert np.allclose(_arr_numpy(encoded), array_numpy)
 
 if EFFORT >= 1:
@@ -3485,7 +3485,7 @@ _original_resize = resize
 # %% tags=[]
 def resize_in_numpy(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray:
   """Just like `resize()` but asserts that the source is a numpy array."""
-  check_eq(_arr_arraylib(array), 'numpy')
+  _check_eq(_arr_arraylib(array), 'numpy')
   return _original_resize(array, *args, **kwargs)
 
 
@@ -3501,7 +3501,7 @@ def resize_in_tensorflow(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray
   Returns:
     A numpy array.
   """
-  check_eq(_arr_arraylib(array), 'numpy')
+  _check_eq(_arr_arraylib(array), 'numpy')
   array = _make_array(array, arraylib='tensorflow')
   return _original_resize(array, *args, **kwargs).numpy()
 
@@ -3518,7 +3518,7 @@ def resize_in_torch(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray:
   Returns:
     A numpy array.
   """
-  check_eq(_arr_arraylib(array), 'numpy')
+  _check_eq(_arr_arraylib(array), 'numpy')
   array = _make_array(array, arraylib='torch')
   return _original_resize(array, *args, **kwargs).numpy()
 
@@ -3550,7 +3550,7 @@ def test_linear_precision_of_1d_primal_upsampling() -> None:
   array = np.arange(7.0)
   new = resize(array, (13,), gridtype='primal', filter='triangle')
   with np.printoptions(linewidth=300):
-    check_eq(new, np.arange(13) / 2)
+    _check_eq(new, np.arange(13) / 2)
 
 test_linear_precision_of_1d_primal_upsampling()
 
@@ -3563,7 +3563,7 @@ def test_linear_precision_of_2d_primal_upsampling() -> None:
   new = resize(array, new_shape, gridtype='primal', filter='triangle')
   with np.printoptions(linewidth=300):
     expected = np.moveaxis(np.indices(new_shape, dtype=np.float32), 0, -1) @ [10, 1] / 2
-    check_eq(new, expected)
+    _check_eq(new, expected)
 
 test_linear_precision_of_2d_primal_upsampling()
 
@@ -3661,9 +3661,9 @@ def test_apply_resize_to_batch_of_images(num_images=10, shape=(32, 32), new_shap
   for arraylib in ARRAYLIBS:
     batch_of_images = media.moving_circle(shape, num_images=num_images)
     batch_of_images = _make_array(batch_of_images, arraylib)
-    check_eq(batch_of_images.shape, (num_images, *shape, 3))
+    _check_eq(batch_of_images.shape, (num_images, *shape, 3))
     new_batch = _arr_numpy(_original_resize(batch_of_images, (num_images, *new_shape)))
-    check_eq(new_batch.shape, (num_images, *new_shape, 3))
+    _check_eq(new_batch.shape, (num_images, *new_shape, 3))
     if debug:
       media.show_video(new_batch, fps=5)
 
@@ -4018,7 +4018,7 @@ def test_resample_small_array(arraylib: str) -> None:
   coords = np.moveaxis(np.indices(new_shape) + 0.5, 0, -1) / new_shape
   array = _make_array(array, arraylib)
   upsampled = resample(array, coords)
-  check_eq(upsampled.shape, (*new_shape, 3))
+  _check_eq(upsampled.shape, (*new_shape, 3))
   coords = np.moveaxis(np.indices(shape) + 0.5, 0, -1) / shape
   downsampled = resample(upsampled, coords)
   rms = get_rms(array, downsampled)
@@ -4078,7 +4078,7 @@ def test_resample_scenarios() -> None:
   array = np.random.rand(2, 2, 2, 3, 3)
   coords = np.random.rand(2, 2, 3)
   new = resample(array, coords)
-  check_eq(new.shape, (2, 2, 3, 3))
+  _check_eq(new.shape, (2, 2, 3, 3))
 
   # Map a grayscale image through a color map by using `array.shape = 256, 3` and
   # `coords.shape = height, width`.
@@ -4143,7 +4143,7 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
     array2 = _make_array(array, arraylib)
     resized2 = resize(array2, new_shape, **resize_kwargs)
     resampled2 = resample(array2, coords, **kwargs)
-    check_eq(_arr_arraylib(resized), 'numpy')
+    _check_eq(_arr_arraylib(resized), 'numpy')
     assert _arr_arraylib(resized2) == _arr_arraylib(resampled2) == arraylib
     assert resized.dtype == _arr_dtype(resized2) == _arr_dtype(resampled2) == dtype
     assert np.allclose(resized2, resized, rtol=0, atol=atol), config
@@ -4191,7 +4191,7 @@ def test_resample_using_coords_of_various_shapes(debug=False) -> None:
         new = None
       if debug:
         print(f'{array.tolist()!s:30} {coords.shape!s:8} {new!s}')
-      check_eq(new is None, coords.ndim >= 2 and coords.shape[-1] > max(array.ndim, 1))
+      _check_eq(new is None, coords.ndim >= 2 and coords.shape[-1] > max(array.ndim, 1))
 
 test_resample_using_coords_of_various_shapes()
 
@@ -4406,8 +4406,8 @@ def rotation_about_center_in_2d(src_shape: Any,
 
   src_shape = np.asarray(src_shape)
   dst_shape = src_shape if dst_shape is None else np.asarray(dst_shape)
-  check_eq(src_shape.shape, (2,))
-  check_eq(dst_shape.shape, (2,))
+  _check_eq(src_shape.shape, (2,))
+  _check_eq(dst_shape.shape, (2,))
   half = np.array([0.5, 0.5])
   matrix = (translation_matrix(half) @
             scaling_matrix(min(src_shape) / src_shape) @
@@ -4488,7 +4488,7 @@ def pil_image_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
   assert 1 <= array.ndim <= 3
   assert np.issubdtype(array.dtype, np.floating)
   shape = tuple(shape)
-  check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
     return pil_image_resize(array[None], (1, *shape), filter=filter)
   import PIL.Image
@@ -4570,7 +4570,7 @@ def cv_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
   shape = tuple(shape)
-  check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
     return cv_resize(array[None], (1, *shape), filter=filter)[0]
   import cv2 as cv
@@ -4741,7 +4741,7 @@ def tfi_resize(array: Any, shape: Sequence[int], filter: str = 'lanczos3',
   array = tf.convert_to_tensor(array)
   assert 1 <= array.ndim <= 3
   shape = tuple(shape)
-  check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
     return tfi_resize(array[None], (1, *shape), filter=filter, antialias=antialias)[0]
   if array.ndim == 2:
@@ -4808,7 +4808,7 @@ def torch_nn_resize(array: Any, shape: Sequence[int], filter: str,
   array = torch.as_tensor(array)
   assert 1 <= array.ndim <= 3
   shape = tuple(shape)
-  check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   mode = _TORCH_INTERPOLATE_MODE_FROM_FILTER[filter]
 
   def local_resize(array: _TorchTensor) -> _TorchTensor:
@@ -4875,7 +4875,7 @@ def torchvision_resize(array: Any, shape: Sequence[int], filter: str,
   import torchvision
   array = torch.as_tensor(array)
   shape = tuple(shape)
-  check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   torchvision_interpolation_from_filter = {
       'impulse': torchvision.transforms.InterpolationMode.NEAREST,
       'triangle': torchvision.transforms.InterpolationMode.BILINEAR,
@@ -5124,7 +5124,7 @@ if EFFORT >= 2:
 # %%
 def test_profile_downsampling(shape, new_shape, filter='trapezoid',
                               also_prun=False, dtype='float32') -> None:
-  check_eq(len(shape), 3)
+  _check_eq(len(shape), 3)
   array = np.ones(shape, dtype=dtype)
   height, width, ch = shape
   new_height, new_width = new_shape
@@ -5202,8 +5202,8 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
     elapsed, result = hh.get_time_and_result(function, max_time=0.2)
     result = _arr_numpy(result)
     print(f'{name:20}: {elapsed:5.3f} s')
-    check_eq(result.dtype, dtype)
-    check_eq(result.shape, (*new_shape, ch))
+    _check_eq(result.dtype, dtype)
+    _check_eq(result.shape, (*new_shape, ch))
     assert np.allclose(result, expected)
     if also_prun:
       hh.prun(function, top=2)
@@ -5231,7 +5231,7 @@ if EFFORT >= 2:
 # %% tags=[]
 def test_profile_upsampling(shape, new_shape, filter='lanczos3',
                             also_prun=False, dtype='float32') -> None:
-  check_eq(len(shape), 3)
+  _check_eq(len(shape), 3)
   array = np.ones(shape, dtype=dtype)
 
   functions = {
@@ -5247,7 +5247,7 @@ def test_profile_upsampling(shape, new_shape, filter='lanczos3',
     print(f'{name:20}: {elapsed:5.3f} s')
     result = _arr_numpy(result)
     assert np.allclose(result, expected)
-    check_eq(result.dtype, dtype)
+    _check_eq(result.dtype, dtype)
     if also_prun:
       hh.prun(function, top=2)
 
@@ -5647,9 +5647,9 @@ def test_blocking_using_image_rotation(max_block_size, src_size=64, dst_size=256
           original_image, (dst_size,) * 2, matrix[:-1], boundary='reflect', **kwargs)
 
     reference = rotate_image()
-    check_eq(_arr_arraylib(reference), arraylib)
+    _check_eq(_arr_arraylib(reference), arraylib)
     result = rotate_image(max_block_size=max_block_size)
-    check_eq(_arr_numpy(result), _arr_numpy(reference))
+    _check_eq(_arr_numpy(result), _arr_numpy(reference))
 
 if 1:
   test_blocking_using_image_rotation(max_block_size=1_000)
@@ -6254,7 +6254,7 @@ def dither(image: _NDArray, num_levels: int, offsets: Iterable[Tuple[int, int]],
     A new image containing values [0, 1, ..., num_levels - 1].
   """
   image = np.array(image)  # Intentional copy.
-  check_eq(image.ndim, 2)
+  _check_eq(image.ndim, 2)
   assert np.issubdtype(image.dtype, np.floating)
   offsets = tuple(offsets)
   weights = np.asarray(weights, dtype=np.float32)
@@ -6770,7 +6770,7 @@ def experiment_with_convolution() -> None:  # pylint: disable=too-many-statement
     for name, function in functions.items():
       result = function()
       if name != 'numpy_fftconvolve':  # It always computes np.float64.
-        check_eq(result.dtype, array.dtype)
+        _check_eq(result.dtype, array.dtype)
       sum_ = result.sum() / array.sum()
       # print(f'{name:22} {result.shape!s:14} {sum_:.4f}')
       assert 0.85 <= sum_ <= 1.001, name
@@ -6874,13 +6874,13 @@ def test_banded(debug=False) -> None:
     if boundary == 'wrap':
       # Transpose of (symmetric) csr_matrix because splu() desires csc_matrix.
       lu = scipy.sparse.linalg.splu(matrix.transpose(), permc_spec='NATURAL')
-      check_eq(lu.perm_c, range(size))
-      check_eq(lu.perm_r, range(size))
+      _check_eq(lu.perm_c, range(size))
+      _check_eq(lu.perm_r, range(size))
       assert lu.L.nnz == lu.U.nnz <= size * len(values)  # Sparse.
       new = lu.solve(array)
     else:
       matrix = matrix.todia()
-      check_eq(matrix.offsets, range(-l, l + 1))
+      _check_eq(matrix.offsets, range(-l, l + 1))
       new = scipy.linalg.solveh_banded(matrix.data[-1:l-1:-1], array, check_finite=False)
     if debug:
       print('boundary', new, matrix.dot(new))
@@ -6900,8 +6900,8 @@ def test_banded(debug=False) -> None:
   if 1 and l == 1 and boundary == 'reflect':
     lu = scipy.sparse.linalg.splu(matrix.tocsc(), permc_spec='NATURAL')
     assert lu.L.nnz <= size * 2 and lu.U.nnz <= size * 2  # Nicely sparse.
-    check_eq(lu.perm_c, range(size))
-    check_eq(lu.perm_r, range(size))
+    _check_eq(lu.perm_c, range(size))
+    _check_eq(lu.perm_r, range(size))
     # print(lu.shape, lu.L.nnz, lu.U.nnz)
     # print(lu.perm_c, lu.perm_r, lu.L, lu.U)
     new = lu.solve(array)
@@ -7017,7 +7017,7 @@ def test_inverse_convolution_2d(  # pylint: disable=too-many-statements
         array_dim = array_flat.reshape(array_dim.shape)
       else:
         matrix = matrix.todia()
-        check_eq(matrix.offsets, range(-l, l + 1))
+        _check_eq(matrix.offsets, range(-l, l + 1))
         options = dict(check_finite=False, overwrite_ab=True, overwrite_b=True)
         if _is_symmetric(matrix):
           array_dim = scipy.linalg.solveh_banded(matrix.data[-1:l-1:-1], array_dim, **options)
@@ -7092,7 +7092,7 @@ def test_inverse_convolution_2d(  # pylint: disable=too-many-statements
           name in ['spline_filter1d', 'filtfilt']):
         continue
       elapsed, new = hh.get_time_and_result(lambda: function(array), max_repeat=5)
-      check_eq(new.dtype, dtype)
+      _check_eq(new.dtype, dtype)
       if 1 or not np.issubdtype(dtype, np.complexfloating):
         filter2d = np.outer(values, values)[..., None]
         convolved = np.empty_like(new)
@@ -7569,7 +7569,7 @@ def experiment_compare_upsampling_with_other_libraries(scale=2.0, shape=(200, 40
   for name, func in funcs.items():
     elapsed, image = hh.get_time_and_result(func, max_time=0.05)
     image = _arr_numpy(image)
-    check_eq(image.dtype, np.float32)
+    _check_eq(image.dtype, np.float32)
     s = 0  # 0 or 2.  (Recall that boundary rules are broken in scipy 1.4.1.)
     crop = s, s, 0
     psnr = get_psnr(crop_array(image, crop), crop_array(original, crop))
