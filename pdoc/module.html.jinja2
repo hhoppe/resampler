@@ -1,0 +1,33 @@
+{#
+We want to extend the default template instead of defining everything ourselves.
+#}
+{% extends "default/module.html.jinja2" %}
+
+
+{#
+We adjust which members are documented by overriding the is_public macro.
+(doing this is not recommended, see https://pdoc.dev/docs/pdoc.html#control-what-is-documented.)
+
+It is useful to see the default code in:
+https://github.com/mitmproxy/pdoc/blob/main/pdoc/templates/default/module.html.jinja2
+
+    {% if doc.qualname == "DualGridtype.min_size" %}
+    {% if doc.qualname.startswith("DualGridtype.") %}
+    {% if "PrimalGridtype." in doc.qualname %}
+    {% if 'DualGridtype.' in doc.qualname %}
+    NO: {% if any(s in doc.qualname for s in ['PrimalGridtype.']) %}
+    {% if doc.name in ['min_size', 'size_in_samples'] %}
+#}
+{% macro is_public(doc) %}
+    {% if 0 %}
+    {% elif 'Gridtype.' in doc.qualname %}
+    {% elif 'RemapCoordinates' in doc.qualname %}
+    {% elif 'ExtendSamples' in doc.qualname %}
+    {% elif 'OverrideExteriorValue' in doc.qualname %}
+    {% elif 'Boundary.' in doc.qualname %}
+    {% elif 'Filter.' in doc.qualname %}
+    {% elif 'Gamma.' in doc.qualname %}
+    {% else %}
+        {{ default_is_public(doc) }}
+    {% endif %}
+{% endmacro %}

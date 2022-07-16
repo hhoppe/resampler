@@ -1127,15 +1127,15 @@ class BoxFilter(Filter):
 class TrapezoidFilter(Filter):
   """Filter for antialiased "area-based" filtering.
 
-  This filter is similar to the BoxFilter but with linear sloped sides.
-  Given 0.5 < radius <= 1.0, the filter has support [-radius, radius].
-  It has value 1.0 in the interval abs(x) <= 1.0 - radius and decreases
-  linearly to value 0.0 in the interval 1.0 - radius <= abs(x) <= radius,
-  always with value 0.5 at x = 0.5.
+  Args:
+    radius: Specifies the support [-radius, radius] of filter, where 0.5 < radius <= 1.0.
+      The special case `radius = None` is a placeholder that indicates that the filter will be
+      replaced by a trapezoid of the appropriate radius (based on scaling) for correct
+      antialiasing in both minification and magnification.
 
-  The special case of `radius = None` is a placeholder that indicates that the filter will be
-  replaced by a trapezoid of the appropriate radius (based on scaling) for correct antialiasing
-  in both minification and magnification.
+  This filter is similar to the BoxFilter but with linearly sloped sides.  It has value 1.0
+  in the interval abs(x) <= 1.0 - radius and decreases linearly to value 0.0 in the interval
+  1.0 - radius <= abs(x) <= radius, always with value 0.5 at x = 0.5.
   """
 
   def __init__(self, *, radius: Optional[float] = None) -> None:
@@ -1167,7 +1167,11 @@ class TriangleFilter(Filter):
 
 
 class CubicFilter(Filter):
-  """Parameterized family of cubic filters.
+  """Family of cubic filters parameterized by two scalar parameters.
+
+  Args:
+    b: first scalar parameter.
+    c: second scalar parameter.
 
   See https://en.wikipedia.org/wiki/Mitchell%E2%80%93Netravali_filters and
   https://doi.org/10.1145/378456.378514.
@@ -1175,9 +1179,7 @@ class CubicFilter(Filter):
   [D. P. Mitchell and A. N. Netravali. Reconstruction filters in computer graphics.
   Computer Graphics (Proceedings of ACM SIGGRAPH 1988), 22(4):221-228, 1988.]
 
-  The filter is parameterized by two scalar parameters (b, c):
-
-  - The filter has quadratic precision iff b + 2*c == 1.
+  - The filter has quadratic precision iff b + 2 * c == 1.
   - The filter is interpolating iff b == 0.
   - (b=1, c=0) is the (non-interpolating) cubic B-spline basis;
   - (b=1/3, c=1/3) is the Mitchell filter;
@@ -1245,6 +1247,10 @@ class SharpCubicFilter(CubicFilter):
 class LanczosFilter(Filter):
   """High-quality filter: sinc function modulated by a sinc window.
 
+  Args:
+    radius: Specifies support window [-radius, radius] over which filter is nonzero.
+    sampled: If True, use a discretized approximation for improved speed.
+
   See https://en.wikipedia.org/wiki/Lanczos_kernel.
   """
 
@@ -1269,8 +1275,12 @@ class LanczosFilter(Filter):
 class GeneralizedHammingFilter(Filter):
   """Sinc function modulated by a Hamming window.
 
-  See https://en.wikipedia.org/wiki/Window_function#Hann_and_Hamming_windows and hamming() in
-  https://github.com/scipy/scipy/blob/master/scipy/signal/windows/windows.py.
+  Args:
+    radius: Specifies support window [-radius, radius] over which filter is nonzero.
+    a0: Scalar parameter, where 0.0 < a0 < 1.0.  The case of a0=0.5 is the Hann filter.
+
+  See https://en.wikipedia.org/wiki/Window_function#Hann_and_Hamming_windows,
+  and hamming() in https://github.com/scipy/scipy/blob/master/scipy/signal/windows/windows.py.
 
   Generalized version of np.hamming() and np.hanning().
   """
@@ -1307,7 +1317,7 @@ class KaiserFilter(Filter):
       (sample spacing s != 1) with an even number of samples (dual grid), e.g., Eq. (6)
       in [Karras et al. 2021] --- this effects the precise shape of the window function.
     beta: Determines the trade-off between main-lobe width and side-lobe level.
-    sampled: Use a precomputed discretized approximation for improved speed.
+    sampled: If True, use a discretized approximation for improved speed.
   """
 
   def __init__(self, *, radius: float, beta: float, sampled: bool = True) -> None:
@@ -1330,9 +1340,11 @@ class KaiserFilter(Filter):
 class BsplineFilter(Filter):
   """B-spline of a non-negative degree.
 
-  - With `degree=0`, it should be `BoxFilter`; however, f(0.5) = f(-0.5) = 0.
-  - With `degree=1`, reproduces `TriangleFilter`.
-  - With `degree >= 2`, it is no longer interpolating.
+  Args:
+    degree: The polynomial degree of the B-spline segments.
+      - With `degree=0`, it is like `BoxFilter` except with f(0.5) = f(-0.5) = 0.
+      - With `degree=1`, it is identical to `TriangleFilter`.
+      - With `degree >= 2`, it is no longer interpolating.
 
   See [Carl de Boor.  A practical guide to splines.  Springer, 2001.]
   https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.BSpline.html
@@ -1353,6 +1365,10 @@ class BsplineFilter(Filter):
 
 class CardinalBsplineFilter(Filter):
   """Interpolating B-spline, achieved with aid of digital pre or post filter.
+
+  Args:
+    degree: The polynomial degree of the B-spline segments.
+    sampled: If True, use a discretized approximation for improved speed.
 
   See [Hou and Andrews.  Cubic splines for image interpolation and digital filtering, 1978] and
   [Unser et al.  Fast B-spline transforms for continuous image representation and interpolation,
@@ -1381,6 +1397,9 @@ class CardinalBsplineFilter(Filter):
 class OmomsFilter(Filter):
   """OMOMS interpolating filter, with aid of digital pre or post filter.
 
+  Args:
+    degree: The polynomial degree of the filter segments.
+
   Optimal MOMS (maximal-order-minimal-support) function; see [Blu and Thevenaz, MOMS: Maximal-order
   interpolation of minimal support, 2001].
   https://infoscience.epfl.ch/record/63074/files/blu0101.pdf
@@ -1407,12 +1426,16 @@ class OmomsFilter(Filter):
 
 
 class GaussianFilter(Filter):
-  """See https://en.wikipedia.org/wiki/Gaussian_function."""
+  """See https://en.wikipedia.org/wiki/Gaussian_function.
+
+  Args:
+    standard_deviation: Sets the Gaussian $\sigma$.  The default value is 1.25/3.0, which
+      creates a kernel that is as-close-as-possible to a partition of unity.
+  """
 
   DEFAULT_STANDARD_DEVIATION = 1.25 / 3.0
   """This value creates a kernel that is as-close-as-possible to a partition of unity; see
-  mesh_processing/test/GridOp_test.cpp:
-     0.93503:1.06497     av=1           sd=0.0459424
+  mesh_processing/test/GridOp_test.cpp: `0.93503:1.06497     av=1           sd=0.0459424`.
   Another possibility is 0.5, as suggested on p. 4 of [Ken Turkowski.  Filters for common
   resampling tasks, 1990] for kernels with a support of 3 pixels.
   https://cadxfem.org/inf/ResamplingFilters.pdf
@@ -1433,7 +1456,11 @@ class GaussianFilter(Filter):
 
 
 class NarrowBoxFilter(Filter):
-  """Compact footprint, used for visualization of grid sample location."""
+  """Compact footprint, used for visualization of grid sample location.
+
+  Args:
+    radius: Support [-radius, radius] of the narrow box function, with default value 0.199.
+  """
 
   def __init__(self, *, radius: float = 0.199) -> None:
     super().__init__(name='narrowbox', radius=radius, continuous=False, unit_integral=False,
@@ -2027,7 +2054,7 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
     with shape `shape + array.shape[len(shape):]` and data type `dtype`.
 
   >>> result = resize([1.0, 4.0, 5.0], shape=(4,))
-  >>> assert np.allclose(result, [0.74240461, 2.88088827, 4.68647155, 5.02641199]), result
+  >>> assert np.allclose(result, [0.74240461, 2.88088827, 4.68647155, 5.02641199])
   """
   if isinstance(array, (tuple, list)):
     array = np.asarray(array)
@@ -2791,8 +2818,8 @@ _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
     # GaussianFilter(0.5): 'gaussian',  # radius_4 > desired_radius_3.
 }
 
-def tfi_resize(array: Any, shape: Sequence[int], filter: str = 'lanczos3',
-               antialias: bool = True) -> _TensorflowTensor:
+def tf_image_resize(array: Any, shape: Sequence[int], filter: str = 'lanczos3',
+                    antialias: bool = True) -> _TensorflowTensor:
   """Invoke `tf.image.resize` using the same parameters as `resize`."""
   import tensorflow as tf
   array = tf.convert_to_tensor(array)
@@ -2800,9 +2827,9 @@ def tfi_resize(array: Any, shape: Sequence[int], filter: str = 'lanczos3',
   shape = tuple(shape)
   _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
-    return tfi_resize(array[None], (1, *shape), filter=filter, antialias=antialias)[0]
+    return tf_image_resize(array[None], (1, *shape), filter=filter, antialias=antialias)[0]
   if array.ndim == 2:
-    return tfi_resize(array[..., None], shape, filter=filter, antialias=antialias)[..., 0]
+    return tf_image_resize(array[..., None], shape, filter=filter, antialias=antialias)[..., 0]
   method = _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER[filter]
   return tf.image.resize(array, shape, method=method, antialias=antialias)
 

@@ -1,15 +1,13 @@
-# Resampler
-
 [Hugues Hoppe](https://hhoppe.com/)
 &nbsp;&nbsp; Aug 2022.
 
 [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 &nbsp;
-[**[in Kaggle]**](https://www.kaggle.com/notebooks/welcome?src=https://github.com/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+[**[Kaggle]**](https://www.kaggle.com/notebooks/welcome?src=https://github.com/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 &nbsp;
-[**[in MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/main?filepath=resampler_notebook.ipynb)
+[**[MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/main?filepath=resampler_notebook.ipynb)
 &nbsp;
-[**[in DeepNote]**](https://deepnote.com/launch?url=https%3A%2F%2Fgithub.com%2Fhhoppe%2Fresampler%2Fblob%2Fmain%2Fresampler_notebook.ipynb)
+[**[DeepNote]**](https://deepnote.com/launch?url=https%3A%2F%2Fgithub.com%2Fhhoppe%2Fresampler%2Fblob%2Fmain%2Fresampler_notebook.ipynb)
 &nbsp;
 [**[GitHub source]**](https://github.com/hhoppe/resampler)
 &nbsp;
@@ -17,8 +15,10 @@
 &nbsp;
 [**[PyPI package]**](https://pypi.org/project/resampler/)
 
-This Python notebook hosts the source code for the
-[resampler library in PyPI](https://pypi.org/project/resampler/),
+The Python notebook [`resampler_notebook.ipynb`](
+  https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+hosts the source code for the
+[`resampler` package in PyPI](https://pypi.org/project/resampler/),
 interleaved with documentation, usage examples, unit tests, and signal-processing experiments.
 
 # Overview
