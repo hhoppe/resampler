@@ -41,7 +41,7 @@ _TorchTensor = Any  # To document torch.Tensor without enforcement.
 _Array = Any  # To document any array class supported by _Arraylib.
 
 
-def check_eq(a: Any, b: Any) -> None:
+def _check_eq(a: Any, b: Any) -> None:
   """If the two values or arrays are not equal, raise an exception with a useful message."""
   equal = np.all(a == b) if isinstance(a, np.ndarray) else a == b
   if not equal:
@@ -105,7 +105,7 @@ def _cache_sampled_1d_function(
     if not enable:
       @functools.wraps(func)
       def original_func(x: Any, *, mode: str = '') -> _NDArray:
-        check_eq(mode, '')
+        _check_eq(mode, '')
         return func(x)
       return original_func
 
@@ -142,7 +142,7 @@ class _DownsampleIn2dUsingBoxFilter:
   def __call__(self, array: _NDArray, shape: Tuple[int, int]) -> _NDArray:
     assert 'numba' in globals()
     assert array.ndim in (2, 3), array.ndim
-    check_eq(len(shape), 2)
+    _check_eq(len(shape), 2)
     dtype = array.dtype
     a = array[..., None] if array.ndim == 2 else array
     height, width, ch = a.shape
@@ -2196,7 +2196,7 @@ _original_resize = resize
 
 def resize_in_numpy(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray:
   """Just like `resize()` but asserts that the source is a numpy array."""
-  check_eq(_arr_arraylib(array), 'numpy')
+  _check_eq(_arr_arraylib(array), 'numpy')
   return _original_resize(array, *args, **kwargs)
 
 
@@ -2211,7 +2211,7 @@ def resize_in_tensorflow(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray
   Returns:
     A numpy array.
   """
-  check_eq(_arr_arraylib(array), 'numpy')
+  _check_eq(_arr_arraylib(array), 'numpy')
   array = _make_array(array, arraylib='tensorflow')
   return _original_resize(array, *args, **kwargs).numpy()
 
@@ -2227,7 +2227,7 @@ def resize_in_torch(array: _NDArray, *args: Any, **kwargs: Any) -> _NDArray:
   Returns:
     A numpy array.
   """
-  check_eq(_arr_arraylib(array), 'numpy')
+  _check_eq(_arr_arraylib(array), 'numpy')
   array = _make_array(array, arraylib='torch')
   return _original_resize(array, *args, **kwargs).numpy()
 
@@ -2691,8 +2691,8 @@ def rotation_about_center_in_2d(src_shape: Any,
 
   src_shape = np.asarray(src_shape)
   dst_shape = src_shape if dst_shape is None else np.asarray(dst_shape)
-  check_eq(src_shape.shape, (2,))
-  check_eq(dst_shape.shape, (2,))
+  _check_eq(src_shape.shape, (2,))
+  _check_eq(dst_shape.shape, (2,))
   half = np.array([0.5, 0.5])
   matrix = (translation_matrix(half) @
             scaling_matrix(min(src_shape) / src_shape) @
@@ -2734,7 +2734,7 @@ def pil_image_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
   assert 1 <= array.ndim <= 3
   assert np.issubdtype(array.dtype, np.floating)
   shape = tuple(shape)
-  check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
     return pil_image_resize(array[None], (1, *shape), filter=filter)
   import PIL.Image
@@ -2762,7 +2762,7 @@ def cv_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
   shape = tuple(shape)
-  check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
     return cv_resize(array[None], (1, *shape), filter=filter)[0]
   import cv2 as cv
@@ -2794,7 +2794,7 @@ def tfi_resize(array: Any, shape: Sequence[int], filter: str = 'lanczos3',
   array = tf.convert_to_tensor(array)
   assert 1 <= array.ndim <= 3
   shape = tuple(shape)
-  check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
     return tfi_resize(array[None], (1, *shape), filter=filter, antialias=antialias)[0]
   if array.ndim == 2:
@@ -2817,7 +2817,7 @@ def torch_nn_resize(array: Any, shape: Sequence[int], filter: str,
   array = torch.as_tensor(array)
   assert 1 <= array.ndim <= 3
   shape = tuple(shape)
-  check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   mode = _TORCH_INTERPOLATE_MODE_FROM_FILTER[filter]
 
   def local_resize(array: _TorchTensor) -> _TorchTensor:
@@ -2844,7 +2844,7 @@ def torchvision_resize(array: Any, shape: Sequence[int], filter: str,
   import torchvision
   array = torch.as_tensor(array)
   shape = tuple(shape)
-  check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   torchvision_interpolation_from_filter = {
       'impulse': torchvision.transforms.InterpolationMode.NEAREST,
       'triangle': torchvision.transforms.InterpolationMode.BILINEAR,
