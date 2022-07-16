@@ -337,15 +337,9 @@
 # # <a name="Library-header"></a>Library header
 
 # %% tags=[]
-"""resampler: efficient, flexible, differentiable resizing and warping of grids.
+"""resampler: fast differentiable resizing and warping of arbitrary grids.
 
-[**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
-&nbsp;
-[**[GitHub source]**](https://github.com/hhoppe/resampler)
-&nbsp;
-[**[API docs]**](https://hhoppe.github.io/resampler/)
-&nbsp;
-[**[PyPI package]**](https://pypi.org/project/resampler/)
+.. include:: ../README.md
 """;
 
 # %% tags=[]
@@ -1467,9 +1461,10 @@ class Gridtype:
   specified per domain dimension.
 
   Examples:
-    resize(source, shape, gridtype='primal')  # Sets both src and dst.
-    resize(source, shape, src_gridtype=['dual', 'primal'],
-           dst_gridtype='dual')  # Source is dual in dim0 and primal in dim1.
+    `resize(source, shape, gridtype='primal')`  # Sets both src and dst.
+
+    `resize(source, shape, src_gridtype=['dual', 'primal'],
+           dst_gridtype='dual')`  # Source is dual in dim0 and primal in dim1.
   """
 
   name: str
@@ -2117,6 +2112,7 @@ class Filter:
 
   Portions of this code are adapted from the C++ library in
   https://github.com/hhoppe/Mesh-processing-library/blob/master/libHh/Filter.cpp
+
   See also http://hhoppe.com/proj/filtering/.
   """
 
@@ -2219,10 +2215,11 @@ class CubicFilter(Filter):
 
   See https://en.wikipedia.org/wiki/Mitchell%E2%80%93Netravali_filters and
   https://doi.org/10.1145/378456.378514.
+
   [D. P. Mitchell and A. N. Netravali. Reconstruction filters in computer graphics.
   Computer Graphics (Proceedings of ACM SIGGRAPH 1988), 22(4):221-228, 1988.]
 
-  The filter is parameterized by two scalar parameters: (b, c).
+  The filter is parameterized by two scalar parameters (b, c):
 
   - The filter has quadratic precision iff b + 2*c == 1.
   - The filter is interpolating iff b == 0.
@@ -2254,7 +2251,8 @@ class CatmullRomFilter(CubicFilter):
 
   [E. Catmull, R. Rom.  A class of local interpolating splines.  Computer aided geometric
   design, 1974]
-  https://en.wikipedia.org/wiki/Cubic_Hermite_spline#Catmull%E2%80%93Rom_spline
+  [Wikipedia](https://en.wikipedia.org/wiki/Cubic_Hermite_spline#Catmull%E2%80%93Rom_spline)
+
   [R. G. Keys.  Cubic convolution interpolation for digital image processing.
   IEEE Trans. on Acoustics, Speech, and Signal Processing, 29(6), 1981.]
   https://ieeexplore.ieee.org/document/1163711/.
@@ -2279,6 +2277,7 @@ class SharpCubicFilter(CubicFilter):
   """Cubic filter that is sharper than Catmull-Rom filter.
 
   Used by some tools including OpenCV and Photoshop.
+
   See https://en.wikipedia.org/wiki/Mitchell%E2%80%93Netravali_filters and
   http://entropymine.com/resamplescope/notes/photoshop/.
   """
@@ -2316,6 +2315,7 @@ class GeneralizedHammingFilter(Filter):
 
   See https://en.wikipedia.org/wiki/Window_function#Hann_and_Hamming_windows and hamming() in
   https://github.com/scipy/scipy/blob/master/scipy/signal/windows/windows.py.
+
   Generalized version of np.hamming() and np.hanning().
   """
 
@@ -2340,14 +2340,18 @@ class GeneralizedHammingFilter(Filter):
 class KaiserFilter(Filter):
   """Sinc function modulated by a Kaiser-Bessel window.
 
-  See https://en.wikipedia.org/wiki/Kaiser_window, and e.g. use in:
+  See https://en.wikipedia.org/wiki/Kaiser_window, and example use in:
   [Karras et al. 20201.  Alias-free generative adversarial networks.
-  https://arxiv.org/pdf/2106.12423.pdf].  Use np.kaiser()?
+  https://arxiv.org/pdf/2106.12423.pdf].
 
-  radius: Value L/2 in the definition.  It may be fractional for a (digital) resizing filter
-    (sample spacing s != 1) with an even number of samples (dual grid), e.g., Eq. (6)
-    in [Karras et al. 2021] --- this effects the precise shape of the window function.
-  beta: Determines the trade-off between main-lobe width and side-lobe level.
+  Use np.kaiser()?
+
+  Args:
+    radius: Value L/2 in the definition.  It may be fractional for a (digital) resizing filter
+      (sample spacing s != 1) with an even number of samples (dual grid), e.g., Eq. (6)
+      in [Karras et al. 2021] --- this effects the precise shape of the window function.
+    beta: Determines the trade-off between main-lobe width and side-lobe level.
+    sampled: Use a precomputed discretized approximation for improved speed.
   """
 
   def __init__(self, *, radius: float, beta: float, sampled: bool = True) -> None:
@@ -2516,8 +2520,8 @@ OTHER_FILTERS = {
 }
 
 # %%
-def get_filter(filter: Union[str, Filter]) -> Filter:
-  """Return a `Filter`, optionally creating it from the filter name."""
+def _get_filter(filter: Union[str, Filter]) -> Filter:
+  """Return a `Filter`, which can be specified as a name string key in `FILTERS`."""
   return filter if isinstance(filter, Filter) else FILTERS[filter]
 
 
@@ -2552,7 +2556,7 @@ def get_filter(filter: Union[str, Filter]) -> Filter:
 # For other data types, the default transfer function is `gamma='identity'`.
 
 # %%
-# fix the table above ??
+# fix the table above; use math symbols ??
 
 # %%
 def _to_float_01(array: _Array, dtype: Any) -> _Array:
@@ -3244,9 +3248,9 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
 ) -> _Array:
   """Resample a grid of sample values onto a grid of different resolution.
 
-  The source `array` may be an np.ndarray, tf.Tensor, or torch.Tensor.  The array is interpreted
-  as a grid with `len(shape)` domain coordinate dimensions, where each grid sample value has
-  shape `array.shape[len(shape):]`.
+  The source `array` may be an array-like, `np.ndarray`, `tf.Tensor`, or `torch.Tensor`.  The
+  array is interpreted as a grid with `len(shape)` domain coordinate dimensions, where each
+  grid sample value has shape `array.shape[len(shape):]`.
 
   For example:
 
@@ -3328,8 +3332,8 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   boundary2 = np.broadcast_to(np.array(boundary), len(shape))
   cval = np.broadcast_to(cval, array.shape[len(shape):])
   prefilter = filter if prefilter is None else prefilter
-  filter2 = [get_filter(f) for f in np.broadcast_to(np.array(filter), len(shape))]
-  prefilter2 = [get_filter(f) for f in np.broadcast_to(np.array(prefilter), len(shape))]
+  filter2 = [_get_filter(f) for f in np.broadcast_to(np.array(filter), len(shape))]
+  prefilter2 = [_get_filter(f) for f in np.broadcast_to(np.array(prefilter), len(shape))]
   dtype = array_dtype if dtype is None else np.dtype(dtype)
   src_gamma2, dst_gamma2 = _get_src_dst_gamma(gamma, src_gamma, dst_gamma, array_dtype, dtype)
   scale2 = np.broadcast_to(np.array(scale), len(shape))
@@ -3738,7 +3742,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     `new.shape = height2, width2` by using `coords.shape = height2, width2, 2`.
 
   - Resample an RGB image with `array.shape = height, width, 3` onto a new RGB image with
-    `new.shape = height2, width2, 3 by using `coords.shape = height2, width2, 2`.
+    `new.shape = height2, width2, 3` by using `coords.shape = height2, width2, 2`.
 
   - Sample an RGB image at `num` 2D points along a line segment by using `coords.shape = num, 2`.
 
@@ -3843,8 +3847,8 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
   boundary2 = np.broadcast_to(np.array(boundary), grid_ndim).tolist()
   cval = np.broadcast_to(cval, sample_shape)
   prefilter = filter if prefilter is None else prefilter
-  filter2 = [get_filter(f) for f in np.broadcast_to(np.array(filter), grid_ndim)]
-  prefilter2 = [get_filter(f) for f in np.broadcast_to(np.array(prefilter), resampled_ndim)]
+  filter2 = [_get_filter(f) for f in np.broadcast_to(np.array(filter), grid_ndim)]
+  prefilter2 = [_get_filter(f) for f in np.broadcast_to(np.array(prefilter), resampled_ndim)]
   dtype = _arr_dtype(array) if dtype is None else np.dtype(dtype)
   src_gamma2, dst_gamma2 = _get_src_dst_gamma(gamma, src_gamma, dst_gamma, _arr_dtype(array), dtype)
   del gridtype, boundary, filter, prefilter, src_gamma, dst_gamma
@@ -4273,8 +4277,8 @@ def resample_affine(
   src_gridtype2, dst_gridtype2 = _get_gridtypes(
     gridtype, src_gridtype, dst_gridtype, src_ndim, dst_ndim)
   prefilter = filter if prefilter is None else prefilter
-  filter2 = [get_filter(f) for f in np.broadcast_to(np.array(filter), src_ndim)]
-  prefilter2 = [get_filter(f) for f in np.broadcast_to(np.array(prefilter), dst_ndim)]
+  filter2 = [_get_filter(f) for f in np.broadcast_to(np.array(filter), src_ndim)]
+  prefilter2 = [_get_filter(f) for f in np.broadcast_to(np.array(prefilter), dst_ndim)]
   del src_gridtype, dst_gridtype, filter, prefilter
   dtype = _arr_dtype(array) if dtype is None else np.dtype(dtype)
   precision = _get_precision(precision, [_arr_dtype(array), dtype], [])
@@ -6443,25 +6447,9 @@ if EFFORT >= 2:
 
 # %% tags=[]
 def _get_pil_font(font_size: int, font_name: str = 'cmr10') -> Any:
-
-  # def find(dir_pattern: str) -> Optional[str]:
-  #   file_pattern = pathlib.Path(dir_pattern).expanduser() / f'{font_name}.ttf'
-  #   return next(glob.iglob(str(file_pattern), recursive=True), None)
-
-  # FONT_DIR_PATTERNS = [
-  #     # f'{matplotlib.__path__}/mpl-data/fonts/ttf/',
-  #     '/usr/local/lib/python*/dist-packages/matplotlib/mpl-data/fonts/ttf/',
-  #     '~/.local/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
-  #     '/opt/conda/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
-  #     '/shared-libs/python*/py/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
-  #     '/usr/local/lib/**/',
-  # ]
-  # ?? font_file = next(filter(None, (find(dir_pattern) for dir_pattern in FONT_DIR_PATTERNS)))
-
   font_file = f'{matplotlib.__path__[0]}/mpl-data/fonts/ttf/{font_name}.ttf'
   import PIL.ImageFont
   return PIL.ImageFont.truetype(font_file, font_size)
-
 
 def rasterize_text(shape: Tuple[int, int], text: str, *,
                    pad_xy: Tuple[int, int] = (10, 10),
@@ -7891,14 +7879,11 @@ if 0:
   build_pypi_package(upload=True)
 
 
-# %% tags=[]
+# %%
 def make_pdoc() -> None:
   """Create pdoc HTML documentation."""
-  # hh.run('pip install -q pdoc3')  # try pdoc instead?
-  # hh.run('mkdir -p pdoc/resampler')
-  # hh.run('cp -p resampler/__init__.py pdoc/resampler/__init__.py')
-  # hh.run('pdoc --html --force pdoc')
-  hh.run('pdoc -html --force .')  # ?
+  hh.run('pip install -q pdoc')
+  hh.run('pdoc -o html resampler')  # --math --logo URL
   hh.run('ls -al html/resampler.html')
 
 if 0:  # Run within a docker or other container.
@@ -7968,7 +7953,7 @@ show_added_global_variables_sorted_by_type()
 # %% tags=[]
 print(f'EFFORT={EFFORT}')
 hh.show_notebook_cell_top_times()
-# # ??
+# EFFORT=1:
 # Local: ~48 s.
 # Colab: ~170 s
 # Kaggle: ~88 s.
