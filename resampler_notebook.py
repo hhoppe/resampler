@@ -408,7 +408,6 @@ def check_eq(a: Any, b: Any) -> None:
 # %% tags=[]
 import copy
 import collections
-import glob
 import itertools
 import os
 import pathlib
@@ -417,7 +416,7 @@ import warnings
 
 import hhoppe_tools as hh  # https://github.com/hhoppe/hhoppe-tools/blob/main/hhoppe_tools/__init__.py
 import IPython
-import matplotlib  # pylint: disable=unused-import
+import matplotlib
 import matplotlib.pyplot as plt
 import mediapy as media  # https://github.com/google/mediapy
 import re
@@ -4470,8 +4469,7 @@ test_resizer_produces_correct_shape(resize_in_torch)
 
 # %% tags=[]
 # https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize
-#  (PIL.Image.NEAREST should become PIL.Image.Resampling.NEAREST but compatibility issues.)
-#  resample=PIL.Image.NEAREST  # or BOX, BILINEAR, BICUBIC, HAMMING, LANCZOS.
+#  resample=PIL.Image.Resampling.NEAREST  # or BOX, BILINEAR, BICUBIC, HAMMING, LANCZOS.
 #  Only 2D float image or 2D 3-or-4-channel uint8 image.
 #  Undocumented boundary rule is 'natural'.
 #  Undocumented Lanczos has radius=3 and seems imperfectly normalized.
@@ -4488,13 +4486,15 @@ def pil_image_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
   if array.ndim == 1:
     return pil_image_resize(array[None], (1, *shape), filter=filter)
   import PIL.Image
+  if not hasattr(PIL.Image, 'Resampling'):  # Pillow<9.0
+    PIL.Image.Resampling = PIL.Image
   pil_resample = {
-      'impulse': PIL.Image.NEAREST,
-      'box': PIL.Image.BOX,
-      'triangle': PIL.Image.BILINEAR,
-      'hamming1': PIL.Image.HAMMING,  # GeneralizedHammingFilter(1, a0=0.54)
-      'cubic': PIL.Image.BICUBIC,
-      'lanczos3': PIL.Image.LANCZOS,
+      'impulse': PIL.Image.Resampling.NEAREST,
+      'box': PIL.Image.Resampling.BOX,
+      'triangle': PIL.Image.Resampling.BILINEAR,
+      'hamming1': PIL.Image.Resampling.HAMMING,  # GeneralizedHammingFilter(1, a0=0.54)
+      'cubic': PIL.Image.Resampling.BICUBIC,
+      'lanczos3': PIL.Image.Resampling.LANCZOS,
   }[filter]
   if array.ndim == 2:
     return np.array(PIL.Image.fromarray(array).resize(
@@ -4531,28 +4531,19 @@ test_pil_image_resize()
 
 # %% tags=[]
 def test_undocumented_lanczos_in_pil_image() -> None:
-  import PIL.Image
   array = np.array([0, 0, 0, 1, 0, 0, 0], dtype=np.float32)
   new_len = len(array) * 2
-  new_array = np.array(PIL.Image.fromarray(array[None]).resize(
-      (new_len, 1), resample=PIL.Image.LANCZOS))[0]
-  lanczos = resize(array, (new_len,), filter=LanczosFilter(radius=3))
-  if 1:
-    print(new_array)
-    print(lanczos)
-    print(new_array.sum(), lanczos.sum())  # 1.9889746 2.0000002
+  new_array = pil_image_resize(array, (new_len,), 'lanczos3')  # (Allegedly 'lanczos3')
+  lanczos = resize(array, (new_len,), filter=LanczosFilter(radius=3), boundary='natural')
+  assert np.allclose(new_array, lanczos)
 
-  array = np.linspace(0.2, 0.8, 13)
-  new_len = len(array) * 8
-  new_array = np.array(PIL.Image.fromarray(array[None]).resize(
-      (new_len, 1), resample=PIL.Image.BICUBIC))[0, :8]
-  natural = resize(array, (new_len,), boundary='natural', filter='cubic')[:8]
-  assert np.allclose(new_array, natural)
+  new_array = pil_image_resize(array, (new_len,), 'cubic')
+  cubic = resize(array, (new_len,), filter='cubic', boundary='natural')
+  assert np.allclose(new_array, cubic)
 
-if EFFORT >= 2:
+if EFFORT >= 1:
   test_undocumented_lanczos_in_pil_image()
-# Conclusions: (1) Their radius is 3, but their numbers are slightly off, perhaps because their
-# impulse response is not normalized.  (2) The boundary effect is identical to 'natural'.
+# Conclusions: (1) Their Lanczos radius is 3.  (2) Their boundary rule is 'natural'.
 
 # %% [markdown]
 # **cv.resize:**
@@ -6444,21 +6435,24 @@ if EFFORT >= 2:
 # that are rotated by various angles (from $0^\circ$ to $90^\circ$)
 # and measure the reconstruction accuracy.
 
-# %%
+# %% tags=[]
 def _get_pil_font(font_size: int, font_name: str = 'cmr10') -> Any:
 
-  def find(dir_pattern: str) -> Optional[str]:
-    file_pattern = pathlib.Path(dir_pattern).expanduser() / f'{font_name}.ttf'
-    return next(glob.iglob(str(file_pattern), recursive=True), None)
+  # def find(dir_pattern: str) -> Optional[str]:
+  #   file_pattern = pathlib.Path(dir_pattern).expanduser() / f'{font_name}.ttf'
+  #   return next(glob.iglob(str(file_pattern), recursive=True), None)
 
-  FONT_DIR_PATTERNS = [
-      '/usr/local/lib/python*/dist-packages/matplotlib/mpl-data/fonts/ttf/',
-      '~/.local/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
-      '/opt/conda/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
-      '/shared-libs/python*/py/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
-      '/usr/local/lib/**/',
-  ]
-  font_file = next(filter(None, (find(dir_pattern) for dir_pattern in FONT_DIR_PATTERNS)))
+  # FONT_DIR_PATTERNS = [
+  #     # f'{matplotlib.__path__}/mpl-data/fonts/ttf/',
+  #     '/usr/local/lib/python*/dist-packages/matplotlib/mpl-data/fonts/ttf/',
+  #     '~/.local/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
+  #     '/opt/conda/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
+  #     '/shared-libs/python*/py/lib/python*/site-packages/matplotlib/mpl-data/fonts/ttf/',
+  #     '/usr/local/lib/**/',
+  # ]
+  # ?? font_file = next(filter(None, (find(dir_pattern) for dir_pattern in FONT_DIR_PATTERNS)))
+
+  font_file = f'{matplotlib.__path__[0]}/mpl-data/fonts/ttf/{font_name}.ttf'
   import PIL.ImageFont
   return PIL.ImageFont.truetype(font_file, font_size)
 
@@ -7493,8 +7487,8 @@ visualize_boundary_rules_in_2d()
 # | `scipy.ndimage` | any | `np` | any | ~dual, primal | cardinal B-splines | aliased &#9785; | several | slow | C | no |
 # | `skimage.transform` | any | `np` | any | dual, primal | cardinal B-splines | Gaussian &#9785; | several | slow | Cython | no |
 # | `tf.image.resize` | 2D | `tf` | `float32` | dual | up to `lanczos5` | `linear`, `cubic`? | `natural` | average | C++ | yes |
-# | `torch.nn.functional.` &nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `trapezoid`, `linear`, `cubic` | `?` | average | C++ | yes |
-# | `torchvision.transforms.` &nbsp;`functional.resize` | 2D | `tf` | most | dual | up to cubic | `linear`, `cubic` | `?` | average | C++ | yes |
+# | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `trapezoid`, `linear`, `cubic` | `?` | average | C++ | yes |
+# | `torchvision.transforms.`<br/>&nbsp;`functional.resize` | 2D | `tf` | most | dual | up to cubic | `linear`, `cubic` | `?` | average | C++ | yes |
 #
 # The `resampler` library does not involve any new native code;
 # it instead leverages existing sparse matrix representations and operations.
@@ -7970,10 +7964,10 @@ print(f'EFFORT={EFFORT}')
 hh.show_notebook_cell_top_times()
 # # ??
 # Local: ~48 s.
-# Colab: ~? s
-# Kaggle: ~85 s.
+# Colab: ~140 s
+# Kaggle: ~95 s.
 # MyBinder: ~? s.
-# DeepNote: ~130 s.
+# DeepNote: ~90 s.
 
 # %%
 # EFFORT=1:
