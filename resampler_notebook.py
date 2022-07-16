@@ -7909,6 +7909,7 @@ if 0:
 # %% tags=[]
 def create_documentation_files() -> None:
   """Create pdoc HTML documentation.
+  No need for gh-pages branch with automation?
   First-time setup of gh-pages branch (GitHub Pages then turns on automatically):
     cd ~/tmp
     git clone git@github.com:hhoppe/resampler.git
