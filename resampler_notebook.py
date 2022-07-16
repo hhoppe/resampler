@@ -21,11 +21,11 @@
 #
 # [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 # &nbsp;
-# [**[in Kaggle]**](https://www.kaggle.com/notebooks/welcome?src=https://github.com/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+# [**[Kaggle]**](https://www.kaggle.com/notebooks/welcome?src=https://github.com/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 # &nbsp;
-# [**[in MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/main?filepath=resampler_notebook.ipynb)
+# [**[MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/main?filepath=resampler_notebook.ipynb)
 # &nbsp;
-# [**[in DeepNote]**](https://deepnote.com/launch?url=https%3A%2F%2Fgithub.com%2Fhhoppe%2Fresampler%2Fblob%2Fmain%2Fresampler_notebook.ipynb)
+# [**[DeepNote]**](https://deepnote.com/launch?url=https%3A%2F%2Fgithub.com%2Fhhoppe%2Fresampler%2Fblob%2Fmain%2Fresampler_notebook.ipynb)
 # &nbsp;
 # [**[GitHub source]**](https://github.com/hhoppe/resampler)
 # &nbsp;
@@ -2171,15 +2171,15 @@ class BoxFilter(Filter):
 class TrapezoidFilter(Filter):
   """Filter for antialiased "area-based" filtering.
 
-  This filter is similar to the BoxFilter but with linear sloped sides.
-  Given 0.5 < radius <= 1.0, the filter has support [-radius, radius].
-  It has value 1.0 in the interval abs(x) <= 1.0 - radius and decreases
-  linearly to value 0.0 in the interval 1.0 - radius <= abs(x) <= radius,
-  always with value 0.5 at x = 0.5.
+  Args:
+    radius: Specifies the support [-radius, radius] of filter, where 0.5 < radius <= 1.0.
+      The special case `radius = None` is a placeholder that indicates that the filter will be
+      replaced by a trapezoid of the appropriate radius (based on scaling) for correct
+      antialiasing in both minification and magnification.
 
-  The special case of `radius = None` is a placeholder that indicates that the filter will be
-  replaced by a trapezoid of the appropriate radius (based on scaling) for correct antialiasing
-  in both minification and magnification.
+  This filter is similar to the BoxFilter but with linearly sloped sides.  It has value 1.0
+  in the interval abs(x) <= 1.0 - radius and decreases linearly to value 0.0 in the interval
+  1.0 - radius <= abs(x) <= radius, always with value 0.5 at x = 0.5.
   """
 
   def __init__(self, *, radius: Optional[float] = None) -> None:
@@ -2211,7 +2211,11 @@ class TriangleFilter(Filter):
 
 
 class CubicFilter(Filter):
-  """Parameterized family of cubic filters.
+  """Family of cubic filters parameterized by two scalar parameters.
+
+  Args:
+    b: first scalar parameter.
+    c: second scalar parameter.
 
   See https://en.wikipedia.org/wiki/Mitchell%E2%80%93Netravali_filters and
   https://doi.org/10.1145/378456.378514.
@@ -2219,9 +2223,7 @@ class CubicFilter(Filter):
   [D. P. Mitchell and A. N. Netravali. Reconstruction filters in computer graphics.
   Computer Graphics (Proceedings of ACM SIGGRAPH 1988), 22(4):221-228, 1988.]
 
-  The filter is parameterized by two scalar parameters (b, c):
-
-  - The filter has quadratic precision iff b + 2*c == 1.
+  - The filter has quadratic precision iff b + 2 * c == 1.
   - The filter is interpolating iff b == 0.
   - (b=1, c=0) is the (non-interpolating) cubic B-spline basis;
   - (b=1/3, c=1/3) is the Mitchell filter;
@@ -2289,6 +2291,10 @@ class SharpCubicFilter(CubicFilter):
 class LanczosFilter(Filter):
   """High-quality filter: sinc function modulated by a sinc window.
 
+  Args:
+    radius: Specifies support window [-radius, radius] over which filter is nonzero.
+    sampled: If True, use a discretized approximation for improved speed.
+
   See https://en.wikipedia.org/wiki/Lanczos_kernel.
   """
 
@@ -2313,8 +2319,12 @@ class LanczosFilter(Filter):
 class GeneralizedHammingFilter(Filter):
   """Sinc function modulated by a Hamming window.
 
-  See https://en.wikipedia.org/wiki/Window_function#Hann_and_Hamming_windows and hamming() in
-  https://github.com/scipy/scipy/blob/master/scipy/signal/windows/windows.py.
+  Args:
+    radius: Specifies support window [-radius, radius] over which filter is nonzero.
+    a0: Scalar parameter, where 0.0 < a0 < 1.0.  The case of a0=0.5 is the Hann filter.
+
+  See https://en.wikipedia.org/wiki/Window_function#Hann_and_Hamming_windows,
+  and hamming() in https://github.com/scipy/scipy/blob/master/scipy/signal/windows/windows.py.
 
   Generalized version of np.hamming() and np.hanning().
   """
@@ -2351,7 +2361,7 @@ class KaiserFilter(Filter):
       (sample spacing s != 1) with an even number of samples (dual grid), e.g., Eq. (6)
       in [Karras et al. 2021] --- this effects the precise shape of the window function.
     beta: Determines the trade-off between main-lobe width and side-lobe level.
-    sampled: Use a precomputed discretized approximation for improved speed.
+    sampled: If True, use a discretized approximation for improved speed.
   """
 
   def __init__(self, *, radius: float, beta: float, sampled: bool = True) -> None:
@@ -2374,9 +2384,11 @@ class KaiserFilter(Filter):
 class BsplineFilter(Filter):
   """B-spline of a non-negative degree.
 
-  - With `degree=0`, it should be `BoxFilter`; however, f(0.5) = f(-0.5) = 0.
-  - With `degree=1`, reproduces `TriangleFilter`.
-  - With `degree >= 2`, it is no longer interpolating.
+  Args:
+    degree: The polynomial degree of the B-spline segments.
+      - With `degree=0`, it is like `BoxFilter` except with f(0.5) = f(-0.5) = 0.
+      - With `degree=1`, it is identical to `TriangleFilter`.
+      - With `degree >= 2`, it is no longer interpolating.
 
   See [Carl de Boor.  A practical guide to splines.  Springer, 2001.]
   https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.BSpline.html
@@ -2397,6 +2409,10 @@ class BsplineFilter(Filter):
 
 class CardinalBsplineFilter(Filter):
   """Interpolating B-spline, achieved with aid of digital pre or post filter.
+
+  Args:
+    degree: The polynomial degree of the B-spline segments.
+    sampled: If True, use a discretized approximation for improved speed.
 
   See [Hou and Andrews.  Cubic splines for image interpolation and digital filtering, 1978] and
   [Unser et al.  Fast B-spline transforms for continuous image representation and interpolation,
@@ -2425,6 +2441,9 @@ class CardinalBsplineFilter(Filter):
 class OmomsFilter(Filter):
   """OMOMS interpolating filter, with aid of digital pre or post filter.
 
+  Args:
+    degree: The polynomial degree of the filter segments.
+
   Optimal MOMS (maximal-order-minimal-support) function; see [Blu and Thevenaz, MOMS: Maximal-order
   interpolation of minimal support, 2001].
   https://infoscience.epfl.ch/record/63074/files/blu0101.pdf
@@ -2451,12 +2470,16 @@ class OmomsFilter(Filter):
 
 
 class GaussianFilter(Filter):
-  """See https://en.wikipedia.org/wiki/Gaussian_function."""
+  """See https://en.wikipedia.org/wiki/Gaussian_function.
+
+  Args:
+    standard_deviation: Sets the Gaussian $\sigma$.  The default value is 1.25/3.0, which
+      creates a kernel that is as-close-as-possible to a partition of unity.
+  """
 
   DEFAULT_STANDARD_DEVIATION = 1.25 / 3.0
   """This value creates a kernel that is as-close-as-possible to a partition of unity; see
-  mesh_processing/test/GridOp_test.cpp:
-     0.93503:1.06497     av=1           sd=0.0459424
+  mesh_processing/test/GridOp_test.cpp: `0.93503:1.06497     av=1           sd=0.0459424`.
   Another possibility is 0.5, as suggested on p. 4 of [Ken Turkowski.  Filters for common
   resampling tasks, 1990] for kernels with a support of 3 pixels.
   https://cadxfem.org/inf/ResamplingFilters.pdf
@@ -2477,7 +2500,11 @@ class GaussianFilter(Filter):
 
 
 class NarrowBoxFilter(Filter):
-  """Compact footprint, used for visualization of grid sample location."""
+  """Compact footprint, used for visualization of grid sample location.
+
+  Args:
+    radius: Support [-radius, radius] of the narrow box function, with default value 0.199.
+  """
 
   def __init__(self, *, radius: float = 0.199) -> None:
     super().__init__(name='narrowbox', radius=radius, continuous=False, unit_integral=False,
@@ -3314,7 +3341,7 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
     with shape `shape + array.shape[len(shape):]` and data type `dtype`.
 
   >>> result = resize([1.0, 4.0, 5.0], shape=(4,))
-  >>> assert np.allclose(result, [0.74240461, 2.88088827, 4.68647155, 5.02641199]), result
+  >>> assert np.allclose(result, [0.74240461, 2.88088827, 4.68647155, 5.02641199])
   """
   if isinstance(array, (tuple, list)):
     array = np.asarray(array)
@@ -4738,8 +4765,8 @@ _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
     # GaussianFilter(0.5): 'gaussian',  # radius_4 > desired_radius_3.
 }
 
-def tfi_resize(array: Any, shape: Sequence[int], filter: str = 'lanczos3',
-               antialias: bool = True) -> _TensorflowTensor:
+def tf_image_resize(array: Any, shape: Sequence[int], filter: str = 'lanczos3',
+                    antialias: bool = True) -> _TensorflowTensor:
   """Invoke `tf.image.resize` using the same parameters as `resize`."""
   import tensorflow as tf
   array = tf.convert_to_tensor(array)
@@ -4747,20 +4774,20 @@ def tfi_resize(array: Any, shape: Sequence[int], filter: str = 'lanczos3',
   shape = tuple(shape)
   _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
-    return tfi_resize(array[None], (1, *shape), filter=filter, antialias=antialias)[0]
+    return tf_image_resize(array[None], (1, *shape), filter=filter, antialias=antialias)[0]
   if array.ndim == 2:
-    return tfi_resize(array[..., None], shape, filter=filter, antialias=antialias)[..., 0]
+    return tf_image_resize(array[..., None], shape, filter=filter, antialias=antialias)[..., 0]
   method = _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER[filter]
   return tf.image.resize(array, shape, method=method, antialias=antialias)
 
 
 # %% tags=[]
 # Export: outside library.
-test_resizer_produces_correct_shape(tfi_resize)
+test_resizer_produces_correct_shape(tf_image_resize)
 
 
 # %% tags=[]
-def test_tfi_resize() -> None:
+def test_tf_image_resize() -> None:
   # https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/image/resize_area_op.cc
   original_shape = 32, 32, 1
   array = np.random.random(original_shape)
@@ -4773,7 +4800,7 @@ def test_tfi_resize() -> None:
       continue  # Avoid comparing against poor (aliased) downsampling.
     if filter == 'cubic' and not antialias:
       continue  # Cubic without `antialias` uses an older, different code path.
-    tfi_result = tfi_resize(array, shape, filter=filter, antialias=antialias).numpy()
+    tfi_result = tf_image_resize(array, shape, filter=filter, antialias=antialias).numpy()
     reference = resize(array, shape, boundary='natural', filter=filter)
     # atol=4e-6 works most of the time, but fails intermittently, perhaps due to parallelism?
     assert np.allclose(tfi_result, reference, rtol=0, atol=1e-5), config
@@ -4782,7 +4809,7 @@ def test_tfi_resize() -> None:
     assert rms < 1e-6, (config, rms)
 
 if EFFORT >= 1:
-  test_tfi_resize()
+  test_tf_image_resize()
 
 # %% [markdown]
 # **torch.nn.functional.interpolate:**
@@ -5079,7 +5106,7 @@ def experiment_with_resize_timing() -> None:
       t0 = hh.get_time(lambda: resize_in_numpy(*args, **kwargs))
       t1 = hh.get_time(lambda: resize_in_tensorflow(*args, **kwargs))
       t2 = hh.get_time(lambda: resize_in_torch(*args, **kwargs))
-      t3 = hh.get_time(lambda: tfi_resize(*args))
+      t3 = hh.get_time(lambda: tf_image_resize(*args))
       src_str = str(src_shape).replace(' ', '')
       dst_str = str(dst_shape).replace(' ', '')
       print(f'# {dtype:7} {src_str:>13}->{dst_str:11}'
@@ -5183,7 +5210,7 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
       'resize_in_numpy': lambda: resize_in_numpy(array, new_shape, filter=filter),
       'resize_in_tensorflow': lambda: resize_in_tensorflow(array, new_shape, filter=filter),
       'resize_in_torch': lambda: resize_in_torch(array, new_shape, filter=filter),
-      'tfi_resize': lambda: tfi_resize(array, new_shape, filter=filter),
+      'tf_image_resize': lambda: tf_image_resize(array, new_shape, filter=filter),
   }
   if filter == 'trapezoid':
     functions = {
@@ -5229,7 +5256,7 @@ if EFFORT >= 2:
 # %% [markdown]
 # Conclusions:
 # - For `box`/`trapezoid` downsampling, the numba-jitted special path used in `resize_in_numpy` is
-#   the fastest --- even faster than the C++ code in `tfi_resize` (`tf.image.resize`).
+#   the fastest --- even faster than the C++ code in `tf.image.resize`.
 # - For `lanczos3` downsampling, `resize_in_numpy` is slightly faster than `tf.image.resize`.
 
 # %% tags=[]
@@ -5242,7 +5269,7 @@ def test_profile_upsampling(shape, new_shape, filter='lanczos3',
       'resize_in_numpy': lambda: resize_in_numpy(array, new_shape, filter=filter),
       'resize_in_tensorflow': lambda: resize_in_tensorflow(array, new_shape, filter=filter),
       'resize_in_torch': lambda: resize_in_torch(array, new_shape, filter=filter),
-      'tfi_resize': lambda: tfi_resize(array, new_shape, filter=filter, antialias=False),
+      'tf_image_resize': lambda: tf_image_resize(array, new_shape, filter=filter, antialias=False),
   }
   print(f'** {shape} -> {new_shape} {filter} {dtype}:')
   expected = resize_in_numpy(array, new_shape, filter=filter)
@@ -5266,9 +5293,9 @@ if EFFORT >= 2:
 
 # %% [markdown]
 # Conclusions:
-# - For `lanczos3` upsampling, `resize` is faster than `tfi_resize` (`tf.image.resize`).
+# - For `lanczos3` upsampling, `resize` is faster than `tf.image.resize`.
 # - For the hardcoded `cubic` and `triangle` implementations (invoked only when `antialias=False`),
-#   `tfi_resize` is faster.
+#   `tf.image.resize` is faster.
 
 # %%
 # With internal_torch_contiguous=False:
@@ -7879,36 +7906,18 @@ if 0:
   build_pypi_package(upload=True)
 
 
-# %%
+# %% tags=[]
 def make_pdoc() -> None:
   """Create pdoc HTML documentation."""
-  hh.run('pip install -q pdoc')
-  hh.run('pdoc -o html resampler')  # --math --logo URL
-  hh.run('ls -al html/resampler.html')
+  # hh.run('pip install -q pdoc')
+  # Use custom template ./pdoc/module.html.jinja2 and output ./html/resampler.html .
+  hh.run('pdoc --math -t ./pdoc -o html ./resampler')  # --logo URL
 
-if 0:  # Run within a docker or other container.
+if 1:
   make_pdoc()
 
-
 # %% tags=[]
-def test_pdoc() -> None:
-  hh.run('mkdir -p test1/test1')
-  hh.run(
-      "(echo 'from typing import Union';"
-      " echo 'def test1_func(arg: Union[None, str, int]) -> None:';"
-      " echo '  return') > test1/test1/__init__.py")
-  hh.run('cat test1/test1/__init__.py')
-  hh.run('pdoc --html --force test1')
-  hh.run('pdoc --version')
-
-if 0:  # For debug.
-  test_pdoc()
-# It shows:
-# def test1_func(arg: Union[ForwardRef(None), str, int]) -> None
-# https://github.com/pdoc3/pdoc/issues/395
-
-# %% tags=[]
-# Publish pdoc to GitHub.
+# Publish pdoc to GitHub.  delete ??
 _ = r"""
 tmp_dir=$(mktemp -d)
 cd "${tmp_dir}"
