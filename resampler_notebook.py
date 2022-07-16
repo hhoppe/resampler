@@ -400,7 +400,7 @@ def _check_eq(a: Any, b: Any) -> None:
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q hhoppe-tools jupytext matplotlib mediapy Pillow scikit-image tensorflow-cpu torch torchvision
+# !pip install -q hhoppe-tools jupytext matplotlib mediapy pdoc Pillow scikit-image tensorflow-cpu torch torchvision
 
 # %% tags=[]
 import copy
@@ -7907,14 +7907,13 @@ if 0:
 
 
 # %% tags=[]
-def make_pdoc() -> None:
+def create_documentation_files() -> None:
   """Create pdoc HTML documentation."""
-  # hh.run('pip install -q pdoc')
   # Use custom template ./pdoc/module.html.jinja2 and output ./docs/*.
   hh.run('pdoc --math -t ./pdoc -o ./docs ./resampler')  # --logo URL
 
 if 1:
-  make_pdoc()
+  create_documentation_files()
 
 # %% tags=[]
 # Publish pdoc to GitHub.  delete ??
