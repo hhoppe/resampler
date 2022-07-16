@@ -7887,7 +7887,7 @@ if EFFORT >= 2 or 0:
 # c:/windows/sysnative/wsl -e bash -lc 'f=resampler/__init__.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "gradgradcheck|Untyped decorator| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0301,C0302,R0903,R0913,R0914,W0125,W0301,W0511,W0622,W0640 "$f" | egrep -v "E1101: Module .(torch|cv2)|Method .(jvp|vjp)|W0221.*(forward|backward)|C0415.*(tensorflow|torch|PIL|cv2)"; echo All ran.'
 # ```
 
-# %%
+# %% tags=[]
 def build_pypi_package(upload: bool = False) -> None:
   # hh.run('git clone -q https://github.com/hhoppe/resampler')
   if 0:
