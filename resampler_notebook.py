@@ -403,7 +403,7 @@ def check_eq(a: Any, b: Any) -> None:
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q hhoppe-tools jupytext matplotlib mediapy 'Pillow>=9.1.0' scikit-image tensorflow-cpu torch 'torchvision>=0.13.0'
+# !pip install -q hhoppe-tools jupytext matplotlib mediapy Pillow scikit-image tensorflow-cpu torch torchvision
 
 # %% tags=[]
 import copy
@@ -4470,7 +4470,8 @@ test_resizer_produces_correct_shape(resize_in_torch)
 
 # %% tags=[]
 # https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize
-#  resample=PIL.Image.Resampling.NEAREST  # or BOX, BILINEAR, BICUBIC, HAMMING, LANCZOS.
+#  (PIL.Image.NEAREST should become PIL.Image.Resampling.NEAREST but compatibility issues.)
+#  resample=PIL.Image.NEAREST  # or BOX, BILINEAR, BICUBIC, HAMMING, LANCZOS.
 #  Only 2D float image or 2D 3-or-4-channel uint8 image.
 #  Undocumented boundary rule is 'natural'.
 #  Undocumented Lanczos has radius=3 and seems imperfectly normalized.
@@ -4488,12 +4489,12 @@ def pil_image_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
     return pil_image_resize(array[None], (1, *shape), filter=filter)
   import PIL.Image
   pil_resample = {
-      'impulse': PIL.Image.Resampling.NEAREST,
-      'box': PIL.Image.Resampling.BOX,
-      'triangle': PIL.Image.Resampling.BILINEAR,
-      'hamming1': PIL.Image.Resampling.HAMMING,  # GeneralizedHammingFilter(1, a0=0.54)
-      'cubic': PIL.Image.Resampling.BICUBIC,
-      'lanczos3': PIL.Image.Resampling.LANCZOS,
+      'impulse': PIL.Image.NEAREST,
+      'box': PIL.Image.BOX,
+      'triangle': PIL.Image.BILINEAR,
+      'hamming1': PIL.Image.HAMMING,  # GeneralizedHammingFilter(1, a0=0.54)
+      'cubic': PIL.Image.BICUBIC,
+      'lanczos3': PIL.Image.LANCZOS,
   }[filter]
   if array.ndim == 2:
     return np.array(PIL.Image.fromarray(array).resize(
@@ -4534,7 +4535,7 @@ def test_undocumented_lanczos_in_pil_image() -> None:
   array = np.array([0, 0, 0, 1, 0, 0, 0], dtype=np.float32)
   new_len = len(array) * 2
   new_array = np.array(PIL.Image.fromarray(array[None]).resize(
-      (new_len, 1), resample=PIL.Image.Resampling.LANCZOS))[0]
+      (new_len, 1), resample=PIL.Image.LANCZOS))[0]
   lanczos = resize(array, (new_len,), filter=LanczosFilter(radius=3))
   if 1:
     print(new_array)
@@ -4544,7 +4545,7 @@ def test_undocumented_lanczos_in_pil_image() -> None:
   array = np.linspace(0.2, 0.8, 13)
   new_len = len(array) * 8
   new_array = np.array(PIL.Image.fromarray(array[None]).resize(
-      (new_len, 1), resample=PIL.Image.Resampling.BICUBIC))[0, :8]
+      (new_len, 1), resample=PIL.Image.BICUBIC))[0, :8]
   natural = resize(array, (new_len,), boundary='natural', filter='cubic')[:8]
   assert np.allclose(new_array, natural)
 
@@ -4930,16 +4931,18 @@ test_torchvision_resize()
 # %% tags=[]
 def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7)) -> None:
   import torch
-  import torchvision
-  TorchVisionMode = torchvision.transforms.InterpolationMode
-  functions = {
+  torch_functions = {
       'interpolate linear AA': lambda array: torch.nn.functional.interpolate(
           array[None][None], dst_shape, mode='bilinear', align_corners=False, antialias=True),
       'interpolate cubic AA': lambda array: torch.nn.functional.interpolate(
           array[None][None], dst_shape, mode='bicubic', align_corners=None, antialias=True),
       'interpolate trapezoid/area': lambda array: torch.nn.functional.interpolate(
           array[None][None], dst_shape, mode='area', align_corners=None, antialias=False),
-      #
+  }
+
+  import torchvision
+  TorchVisionMode = torchvision.transforms.InterpolationMode
+  torchvision_functions = {
       'torchvision linear AA': lambda array: torchvision.transforms.functional.resize(
           array[None], dst_shape, interpolation=TorchVisionMode.BILINEAR, antialias=True),
       'torchvision cubic AA': lambda array: torchvision.transforms.functional.resize(
@@ -4947,6 +4950,11 @@ def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7
       'torchvision nearest AA': lambda array: torchvision.transforms.functional.resize(
           array[None], dst_shape, interpolation=TorchVisionMode.NEAREST, antialias=False),
   }
+
+  functions = torch_functions
+  if 0:  # This seems to require 'torchvision>=0.13.0'.
+    functions = {**functions, **torchvision_functions}
+
   array_np = np.random.random(src_shape).astype('float64', copy=False)
   array = torch.tensor(array_np, requires_grad=True)
   for name, function in functions.items():
@@ -7961,7 +7969,7 @@ show_added_global_variables_sorted_by_type()
 print(f'EFFORT={EFFORT}')
 hh.show_notebook_cell_top_times()
 # # ??
-# Local: ~50 s.
+# Local: ~48 s.
 # Colab: ~? s
 # Kaggle: ~85 s.
 # MyBinder: ~? s.
