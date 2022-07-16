@@ -2735,13 +2735,15 @@ def pil_image_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
   if array.ndim == 1:
     return pil_image_resize(array[None], (1, *shape), filter=filter)
   import PIL.Image
+  if not hasattr(PIL.Image, 'Resampling'):  # Pillow<9.0
+    PIL.Image.Resampling = PIL.Image
   pil_resample = {
-      'impulse': PIL.Image.NEAREST,
-      'box': PIL.Image.BOX,
-      'triangle': PIL.Image.BILINEAR,
-      'hamming1': PIL.Image.HAMMING,  # GeneralizedHammingFilter(1, a0=0.54)
-      'cubic': PIL.Image.BICUBIC,
-      'lanczos3': PIL.Image.LANCZOS,
+      'impulse': PIL.Image.Resampling.NEAREST,
+      'box': PIL.Image.Resampling.BOX,
+      'triangle': PIL.Image.Resampling.BILINEAR,
+      'hamming1': PIL.Image.Resampling.HAMMING,  # GeneralizedHammingFilter(1, a0=0.54)
+      'cubic': PIL.Image.Resampling.BICUBIC,
+      'lanczos3': PIL.Image.Resampling.LANCZOS,
   }[filter]
   if array.ndim == 2:
     return np.array(PIL.Image.fromarray(array).resize(
