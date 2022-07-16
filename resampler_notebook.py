@@ -7910,8 +7910,8 @@ if 0:
 def make_pdoc() -> None:
   """Create pdoc HTML documentation."""
   # hh.run('pip install -q pdoc')
-  # Use custom template ./pdoc/module.html.jinja2 and output ./html/resampler.html .
-  hh.run('pdoc --math -t ./pdoc -o html ./resampler')  # --logo URL
+  # Use custom template ./pdoc/module.html.jinja2 and output ./docs/*.
+  hh.run('pdoc --math -t ./pdoc -o ./docs ./resampler')  # --logo URL
 
 if 1:
   make_pdoc()
