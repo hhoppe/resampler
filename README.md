@@ -3,22 +3,23 @@
 [Hugues Hoppe](https://hhoppe.com/)
 &nbsp;&nbsp; Aug 2022.
 
-[**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler.ipynb)
-&nbsp; [**[in Kaggle]**](https://www.kaggle.com/notebooks/welcome?src=https://github.com/hhoppe/resampler/blob/main/resampler.ipynb)
-&nbsp; [**[in MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/main?filepath=resampler.ipynb)
-&nbsp; [**[in DeepNote]**](https://deepnote.com/launch?url=https%3A%2F%2Fgithub.com%2Fhhoppe%2Fresampler%2Fblob%2Fmain%2Fresampler.ipynb)
-&nbsp; [**[GitHub source]**](https://github.com/hhoppe/resampler)
-&nbsp; [**[API docs]**](https://hhoppe.github.io/resampler/)
-&nbsp; [**[PyPI package]**](https://pypi.org/project/resampler/)
+[**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+&nbsp;
+[**[in Kaggle]**](https://www.kaggle.com/notebooks/welcome?src=https://github.com/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+&nbsp;
+[**[in MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/main?filepath=resampler_notebook.ipynb)
+&nbsp;
+[**[in DeepNote]**](https://deepnote.com/launch?url=https%3A%2F%2Fgithub.com%2Fhhoppe%2Fresampler%2Fblob%2Fmain%2Fresampler_notebook.ipynb)
+&nbsp;
+[**[GitHub source]**](https://github.com/hhoppe/resampler)
+&nbsp;
+[**[API docs]**](https://hhoppe.github.io/resampler/)
+&nbsp;
+[**[PyPI package]**](https://pypi.org/project/resampler/)
 
-This Python notebook has several roles:
-- Source code for the `resampler` library.
-- Illustrated documentation.
-- Usage examples.
-- Unit tests.
-- Signal-processing experiments to justify choices.
-- Lint, build, and export the package and its documentation.
-
+This Python notebook hosts the source code for the
+[resampler library in PyPI](https://pypi.org/project/resampler/),
+interleaved with documentation, usage examples, unit tests, and signal-processing experiments.
 
 # Overview
 
@@ -58,6 +59,7 @@ It supports:
 - **faster resizing** than the C++ implementations
   in `tf.image`, `torch.nn`, and `torchvision`.
 
+A key strategy is to build on existing sparse matrix representations and operations.
 
 ## Example usage
 
@@ -69,9 +71,10 @@ import resampler
 ```
 
 ```python
-array = np.random.rand(4, 4, 3)  # 4x4 RGB image.
-upsampled = resampler.resize(array, (128, 128))  # To 128x128 resolution.
-media.show_images({'4x4': array, '128x128': upsampled}, height=128)
+rng = np.random.default_rng(seed=1)
+array = rng.random((4, 6, 3))  # 4x6 RGB image.
+upsampled = resampler.resize(array, (128, 192))  # To 128x192 resolution.
+media.show_images({'4x6': array, '128x192': upsampled}, height=128)
 ```
 > <img src="https://drive.google.com/uc?export=download&id=1tXm7Z8_ILYpTOsW1a5Z4S-Dvd1vcn7Q5"/>
 
@@ -87,7 +90,7 @@ import matplotlib.pyplot as plt
 ```
 
 ```python
-array = [3.0, 5.0, 8.0, 7.0]
+array = [3.0, 5.0, 8.0, 7.0]  # 4 source samples in 1D.
 new_dual = resampler.resize(array, (32,))  # (default gridtype='dual') 8x resolution.
 new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
 _, axs = plt.subplots(1, 2, figsize=(7, 1.5))
@@ -97,14 +100,15 @@ axs[0].plot((np.arange(len(new_dual)) + 0.5) / len(new_dual), new_dual, '.')
 axs[1].set_title('gridtype primal')
 axs[1].plot(np.arange(len(array)) / (len(array) - 1), array, 'o')
 axs[1].plot(np.arange(len(new_primal)) / (len(new_primal) - 1), new_primal, '.')
+plt.show()
 ```
 > <img src="https://drive.google.com/uc?export=download&id=1VGjyX2nvBKaWyGbrMt3g0Nd3G1YdtFjg"/>
 
 ```python
 batch_size = 4
 batch_of_images = media.moving_circle((16, 16), batch_size)
-spacer = np.ones((64, 16, 3))
 upsampled = resampler.resize(batch_of_images, (batch_size, 64, 64))
+spacer = np.ones((64, 16, 3))
 media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
 ```
 > <img src="https://drive.google.com/uc?export=download&id=1PLHu5mCpmb-_54ybvfr6kLUUTHD6l73t"/>
@@ -112,7 +116,10 @@ media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64
 ```python
 media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
 ```
-> original<img src="https://drive.google.com/uc?export=download&id=1WCwwbgYZordX14-XvHiV2Gc_60I1KD39"/>&nbsp; upsampled<img src="https://drive.google.com/uc?export=download&id=11Of3Gbv6p2BTxJD2rO0zAWEEv4w3BIe5"/>
+> original
+<img src="https://drive.google.com/uc?export=download&id=1WCwwbgYZordX14-XvHiV2Gc_60I1KD39"/>
+upsampled
+<img src="https://drive.google.com/uc?export=download&id=11Of3Gbv6p2BTxJD2rO0zAWEEv4w3BIe5"/>
 
 Most examples above use the default
 `resize()` settings:
@@ -163,11 +170,11 @@ media.show_images({'image': image, 'resampled': resampled})
 **Limitations:**
 
 - Filters are assumed to be [separable](https://en.wikipedia.org/wiki/Separable_filter).
-For rotation equivariance (e.g., bandlimit the signal uniformly in all directions),
-it would be nice to support the (non-separable) 2D rotationally symmetric
-[sombrero function](https://en.wikipedia.org/wiki/Sombrero_function)
-$f(\textbf{x}) = \text{jinc}(\|\textbf{x}\|)$,
-where $\text{jinc}(r) = 2J_1(\pi r)/(\pi r)$.
-(The Fourier transform of a circle
-[involves the first-order Bessel function of the first kind](
-  https://en.wikipedia.org/wiki/Airy_disk).)
+  For rotation equivariance (e.g., bandlimit the signal uniformly in all directions),
+  it would be nice to support the (non-separable) 2D rotationally symmetric
+  [sombrero function](https://en.wikipedia.org/wiki/Sombrero_function)
+  $f(\textbf{x}) = \text{jinc}(\|\textbf{x}\|)$,
+  where $\text{jinc}(r) = 2J_1(\pi r)/(\pi r)$.
+  (The Fourier transform of a circle
+  [involves the first-order Bessel function of the first kind](
+    https://en.wikipedia.org/wiki/Airy_disk).)

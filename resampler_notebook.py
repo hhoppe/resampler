@@ -87,7 +87,7 @@
 # - [**faster resizing**](#Test-other-libraries) than the C++ implementations
 #   in `tf.image`, `torch.nn`, and `torchvision`.
 #
-# A key idea is to build on existing sparse matrix representations and operations.
+# A key strategy is to build on existing sparse matrix representations and operations.
 
 # %% [markdown]
 # ## Example usage
@@ -200,14 +200,14 @@
 # **Limitations:**
 #
 # - Filters are assumed to be [separable](https://en.wikipedia.org/wiki/Separable_filter).
-# For rotation equivariance (e.g., bandlimit the signal uniformly in all directions),
-# it would be nice to support the (non-separable) 2D rotationally symmetric
-# [sombrero function](https://en.wikipedia.org/wiki/Sombrero_function)
-# $f(\textbf{x}) = \text{jinc}(\|\textbf{x}\|)$,
-# where $\text{jinc}(r) = 2J_1(\pi r)/(\pi r)$.
-# (The Fourier transform of a circle
-# [involves the first-order Bessel function of the first kind](
-#   https://en.wikipedia.org/wiki/Airy_disk).)
+#   For rotation equivariance (e.g., bandlimit the signal uniformly in all directions),
+#   it would be nice to support the (non-separable) 2D rotationally symmetric
+#   [sombrero function](https://en.wikipedia.org/wiki/Sombrero_function)
+#   $f(\textbf{x}) = \text{jinc}(\|\textbf{x}\|)$,
+#   where $\text{jinc}(r) = 2J_1(\pi r)/(\pi r)$.
+#   (The Fourier transform of a circle
+#   [involves the first-order Bessel function of the first kind](
+#     https://en.wikipedia.org/wiki/Airy_disk).)
 
 
 # %% [markdown]
@@ -295,13 +295,13 @@
 # - Efficient implementation of resize/resample is enabled by [two key
 #   observations](http://www2.eecs.berkeley.edu/Pubs/TechRpts/1989/CSD-89-516.pdf):
 #
-#   (1) For upsampling (magnification), the sampling prefilter is *unnecessary*
-#       because the reconstructed field is already
-#       [bandlimited](https://en.wikipedia.org/wiki/Bandlimiting).
+#   1. For upsampling (magnification), the sampling prefilter is *unnecessary*
+#      because the reconstructed field is already
+#      [bandlimited](https://en.wikipedia.org/wiki/Bandlimiting).
 #
-#   (2) For downsampling (minification), the reconstruction filter
-#       can be replaced by a trivial *impulse* function because the
-#       reconstructed field is subsequently bandlimited by the sampling prefilter.
+#   2. For downsampling (minification), the reconstruction filter
+#      can be replaced by a trivial *impulse* function because the
+#      reconstructed field is subsequently bandlimited by the sampling prefilter.
 
 # %% [markdown]
 # [extra notes]
@@ -339,10 +339,13 @@
 # %% tags=[]
 """resampler: efficient, flexible, differentiable resizing and warping of grids.
 
-[Open in Colab](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
-[GitHub source](https://github.com/hhoppe/resampler)
-[API docs](https://hhoppe.github.io/resampler/)
-[PyPI package](https://pypi.org/project/resampler/)
+[**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+&nbsp;
+[**[GitHub source]**](https://github.com/hhoppe/resampler)
+&nbsp;
+[**[API docs]**](https://hhoppe.github.io/resampler/)
+&nbsp;
+[**[PyPI package]**](https://pypi.org/project/resampler/)
 """;
 
 # %% tags=[]
@@ -352,7 +355,7 @@ __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 # %%
 # Export: outside library.
-# # !pip install -qU pip
+# !pip install -qU pip
 # !pip install -q 'numba>=0.55.1' numpy scipy
 
 # %% tags=[]
@@ -1603,7 +1606,7 @@ def _get_gridtypes(
 #
 # <table><tr>
 # <td><img src="https://drive.google.com/uc?export=download&id=1PwxaQ-lVsseukCGlRShUaUHH5qt3ke-6" width="400"/></td>
-# <td>$\hspace{20mm}$</td>
+# <td>&emsp;&emsp;&emsp;&emsp;</td>
 # <td><img src="https://docs.google.com/drawings/d/e/2PACX-1vTcttrI22EFrE_n4_TOHxY-ue-TVzA7674-hGc9IsdiDWFEQ6Y4GGaa7Mez0VAyZH8EltM5ca2A2IS-/pub?h=150" width="350"/></td>
 # </tr></table>
 #
@@ -2547,6 +2550,9 @@ def get_filter(filter: Union[str, Filter]) -> Filter:
 # and take the square-root before quantizing the values back to `uint8`.
 #
 # For other data types, the default transfer function is `gamma='identity'`.
+
+# %%
+# fix the table above ??
 
 # %%
 def _to_float_01(array: _Array, dtype: Any) -> _Array:
@@ -4543,7 +4549,7 @@ def test_undocumented_lanczos_in_pil_image() -> None:
 
 if EFFORT >= 1:
   test_undocumented_lanczos_in_pil_image()
-# Conclusions: (1) Their Lanczos radius is 3.  (2) Their boundary rule is 'natural'.
+# Conclusions: (1) their Lanczos radius is 3; (2) their boundary rule is 'natural'.
 
 # %% [markdown]
 # **cv.resize:**
@@ -7964,10 +7970,10 @@ print(f'EFFORT={EFFORT}')
 hh.show_notebook_cell_top_times()
 # # ??
 # Local: ~48 s.
-# Colab: ~140 s
-# Kaggle: ~95 s.
-# MyBinder: ~? s.
-# DeepNote: ~90 s.
+# Colab: ~170 s
+# Kaggle: ~88 s.
+# MyBinder: ~80 s.
+# DeepNote: ~74 s.
 
 # %%
 # EFFORT=1:
