@@ -7908,7 +7908,18 @@ if 0:
 
 # %% tags=[]
 def create_documentation_files() -> None:
-  """Create pdoc HTML documentation."""
+  """Create pdoc HTML documentation.
+  First-time setup of gh-pages branch (GitHub Pages then turns on automatically):
+    cd ~/tmp
+    git clone git@github.com:hhoppe/resampler.git
+    cd resampler
+    git checkout --orphan gh-pages
+    git reset --hard
+    git commit --allow-empty -m "Initializing gh-pages branch"
+    git push origin gh-pages
+    cd ..
+    rm -rf resampler
+  """
   # Use custom template ./pdoc/module.html.jinja2 and output ./docs/*.
   hh.run('pdoc --math -t ./pdoc -o ./docs ./resampler')  # --logo URL
 
