@@ -3097,7 +3097,7 @@ def _best_order_in_which_to_process_dimensions(
   return dim_order
 
 
-# %%
+# %% tags=[]
 def _apply_potential_digital_filter_1d(  # pylint: disable=too-many-statements
     array: _Array, gridtype: Gridtype, boundary: Boundary, cval: Any, filter: Filter,
     axis: int = 0, compute_backward: bool = False) -> _Array:
@@ -3148,7 +3148,7 @@ def _apply_potential_digital_filter_1d(  # pylint: disable=too-many-statements
             grad_output.detach().numpy(), gridtype, boundary, cval, filter,
             axis, compute_backward=True))
 
-    return InverseConvolution().apply(array)  # type: ignore[no-untyped-call]
+    return InverseConvolution.apply(array)
 
   assert np.issubdtype(array.dtype, np.inexact)
   cval = np.asarray(cval).astype(array.dtype, copy=False)
@@ -4318,7 +4318,7 @@ def resample_affine(
   # convolution prefilter and apply it to bandlimit 'array', using boundary for padding.
 
   return resample(array, coords, gridtype=src_gridtype2, filter=filter2, prefilter=prefilter2,
-                  precision=precision, dtype=dtype, **kwargs)`
+                  precision=precision, dtype=dtype, **kwargs)
 
 
 # %%
@@ -7942,6 +7942,14 @@ def write_copy_of_notebook_without_code(filename: str, output_filename: str) -> 
 if 0:
   write_copy_of_notebook_without_code('resampler_notebook.ipynb', 'no_code.ipynb')
   # Remember to run command 'Trust notebook' when opening it.
+
+
+# %%
+def run_pytest() -> None:
+  hh.run('pytest --doctest-modules --ignore=Old --ignore=Other --ignore=resampler_other.py')
+
+if 0:
+  run_pytest()
 
 # %% [markdown]
 # # Epilog
