@@ -1062,7 +1062,7 @@ Examples include: 'reflect', 'wrap', 'tile', 'clamp', 'border', etc."""
 class Filter:
   """Abstract base class for filter kernel functions.
 
-  Each kernel is assumed to be zero-phase filter, i.e., to be symmetric in a support
+  Each kernel is assumed to be a zero-phase filter, i.e., to be symmetric in a support
   interval [-radius, radius].  (Some sites instead define kernels over the interval [0, N]
   where N = 2 * radius.)
 
@@ -1128,7 +1128,7 @@ class TrapezoidFilter(Filter):
   """Filter for antialiased "area-based" filtering.
 
   Args:
-    radius: Specifies the support [-radius, radius] of filter, where 0.5 < radius <= 1.0.
+    radius: Specifies the support [-radius, radius] of the filter, where 0.5 < radius <= 1.0.
       The special case `radius = None` is a placeholder that indicates that the filter will be
       replaced by a trapezoid of the appropriate radius (based on scaling) for correct
       antialiasing in both minification and magnification.
@@ -1248,7 +1248,7 @@ class LanczosFilter(Filter):
   """High-quality filter: sinc function modulated by a sinc window.
 
   Args:
-    radius: Specifies support window [-radius, radius] over which filter is nonzero.
+    radius: Specifies the support window [-radius, radius] over which the filter is nonzero.
     sampled: If True, use a discretized approximation for improved speed.
 
   See https://en.wikipedia.org/wiki/Lanczos_kernel.
@@ -1276,7 +1276,7 @@ class GeneralizedHammingFilter(Filter):
   """Sinc function modulated by a Hamming window.
 
   Args:
-    radius: Specifies support window [-radius, radius] over which filter is nonzero.
+    radius: Specifies the support window [-radius, radius] over which the filter is nonzero.
     a0: Scalar parameter, where 0.0 < a0 < 1.0.  The case of a0=0.5 is the Hann filter.
 
   See https://en.wikipedia.org/wiki/Window_function#Hann_and_Hamming_windows,
@@ -1459,7 +1459,8 @@ class NarrowBoxFilter(Filter):
   """Compact footprint, used for visualization of grid sample location.
 
   Args:
-    radius: Support [-radius, radius] of the narrow box function, with default value 0.199.
+    radius: Specifies the support [-radius, radius] of the narrow box function.  (The default
+      value 0.199 is an inexact 0.2 to avoid numerical ambiguities.)
   """
 
   def __init__(self, *, radius: float = 0.199) -> None:
@@ -1689,8 +1690,8 @@ def _create_resize_matrix(      # pylint: disable=too-many-statements
     dst_gridtype: Placement of the output samples in the destination domain grid.
     boundary: The reconstruction boundary rule.
     filter: The reconstruction kernel (used for upsampling/magnification).
-    prefilter: The prefilter kernel (used for downsampling/minification).  If it is None, `filter`
-      is used.
+    prefilter: The prefilter kernel (used for downsampling/minification).  If it is `None`,
+      `filter` is used.
     scale: Scaling factor applied when mapping the source domain onto the destination domain.
     translate: Offset applied when mapping the scaled source domain onto the destination domain.
     dtype: Precision of computed resize matrix entries.
@@ -1900,7 +1901,7 @@ def _apply_potential_digital_filter_1d(  # pylint: disable=too-many-statements
             grad_output.detach().numpy(), gridtype, boundary, cval, filter,
             axis, compute_backward=True))
 
-    return InverseConvolution().apply(array)  # type: ignore[no-untyped-call]
+    return InverseConvolution.apply(array)
 
   assert np.issubdtype(array.dtype, np.inexact)
   cval = np.asarray(cval).astype(array.dtype, copy=False)
@@ -1986,7 +1987,7 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
     dim_order: Optional[Iterable[int]] = None,
     internal_torch_contiguous: bool = True,
 ) -> _Array:
-  """Resample a grid of sample values onto a grid of different resolution.
+  """Resample `array` (a grid of sample values) onto a grid with resolution `shape`.
 
   The source `array` may be an array-like, `np.ndarray`, `tf.Tensor`, or `torch.Tensor`.  The
   array is interpreted as a grid with `len(shape)` domain coordinate dimensions, where each
@@ -2011,8 +2012,8 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
       at least 2 for a `primal` grid.
     shape: The number of grid samples in each coordinate dimension of the output array.  The source
       `array` must have at least as many dimensions as `len(shape)`.
-    gridtype: Placement of samples on both the source and output domain grids, specified as either
-      a name in `GRIDTYPES` or a `Gridtype` instance.  The default is 'dual'.
+    gridtype: Placement of samples on all dimensions of both the source and output domain grids,
+      specified as either a name in `GRIDTYPES` or a `Gridtype` instance.  The default is 'dual'.
     src_gridtype: Placement of the samples in the source domain grid for each dimension.
       Parameters `gridtype` and `src_gridtype` cannot both be set.
     dst_gridtype: Placement of the samples in the output domain grid for each dimension.
@@ -2026,7 +2027,7 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
       name in `FILTERS` or a `Filter` instance.  It is used during upsampling (i.e., magnification).
     prefilter: The prefilter kernel for each dimension in `shape`, specified as either a filter
       name in `FILTERS` or a `Filter` instance.  It is used during downsampling
-      (i.e., minification).  If None, it inherits the value of `filter`.
+      (i.e., minification).  If `None`, it inherits the value of `filter`.
     gamma: Component transfer functions (e.g., gamma correction) applied when reading samples from
       `array` and when creating output grid samples.  It is specified as either a name in `GAMMAS`
       or a `Gamma` instance.  If both `array.dtype` and `dtype` are `uint`, the default is `power2`.
@@ -2041,9 +2042,9 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
       the destination domain.
     translate: Offset applied to each dimension of the scaled source domain when it is mapped onto
       the destination domain.
-    precision: Inexact precision of intermediate computations.  If None, it is determined based
+    precision: Inexact precision of intermediate computations.  If `None`, it is determined based
       on `array.dtype` and `dtype`.
-    dtype: Desired data type of the output array.  If None, it is taken to be `array.dtype`.
+    dtype: Desired data type of the output array.  If `None`, it is taken to be `array.dtype`.
       If it is a uint type, the intermediate float values are rescaled from the [0.0, 1.0] range
       to the uint range.
     dim_order: Override the automatically selected order in which the grid dimensions are resized.
@@ -2284,14 +2285,14 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     max_block_size: int = 40_000,
     debug: bool = False,
 ) -> _NDArray:
-  """Interpolate a grid of source samples at specified unit-domain coordinates.
+  """Interpolate `array` (a grid of samples) at specified unit-domain coordinates `coords`.
 
   The last dimension of `coords` contains unit-domain coordinates at which to interpolate the
   domain grid samples in `array`.
 
   The number of coordinates (`coords.shape[-1]`) determines how to interpret `array`: its first
   `coords.shape[-1]` dimensions define the grid, and the remaining dimensions describe each grid
-  sample (scalar, vector, tensor).
+  sample (e.g., scalar, vector, tensor).
 
   Concretely, the grid has shape `array.shape[:coords.shape[-1]]` and each grid sample has shape
   `array.shape[coords.shape[-1]:]`.
@@ -2334,7 +2335,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
       a filter name in `FILTERS` or a `Filter` instance.
     prefilter: The prefilter kernel for each dimension in `coords.shape[:-1]`, specified as either
       a filter name in `FILTERS` or a `Filter` instance.  It is used during downsampling
-      (i.e., minification).  If None, it inherits the value of `filter`.
+      (i.e., minification).  If `None`, it inherits the value of `filter`.
     gamma: Component transfer functions (e.g., gamma correction) applied when reading samples
       from `array` and when creating output grid samples.  It is specified as either a name in
       `GAMMAS` or a `Gamma` instance.  If both `array.dtype` and `dtype` are `uint`, the default
@@ -2349,9 +2350,9 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
       `coords.shape[:-1] + (coords.shape[-1], coords.shape[-1])`, storing for each point in the
       output grid the Jacobian matrix of the map from the unit output domain to the unit source
       domain.  If omitted, it is estimated by computing finite differences on `coords`.
-    precision: Inexact precision of intermediate computations.  If None, it is determined based on
-      `array.dtype`, `coords.dtype`, and `dtype`.
-    dtype: Desired data type of the output array.  If None, it is taken to be `array.dtype`.
+    precision: Inexact precision of intermediate computations.  If `None`, it is determined based
+      on `array.dtype`, `coords.dtype`, and `dtype`.
+    dtype: Desired data type of the output array.  If `None`, it is taken to be `array.dtype`.
       If it is a uint type, the intermediate float values are rescaled from the [0.0, 1.0] range
       to the uint range.
     max_block_size: If nonzero, maximum number of grid points in `coords` before the resampling
@@ -2615,10 +2616,10 @@ def resample_affine(
       a filter name in `FILTERS` or a `Filter` instance.
     prefilter: The prefilter kernel for each dimension in `len(shape)`, specified as either
       a filter name in `FILTERS` or a `Filter` instance.  It is used during downsampling
-      (i.e., minification).  If None, it inherits the value of `filter`.
-    precision: Inexact precision of intermediate computations.  If None, it is determined based
+      (i.e., minification).  If `None`, it inherits the value of `filter`.
+    precision: Inexact precision of intermediate computations.  If `None`, it is determined based
       on `array.dtype` and `dtype`.
-    dtype: Desired data type of the output array.  If None, it is taken to be `array.dtype`.
+    dtype: Desired data type of the output array.  If `None`, it is taken to be `array.dtype`.
       If it is a uint type, the intermediate float values are rescaled from the [0.0, 1.0] range
       to the uint range.
     **kwargs: Additional parameters for `resample` function.

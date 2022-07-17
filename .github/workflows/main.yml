@@ -34,7 +34,7 @@ jobs:
     - name: Run tests including doctest
       run: |
         python -m pip install pytest
-        pytest --doctest-modules
+        pytest --doctest-modules ./resampler
 
     - name: Run mypy
       if: false  # mypy is slow (5 minutes) and has problems with numpy.
