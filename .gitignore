@@ -136,6 +136,7 @@ dmypy.json
 /docs
 
 /resampler_other*
+/no_code.ipynb
 /Docker*
 /.dockerignore
 
