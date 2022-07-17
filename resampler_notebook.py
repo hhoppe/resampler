@@ -101,8 +101,7 @@
 # ```
 #
 # ```python
-# rng = np.random.default_rng(seed=1)
-# array = rng.random((4, 6, 3))  # 4x6 RGB image.
+# array = np.random.default_rng(1).random((4, 6, 3))  # 4x6 RGB image.
 # upsampled = resampler.resize(array, (128, 192))  # To 128x192 resolution.
 # media.show_images({'4x6': array, '128x192': upsampled}, height=128)
 # ```
@@ -612,11 +611,11 @@ def show_grid_values(array, figsize=(14, 4), cmap='gray', **kwargs) -> None:
   plt.show()
 
 
-# %%
+# %% tags=[]
 def test_show_grid_values() -> None:
-  np.random.seed(1)
-  show_grid_values(np.random.randint(0, 256, size=(4, 16)), figsize=(14, 2), vmin=0, vmax=255)
-  show_grid_values(np.random.random((2, 7)), figsize=(8, 1.3))
+  rng = np.random.default_rng(0)
+  show_grid_values(rng.integers(0, 256, size=(4, 16)), figsize=(14, 2), vmin=0, vmax=255)
+  show_grid_values(rng.random((2, 7)), figsize=(8, 1.3))
 
 if EFFORT >= 1:
   test_show_grid_values()
@@ -782,8 +781,8 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
   scipy_interp = create_scipy_interpolant(func, -radius, radius)
 
   shape = 2, 8_000
-  np.random.seed(6)
-  array = np.random.random(shape).astype(np.float32) * 2 * radius - radius
+  rng = np.random.default_rng(0)
+  array = rng.random(shape, dtype=np.float32) * 2 * radius - radius
   result = {'expected': func(array), 'scipy': scipy_interp(array)}
   for mode in 'exact linear nearest'.split():
     result[mode] = func2(array, mode=mode)
@@ -797,7 +796,7 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
 
   if EFFORT >= 2:
     shape = 1000, 1000
-    array = np.random.random(shape) * 8.0 - 4.0
+    array = rng.random(shape) * 8.0 - 4.0
     hh.print_time(lambda: func(array))
     hh.print_time(lambda: func2(array, mode='exact'))
     hh.print_time(lambda: func2(array, mode='linear'))
@@ -1361,7 +1360,7 @@ def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> _NDArray:
 
 # %% tags=[]
 def test_split_2d() -> None:
-  numpy_array = np.random.choice([1, 2, 3, 4], (5, 8))
+  numpy_array = np.random.default_rng(0).choice([1, 2, 3, 4], (5, 8))
   for arraylib in ARRAYLIBS:
     array = _make_array(numpy_array, arraylib)
     blocks = _split_array_into_blocks(array, [2, 3])
@@ -1377,7 +1376,7 @@ test_split_2d()
 # %% tags=[]
 def test_split_3d() -> None:
   shape = 4, 3, 2
-  numpy_array = np.random.choice([1, 2, 3, 4], shape)
+  numpy_array = np.random.default_rng(0).choice([1, 2, 3, 4], shape)
 
   for arraylib in ARRAYLIBS:
     array = _make_array(numpy_array, arraylib)
@@ -3237,9 +3236,9 @@ def test_apply_potential_digital_filter_1d_quick() -> None:
 
     import torch
     shape = 5, 7
-    array_np = np.random.random(shape).astype('float64', copy=False)
-    array = torch.tensor(array_np, requires_grad=True)
-    assert torch.autograd.gradcheck(inverse_convolution, [array], rtol=0, atol=1e-6), boundary
+    array2_np = np.random.default_rng(0).random(shape, dtype=np.float64)
+    array2 = torch.tensor(array2_np, requires_grad=True)
+    assert torch.autograd.gradcheck(inverse_convolution, [array2], rtol=0, atol=1e-6), boundary
 
 
 if EFFORT >= 1:
@@ -3619,7 +3618,7 @@ def test_resize_of_integer_type() -> None:
 test_resize_of_integer_type()
 
 
-# %%
+# %% tags=[]
 def test_order_of_dimensions_does_not_affect_resize_results(step=3) -> None:
   shapes = [(3, 4, 5), (3, 2, 4), (6, 2, 2), (1, 1, 1)]
   boundaries = 'reflect tile border natural linear_constant'.split()
@@ -3632,8 +3631,7 @@ def test_order_of_dimensions_does_not_affect_resize_results(step=3) -> None:
     if ((src_gridtype == 'primal' and min(src_shape) < 2) or
         (dst_gridtype == 'primal' and min(dst_shape) < 2)):
       continue
-    np.random.seed(1)
-    array = np.random.random(src_shape)
+    array = np.random.default_rng(0).random(src_shape)
     reference = None
     for dim_order in itertools.permutations(range(3)):
       result = resize(array, dst_shape, src_gridtype=src_gridtype, dst_gridtype=dst_gridtype,
@@ -3831,7 +3829,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
   For reference, the identity resampling for a scalar-valued grid with the default grid-type
   'dual' is:
 
-  >>> array = np.random.rand(5, 7, 3)
+  >>> array = np.random.default_rng(0).random((5, 7, 3))
   >>> coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
   >>> new_array = resample(array, coords)
   >>> assert np.allclose(new_array, array)
@@ -3916,7 +3914,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
 
   # A concrete example of upsampling:
   #   array = np.ones((5, 7, 3))  # source RGB image has height=5 width=7
-  #   coords = np.random.rand(8, 9, 2)  # output RGB image has height=8 width=9
+  #   coords = np.random.default_rng(0).random((8, 9, 2))  # output RGB image has height=8 width=9
   #   resample(array, coords, filter=('cubic', 'lanczos3'))
   #   grid_shape = 5, 7  grid_ndim = 2
   #   resampled_shape = 8, 9  resampled_ndim = 2
@@ -4072,7 +4070,7 @@ def test_identity_resampling_with_many_boundary_rules(filter: Filter) -> None:
 test_identity_resampling_with_many_boundary_rules(LanczosFilter(radius=5, sampled=False))
 
 
-# %%
+# %% tags=[]
 def test_resample_scenarios() -> None:
   # Resample a grayscale image with `array.shape = height, width` onto a new grayscale image
   # with `new.shape = height2, width2` by using `coords.shape = height2, width2, 2`.
@@ -4104,8 +4102,8 @@ def test_resample_scenarios() -> None:
 
   # Sample a 3D grid of 3x3 Jacobians with `array.shape = nz, ny, nx, 3, 3`
   # along a 2D plane by using `coords.shape = height, width, 3`.
-  array = np.random.rand(2, 2, 2, 3, 3)
-  coords = np.random.rand(2, 2, 3)
+  array = np.random.default_rng(0).random((2, 2, 2, 3, 3))
+  coords = np.random.default_rng(0).random((2, 2, 3))
   new = resample(array, coords)
   _check_eq(new.shape, (2, 2, 3, 3))
 
@@ -4122,9 +4120,8 @@ test_resample_scenarios()
 
 # %% tags=[]
 def test_identity_resampling() -> None:
-  np.random.seed(1)
   shape = 3, 2, 5
-  array = np.random.random(shape)
+  array = np.random.default_rng(0).random(shape)
   coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
   new = resample(array, coords)
   assert np.allclose(new, array, rtol=0, atol=1e-6)
@@ -4160,9 +4157,9 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
     atol = {'float32': 1e-5, 'float64': 1e-12, 'complex64': 1e-5, 'complex128': 1e-12,
             'uint8': 1, 'uint32': 1, 'int32': 1}[dtype]
     dtype = np.dtype(dtype)
-    np.random.seed(1)
-    array = (np.random.randint(256, size=shape, dtype=dtype) if np.issubdtype(dtype, np.integer)
-             else np.random.random(shape).astype(dtype))
+    rng = np.random.default_rng(0)
+    array = (rng.integers(256, size=shape, dtype=dtype) if np.issubdtype(dtype, np.integer) else
+             rng.random(shape).astype(dtype))
     yx = np.moveaxis(np.indices(new_shape), 0, -1)
     coords = (yx + 0.5) / new_shape if gridtype == 'dual' else yx / (np.array(new_shape) - 1)
     coords = (coords - translate) / scale
@@ -4351,8 +4348,7 @@ def resize_using_resample(array: _Array, shape: Iterable[int], *,
 # %% tags=[]
 def test_resize_using_resample(shape=(3, 2, 5), new_shape=(4, 2, 7), step=None) -> None:
   assert np.all(np.array(shape) <= new_shape)
-  np.random.seed(1)
-  array = np.random.random(shape)
+  array = np.random.default_rng(0).random(shape)
   scale = 1.1
   translate = -0.4, -0.03, 0.4
   gammas = ['identity', 'power2']  # sublist of GAMMAS
@@ -4826,7 +4822,7 @@ test_resizer_produces_correct_shape(tf_image_resize)
 def test_tf_image_resize() -> None:
   # https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/image/resize_area_op.cc
   original_shape = 32, 32, 1
-  array = np.random.random(original_shape)
+  array = np.random.default_rng(0).random(original_shape)
   filters = list(_TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER)
   shapes = [(16, 13), (64, 53)]  # Try both downsampling and upsampling.
   for config in itertools.product(filters, shapes, [True, False]):
@@ -5018,7 +5014,7 @@ def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7
   if 0:  # This seems to require 'torchvision>=0.13.0' and so creates complications on Colab.
     functions = {**functions, **torchvision_functions}
 
-  array_np = np.random.random(src_shape).astype('float64', copy=False)
+  array_np = np.random.default_rng(0).random(src_shape, dtype=np.float64)
   array = torch.tensor(array_np, requires_grad=True)
   for name, function in functions.items():
     assert torch.autograd.gradcheck(function, [array], rtol=0, atol=1e-6), name
@@ -5646,7 +5642,7 @@ def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -
         lambda array: resize(array, dst_shape, filter=filter),
         lambda array: resample(array, coords, filter=filter),
     ]
-    array_np = np.random.random(src_shape).astype('float64', copy=False)
+    array_np = np.random.default_rng(0).random(src_shape, dtype=np.float64)
     array = torch.tensor(array_np, requires_grad=True)
     for function in functions:
       assert torch.autograd.gradcheck(function, [array], rtol=0, atol=1e-6)
@@ -5962,7 +5958,7 @@ test_kaiser_filter_fractional_radius()
 # %% [markdown]
 # ## Best boundary rule for resize
 
-# %%
+# %% tags=[]
 def compare_boundary_rules_on_cropped_windows_of_images(
     images, scale, filter, num_windows, reference_filter='lanczos5', name='') -> None:
   """Determine the best boundary rule for resizing windows within images.
@@ -5973,7 +5969,7 @@ def compare_boundary_rules_on_cropped_windows_of_images(
 
   All filtering is done in lightness space (i.e. with gamma='identity').
   """
-  np.random.seed(1)
+  rng = np.random.default_rng(0)
   # Note: 'linear' and 'linear_constant' are identical for resize() because the evaluated coordinate
   # is never outside the domain (even though the filter kernel does extend outside).
   boundaries = [b for b in BOUNDARIES
@@ -5986,8 +5982,8 @@ def compare_boundary_rules_on_cropped_windows_of_images(
       pad = 6 if scale == 5/6 else int(math.ceil(6 / min(scale, 1.0)))
       scaled_pad = must_be_int(pad * scale)
       broad_shape = shape[0] + pad * 2, shape[1] + pad * 2
-      yx = (np.random.randint(image.shape[0] - broad_shape[0]),
-            np.random.randint(image.shape[1] - broad_shape[1]))
+      yx = (rng.integers(image.shape[0] - broad_shape[0]),
+            rng.integers(image.shape[1] - broad_shape[1]))
       broad_window = image[tuple(slice(start, start + size)
                                 for start, size in zip(yx, broad_shape))]
       window = broad_window[pad:-pad, pad:-pad]
@@ -6871,14 +6867,14 @@ if EFFORT >= 1:
 # %% [markdown]
 # ## Generalized sampling
 
-# %%
+# %% tags=[]
 # pylint: disable-next=too-many-branches disable-next=too-many-statements
 def test_banded(debug=False) -> None:
   # [On band circulant matrices in the periodic spline interpolation theory]:
   # https://www.sciencedirect.com/science/article/pii/0024379585901533
-  np.random.seed(1)
   array = np.array([3.0, 4.0, 1.0, 2.0, 7.0, 6.0])
-  # array = np.random.randint(1, 10, 100).astype(np.float64)
+  if 0:
+    array = np.random.default_rng(0).integers(1, 10, 100).astype(np.float64)
   size = len(array)
   if 0:
     array = np.broadcast_to(array[..., None], array.shape + (2,))
@@ -7237,8 +7233,7 @@ visualize_rotational_symmetry_of_gaussian_filter()
 def generate_graphics_for_example_usage() -> None:
   array: Any
 
-  rng = np.random.default_rng(seed=1)
-  array = rng.random((4, 6, 3))  # 4x6 RGB image.
+  array = np.random.default_rng(1).random((4, 6, 3))  # 4x6 RGB image.
   upsampled = resize(array, (128, 192))  # To 128x192 resolution.
   media.show_images({'4x6': array, '128x192': upsampled}, height=128)
 
@@ -7337,8 +7332,7 @@ generate_graphics_unused()
 
 # %% tags=[]
 def generate_graphics_reconstruction_and_sampling() -> None:
-  np.random.seed(1)
-  array = np.random.rand(4, 4, 3)
+  array = np.random.default_rng(9).random((4, 4, 3))
   new = resize(array, (6, 6))
   images = {
       'samples': array,
@@ -7353,7 +7347,7 @@ def generate_graphics_reconstruction_and_sampling() -> None:
   media.show_images(images, border=False, height=120)
 
 generate_graphics_reconstruction_and_sampling()
-
+# (These are different from the images originally placed in Google Drawings.)
 
 # %% tags=[]
 def generate_graphics_filters(num=1_001) -> None:
@@ -7671,7 +7665,7 @@ def experiment_compare_downsampling_with_other_libraries(scale=0.1, shape=(100, 
       'tf.resize trapezoid': lambda: tf_image_resize(array, shape, filter='trapezoid'),
       # 'torch.nn.interpolate cubic': lambda: torch_nn_resize(array, shape, 'sharpcubic'),
       # 'torch.nn.interpolate linear': lambda: torch_nn_resize(array, shape, 'triangle'),
-      'torch.nn.interp trapezoid': lambda: torch_nn_resize(array, shape, 'trapezoid'),  # 'area' is already AA.
+      'torch.nn.interp trapezoid': lambda: torch_nn_resize(array, shape, 'trapezoid'),
       'torch.nn.interp cubic AA': lambda: torch_nn_resize(array, shape, 'sharpcubic', antialias=True),
       'torch.nn.interp linear AA': lambda: torch_nn_resize(array, shape, 'triangle', antialias=True),
       # 'torchvision (sharp)cubic': lambda: torchvision_resize(array, shape, 'sharpcubic'),

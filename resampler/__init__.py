@@ -2366,7 +2366,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
   For reference, the identity resampling for a scalar-valued grid with the default grid-type
   'dual' is:
 
-  >>> array = np.random.rand(5, 7, 3)
+  >>> array = np.random.default_rng(0).random((5, 7, 3))
   >>> coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
   >>> new_array = resample(array, coords)
   >>> assert np.allclose(new_array, array)
@@ -2451,7 +2451,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
 
   # A concrete example of upsampling:
   #   array = np.ones((5, 7, 3))  # source RGB image has height=5 width=7
-  #   coords = np.random.rand(8, 9, 2)  # output RGB image has height=8 width=9
+  #   coords = np.random.default_rng(0).random((8, 9, 2))  # output RGB image has height=8 width=9
   #   resample(array, coords, filter=('cubic', 'lanczos3'))
   #   grid_shape = 5, 7  grid_ndim = 2
   #   resampled_shape = 8, 9  resampled_ndim = 2
