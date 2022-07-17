@@ -6,7 +6,6 @@ mediapy
 numba>=0.55.1
 numpy
 opencv-python-headless
-pdoc
 Pillow
 scipy
 scikit-image

@@ -1426,7 +1426,7 @@ class OmomsFilter(Filter):
 
 
 class GaussianFilter(Filter):
-  """See https://en.wikipedia.org/wiki/Gaussian_function.
+  r"""See https://en.wikipedia.org/wiki/Gaussian_function.
 
   Args:
     standard_deviation: Sets the Gaussian $\sigma$.  The default value is 1.25/3.0, which
@@ -2870,7 +2870,7 @@ def torch_nn_resize(array: Any, shape: Sequence[int], filter: str,
 def torchvision_resize(array: Any, shape: Sequence[int], filter: str,
                        antialias: Optional[bool] = None) -> _TorchTensor:
   """Invoke `torchvision.transforms.functional.resize` using the same parameters as `resize`."""
-  # The results appear to be identical to torch.nn.functional.interpolate() and slightly slower.
+  # The results appear to be identical to `torch.nn.functional.interpolate` and slightly slower.
   import torch
   import torchvision
   array = torch.as_tensor(array)

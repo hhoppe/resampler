@@ -400,7 +400,7 @@ def _check_eq(a: Any, b: Any) -> None:
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q hhoppe-tools jupytext matplotlib mediapy pdoc Pillow scikit-image tensorflow-cpu torch torchvision
+# !pip install -q hhoppe-tools jupytext matplotlib mediapy Pillow scikit-image tensorflow-cpu torch torchvision
 
 # %% tags=[]
 import copy
@@ -2470,7 +2470,7 @@ class OmomsFilter(Filter):
 
 
 class GaussianFilter(Filter):
-  """See https://en.wikipedia.org/wiki/Gaussian_function.
+  r"""See https://en.wikipedia.org/wiki/Gaussian_function.
 
   Args:
     standard_deviation: Sets the Gaussian $\sigma$.  The default value is 1.25/3.0, which
@@ -2558,8 +2558,9 @@ def _get_filter(filter: Union[str, Filter]) -> Filter:
 # %% [markdown]
 # Quantized values (e.g., `uint8`) often lack sufficient precision,
 # causing [banding](https://en.wikipedia.org/wiki/Color_banding) artifacts in images.
-# To reduce this problem it is common to transform physical ("linear-space")
-# intensities to more perceptual ("lightness space") values using a nonlinear transfer function
+# To reduce this problem it is common to transform physical ("linear-space") intensities $l$
+# to more perceptual ("lightness space") values $e$
+# using a nonlinear transfer function
 # (a.k.a. [gamma correction](https://en.wikipedia.org/wiki/Gamma_correction)\)
 # prior to quantization.
 #
@@ -2567,12 +2568,12 @@ def _get_filter(filter: Union[str, Filter]) -> Filter:
 #
 # | `gamma` scheme | Decoding function (linear space from stored value) | Encoding function (stored value from linear space) |
 # |---|:---:|:---:|
-# | `'identity'` | $\text{linear} = \text{encoded}$ | $\text{encoded} = \text{linear}$ |
-# | `'power2'` | $\text{linear} = \text{encoded}^2$ | $\text{encoded} = \text{linear}^{1/2}$ |
-# | `'power22'` | $\text{linear} = \text{encoded}^{2.2}$ | $\text{encoded} = \text{linear}^{1/2.2}$ |
-# | `'srgb'` ([sRGB](https://en.wikipedia.org/wiki/SRGB))$^*$ | $\text{linear} = \left(\left(\text{encoded} + 0.055\right) / 1.055\right)^{2.4}$ | $\text{encoded} = \text{linear}^{1/2.4} * 1.055 - 0.055$ |
+# | `'identity'` | $l = e$ | $e = l$ |
+# | `'power2'` | $l = e^{2.0}$ | $e = l^{1/2.0}$ |
+# | `'power22'` | $l = e^{2.2}$ | $e = l^{1/2.2}$ |
+# | `'srgb'` ([sRGB](https://en.wikipedia.org/wiki/SRGB))$^*$ | $l = \left(\left(e + 0.055\right) / 1.055\right)^{2.4}$ | $e = l^{1/2.4} * 1.055 - 0.055$ |
 #
-# ($^{*}$`gamma='srgb'` also includes a linear map interval
+# ($^{*}$The case of `gamma='srgb'` also includes a separate linear map interval
 # near the (black) zero value.)
 #
 # For grids with data type `uint8`, the default is `gamma='power2'`
@@ -2581,9 +2582,6 @@ def _get_filter(filter: Union[str, Filter]) -> Filter:
 # and take the square-root before quantizing the values back to `uint8`.
 #
 # For other data types, the default transfer function is `gamma='identity'`.
-
-# %%
-# fix the table above; use math symbols ??
 
 # %%
 def _to_float_01(array: _Array, dtype: Any) -> _Array:
@@ -4548,7 +4546,7 @@ test_resizer_produces_correct_shape(pil_image_resize)
 
 
 # %% tags=[]
-def test_pil_image_resize() -> None:  # others??
+def test_pil_image_resize() -> None:
   hamming1 = GeneralizedHammingFilter(radius=1, a0=0.54)
   scales = [3.7, 2.0, 1.0, 0.5, 0.41]
   filters = 'impulse box triangle hamming1 cubic lanczos3'.split()
@@ -4724,6 +4722,7 @@ def test_scipy_ndimage_resize() -> None:
 
 test_scipy_ndimage_resize()
 
+
 # %% [markdown]
 # **skimage.transform.resize:**
 
@@ -4731,11 +4730,48 @@ test_scipy_ndimage_resize()
 # https://scikit-image.org/docs/dev/api/skimage.transform.html#skimage.transform.resize
 #  mode='reflect'  # or 'constant', 'edge', 'symmetric' (for dual), 'wrap'.
 #  cval=0  # used for 'constant'.
-#  order=3  # =='cardinal3'; spline interpolation order (0..5), (3=cubic).
-#  anti_aliasing=None  # apply Gaussian prefilter prior to downsampling.
+#  order=1  # spline interpolation order (0..5), (3='cardinal3')
+#  anti_aliasing=None  # automatically apply Gaussian prefilter prior to downsampling.
 
-# %%
-# # ??
+# %% tags=[]
+# Export: outside library.
+def skimage_transform_resize(array: Any, shape: Sequence[int], filter: str,
+                             boundary: str = 'reflect', cval: float = 0.0) -> _NDArray:
+  """Invoke `skimage.transform.resize` using the same parameters as `resize`."""
+  array = np.asarray(array)
+  shape = tuple(shape)
+  assert 1 <= len(shape) <= array.ndim
+  order = {'box': 0, 'triangle': 1, 'cardinal3': 3, 'cardinal5': 5}[filter]
+  mode = {'reflect': 'symmetric', 'wrap': 'wrap', 'clamp': 'edge', 'border': 'constant'}[boundary]
+  shape_all = shape + array.shape[len(shape):]
+  # Default anti_aliasing=None automatically enables Gaussian prefilter if downsampling.
+  return skimage.transform.resize(array, shape_all, order=order, mode=mode, cval=cval, clip=False)
+
+
+# %% tags=[]
+# Export: outside library.
+test_resizer_produces_correct_shape(skimage_transform_resize, 'cardinal3')
+
+
+# %% tags=[]
+def test_skimage_transform_resize() -> None:
+  scales = [2.0, 13 / 8, 1.0, 0.5]
+  filters = 'box triangle cardinal3 cardinal5'.split()
+  boundaries = 'reflect wrap clamp border'.split()
+  for config in itertools.product(boundaries, [False, True], scales, filters):
+    boundary, at_boundary, scale, filter = config
+    if scale < 1.0:
+      continue  # Downsampling is poor due to the Gaussian prefilter.
+    if boundary in ['clamp', 'border'] and filter in ['cardinal3', 'cardinal5']:
+      continue  # The inverse-convolution prefilter is not well-defined in these cases.
+    row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
+    original = np.array(row, dtype=np.float32)
+    shape = (int(original.shape[0] * scale),)
+    result = skimage_transform_resize(original, shape, filter, boundary=boundary)
+    reference = resize(original, shape, filter=filter, boundary=boundary)
+    assert np.allclose(result, reference, rtol=0, atol=2e-6), (config, result, reference)
+
+test_skimage_transform_resize()
 
 # %% [markdown]
 # **tf.image.resize:**
@@ -4891,17 +4927,16 @@ test_torch_nn_resize()
 
 # %% tags=[]
 # https://pytorch.org/vision/stable/transforms.html#torchvision.transforms.functional.resize
-# torchvision.transforms.functional.resize(img, size, interpolation=InterpolationMode.BILINEAR)
 # It is differentiable.
 # It does not apply prefiltering/antialiasing when downsampling:
-#   also NEAREST, BICUBIC.
+#   NEAREST, BILINEAR, BICUBIC.
 # torchvision.transforms.functional.affine()
 
 # %% tags=[]
 def torchvision_resize(array: Any, shape: Sequence[int], filter: str,
                        antialias: Optional[bool] = None) -> _TorchTensor:
   """Invoke `torchvision.transforms.functional.resize` using the same parameters as `resize`."""
-  # The results appear to be identical to torch.nn.functional.interpolate() and slightly slower.
+  # The results appear to be identical to `torch.nn.functional.interpolate` and slightly slower.
   import torch
   import torchvision
   array = torch.as_tensor(array)
@@ -4980,7 +5015,7 @@ def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7
   }
 
   functions = torch_functions
-  if 0:  # This seems to require 'torchvision>=0.13.0'.
+  if 0:  # This seems to require 'torchvision>=0.13.0' and so creates complications on Colab.
     functions = {**functions, **torchvision_functions}
 
   array_np = np.random.random(src_shape).astype('float64', copy=False)
@@ -5385,10 +5420,10 @@ if 0:
   experiment_compare_successive_rotations(gamma='power2')
 
 
-# %%
+# %% tags=[]
 def experiment_plot_psnr_for_num_rotations(filter='lanczos5') -> None:
   original = resize(EXAMPLE_IMAGE, np.array(EXAMPLE_IMAGE.shape[:2]) // 2)
-  _, ax = plt.subplots(figsize=(5, 3))
+  _, ax = plt.subplots(figsize=(7, 4))
   x = [i for i in range(2, 15) if i not in [2, 4]]
   psnrs = []
   for num_rotations in x:
@@ -5620,10 +5655,9 @@ test_torch_gradients_using_gradcheck()
 
 
 # %% [markdown]
-# - Use Tensorflow to solve for an image whose spiral upsampling
-# matches a desired image:
+# - Use Tensorflow to solve for an image whose spiral upsampling matches a desired image:
 
-# %%
+# %% tags=[]
 def experiment_image_optimized_for_spiral_resampling(
     num_steps=30, src_shape=(32, 32, 3), dst_shape=(64, 64),
     regularization_weight=0.0, smoothness_weight=0.0) -> None:
@@ -5654,7 +5688,7 @@ def experiment_image_optimized_for_spiral_resampling(
 
   resampled = model(array)
   images = {'optimized': array, 'resampled': resampled, 'desired': desired}
-  media.show_images(images, height=128, border=True)
+  media.show_images(images, height=192, border=True)
 
 # Regularization fills unconstrained regions with small values (black).
 experiment_image_optimized_for_spiral_resampling(regularization_weight=1e-3)
@@ -6363,7 +6397,7 @@ def radial1(shape=(24, 48), frame_center=(0.75, 0.5), reference_shape=None) -> _
 media.show_image(radial1(), height=200)
 
 
-# %%
+# %% tags=[]
 def chirp(shape=(65, 65), frame_center=(0.5, 0.5),
           period_at_center=2.0, period_at_border=4.0, reference_shape=None) -> _NDArray:
   reference_shape = reference_shape or shape
@@ -6381,7 +6415,7 @@ def visualize_chirps() -> None:
       'higher resolution': chirp(shape=(260, 260), reference_shape=(65, 65)),
       '25x50 off-center': chirp(shape=(25, 50), frame_center=(0.37, 0.25)),
   }
-  media.show_images(images, height=260)
+  media.show_images(images, height=65*3)
 
 visualize_chirps()
 
@@ -6566,7 +6600,7 @@ visualize_prefiltering_a_discontinuity_in_1D()
 # %% [markdown]
 # We now consider the same situation in 2D using a sharply defined circle:
 
-# %%
+# %% tags=[]
 def visualize_prefiltering_a_discontinuity_in_2D(
     shape=(100, 100), radius=0.2, new_shape=(20, 20)) -> None:
   mapped_radius = np.linalg.norm((np.indices(shape).T + 0.5) / np.array(shape) - 0.5, axis=-1).T
@@ -6577,7 +6611,7 @@ def visualize_prefiltering_a_discontinuity_in_2D(
   images = {'original': array}
   for filter in filters:
     images[filter] = resize(array, new_shape, filter=filter)
-  media.show_images(images, border=True, height=shape[0], vmin=0, vmax=1)
+  media.show_images(images, border=True, height=shape[0]*1.25, vmin=0, vmax=1, columns=6)
 
 visualize_prefiltering_a_discontinuity_in_2D()
 
@@ -6592,7 +6626,7 @@ visualize_prefiltering_a_discontinuity_in_2D()
 # We saw in 1D that ringing artifacts are scale-dependent.
 # Here we generate videos to show the effect of continuously changing the scale:
 
-# %%
+# %% tags=[]
 def visualize_prefiltering_as_scale_is_varied(
     shape=(100, 100), radius=0.2, new_shape=(20, 20)) -> None:
   mapped_radius = np.linalg.norm((np.indices(shape).T + 0.5) / np.array(shape) - 0.5, axis=-1).T
@@ -6603,7 +6637,7 @@ def visualize_prefiltering_as_scale_is_varied(
   for filter in filters:
     for scale in np.linspace(0.9, 1.1, 61):
       videos[filter].append(resize(array, new_shape, scale=scale, filter=filter)[3:-3, 3:-3])
-  media.show_videos(videos, border=True, height=shape[0]*1.5, qp=14, fps=20)
+  media.show_videos(videos, border=True, height=shape[0]*1.5, qp=14, fps=20, columns=4)
 
 visualize_prefiltering_as_scale_is_varied()
 
@@ -7535,17 +7569,6 @@ def experiment_compare_upsampling_with_other_libraries(scale=2.0, shape=(200, 40
   if 0:
     array = np.swapaxes(np.swapaxes(array, 0, 1).copy(), 0, 1)  # Transpose memory layout.
   print(f'{array.dtype} src_shape={array.shape} strides={array.strides} dst_shape={shape}')
-
-  coords = ((np.indices(original.shape).T + 0.5) / (scale, scale, 1) - 0.5).T
-
-  # This matrix and offset are inexact for dual grid resize.
-  matrix = np.diag([1 / scale, 1 / scale, 1])
-  offset = 0
-  shape3 = shape + original.shape[2:]
-
-  import tensorflow as tf
-  import cv2 as cv
-
   funcs = {
       'original': lambda: original,
       # 'resize lanczos4': lambda: resize(array, shape, filter=LanczosFilter(radius=4)),
@@ -7561,13 +7584,12 @@ def experiment_compare_upsampling_with_other_libraries(scale=2.0, shape=(200, 40
       'PIL.Image.resize lanczos3': lambda: pil_image_resize(array, shape, 'lanczos3'),
       'PIL.Image.resize cubic': lambda: pil_image_resize(array, shape, 'cubic'),
       # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (scale, scale, 1.0)),
-      # 'ndimage.affine_transform': lambda: scipy.ndimage.affine_transform(array, matrix, offset, shape3),
-      'map_coordinates order=3': lambda: scipy.ndimage.map_coordinates(array, coords, order=3, mode='reflect'),
-      'skimage.transform.resize': lambda: skimage.transform.resize(array, shape, order=3, mode='symmetric'),
-      'tf.resize lanczos5': lambda: tf.image.resize(array, shape, method='lanczos5'),
-      'tf.resize lanczos3': lambda: tf.image.resize(array, shape, method='lanczos3'),
-      # 'tf.resize cubic new': lambda: tf.image.resize(array, shape, method='bicubic', antialias=True),  # newer: resize_with_scale_and_translate('keyscubic')
-      'tf.resize cubic (aa False)': lambda: tf.image.resize(array, shape, method='bicubic', antialias=False),  # older: gen_image_ops.resize_bicubic()
+      'map_coordinates order=3': lambda: scipy_ndimage_resize(array, shape, filter='cardinal3'),
+      'skimage.transform.resize': lambda: skimage_transform_resize(array, shape, filter='cardinal3'),
+      'tf.resize lanczos5': lambda: tf_image_resize(array, shape, filter='lanczos5'),
+      'tf.resize lanczos3': lambda: tf_image_resize(array, shape, filter='lanczos3'),
+      # 'tf.resize cubic new': lambda: tf_image_resize(array, shape, filter='cubic'),  # newer: resize_with_scale_and_translate('keyscubic')
+      'tf.resize cubic (aa False)': lambda: tf_image_resize(array, shape, filter='cubic', antialias=False),  # older: gen_image_ops.resize_bicubic()
       'torch.nn.interp sharpcubic': lambda: torch_nn_resize(array, shape, 'sharpcubic'),
       'torch.nn.interpolate linear': lambda: torch_nn_resize(array, shape, 'triangle'),
       # 'torch.nn.interp cubic AA': lambda: torch_nn_resize(array, shape, 'sharpcubic', antialias=True),
@@ -7576,10 +7598,9 @@ def experiment_compare_upsampling_with_other_libraries(scale=2.0, shape=(200, 40
       # 'torchvision linear': lambda: torchvision_resize(array, shape, 'triangle'),
       # 'torchvision sharpcubic AA': lambda: torchvision_resize(array, shape, 'sharpcubic', antialias=True),
       # 'torchvision linear AA': lambda: torchvision_resize(array, shape, 'triangle', antialias=True),
-      'cv.resize lanczos4': lambda: cv.resize(array, shape[::-1], interpolation=cv.INTER_LANCZOS4),
-      'cv.resize (sharp)cubic': lambda: cv.resize(array, shape[::-1], interpolation=cv.INTER_CUBIC),
+      'cv.resize lanczos4': lambda: cv_resize(array, shape, filter='lanczos4'),
+      'cv.resize (sharp)cubic': lambda: cv_resize(array, shape, filter='sharpcubic'),
   }
-  del matrix, offset, shape3
   images = {}
   for name, func in funcs.items():
     elapsed, image = hh.get_time_and_result(func, max_time=0.05)
@@ -7627,18 +7648,6 @@ def experiment_compare_downsampling_with_other_libraries(scale=0.1, shape=(100, 
     original = np.swapaxes(np.swapaxes(original, 0, 1).copy(), 0, 1)  # Transpose memory layout.
   array = original
   print(f'{array.dtype} src_shape={array.shape} strides={array.strides} dst_shape={shape}')
-
-  # scipy.ndimage default is order=3, mode='constant'.
-  shape3 = shape + original.shape[2:]
-  coords = ((np.indices(shape3).T + 0.5) / (scale, scale, 1) - 0.5).T
-
-  matrix = np.diag([1 / scale, 1 / scale, 1])
-  # offset = 0
-  offset = 0.5, 0.5, 0  # Closer to the result of zoom() but still different.
-
-  import tensorflow as tf
-  import cv2 as cv
-
   funcs: Dict[str, Callable[[], _NDArray]] = {
       # 'resize lanczos5': lambda: resize(array, shape, filter='lanczos5'),
       'resize lanczos3': lambda: resize(array, shape),
@@ -7656,12 +7665,10 @@ def experiment_compare_downsampling_with_other_libraries(scale=0.1, shape=(100, 
       # 'PIL.Image.resize cubic': lambda: pil_image_resize(array, shape, 'cubic'),
       'PIL.Image.resize box': lambda: pil_image_resize(array, shape, 'box'),
       # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (scale, scale, 1.0)),
-      # 'ndimage.affine_transform': lambda: scipy.ndimage.affine_transform(array, matrix, offset, shape3),
-      'map_coordinates order=3': lambda: scipy.ndimage.map_coordinates(array, coords, order=3),
-      'skimage.transform.resize': lambda: skimage.transform.resize(array, shape, order=3, mode='symmetric', anti_aliasing=True),
-      'tf.resize lanczos3': lambda: tf.image.resize(array, shape, method='lanczos3', antialias=True),
-      # alias=True),
-      'tf.resize trapezoid': lambda: tf.image.resize(array, shape, method='area', antialias=True),
+      'map_coordinates order=3': lambda: scipy_ndimage_resize(array, shape, filter='cardinal3'),
+      'skimage.transform.resize': lambda: skimage_transform_resize(array, shape, filter='cardinal3'),
+      'tf.resize lanczos3': lambda: tf_image_resize(array, shape, filter='lanczos3'),
+      'tf.resize trapezoid': lambda: tf_image_resize(array, shape, filter='trapezoid'),
       # 'torch.nn.interpolate cubic': lambda: torch_nn_resize(array, shape, 'sharpcubic'),
       # 'torch.nn.interpolate linear': lambda: torch_nn_resize(array, shape, 'triangle'),
       'torch.nn.interp trapezoid': lambda: torch_nn_resize(array, shape, 'trapezoid'),  # 'area' is already AA.
@@ -7672,10 +7679,9 @@ def experiment_compare_downsampling_with_other_libraries(scale=0.1, shape=(100, 
       # 'torchvision (sharp)cubic AA': lambda: torchvision_resize(array, shape, 'sharpcubic', antialias=True),
       # 'torchvision linear AA': lambda: torchvision_resize(array, shape, 'triangle', antialias=True),
       # torchvision does not have differentiable box/trapezoid.
-      # 'cv.resize lanczos4': lambda: cv.resize(array, shape[::-1], interpolation=cv.INTER_LANCZOS4),  # Aliased.
-      'cv.resize trapezoid': lambda: cv.resize(array, shape[::-1], interpolation=cv.INTER_AREA),
+      'cv.resize lanczos4': lambda: cv_resize(array, shape, filter='lanczos4'),  # Aliased.
+      'cv.resize trapezoid': lambda: cv_resize(array, shape, filter='trapezoid'),
   }
-  del matrix, offset
   images = {}
   for name, func in funcs.items():
     if name == 'resize trapezoid':
@@ -7908,44 +7914,44 @@ if 0:
 
 # %% tags=[]
 def create_documentation_files() -> None:
-  """Create pdoc HTML documentation.
-  No need for gh-pages branch with automation?
-  First-time setup of gh-pages branch (GitHub Pages then turns on automatically):
-    cd ~/tmp
-    git clone git@github.com:hhoppe/resampler.git
-    cd resampler
-    git checkout --orphan gh-pages
-    git reset --hard
-    git commit --allow-empty -m "Initializing gh-pages branch"
-    git push origin gh-pages
-    cd ..
-    rm -rf resampler
+  """Locally create pdoc HTML documentation.
+
+  Note: Automated this on GitHub by using .github/workflows/docs.yml so ./docs is never stored in
+  repo and there is no need for a gh-pages branch; enabled GitHub Pages from 'main' branch at '/';
+  modified Action permissions to prevent pages-build-deployment bot action --
+  see https://github.com/mitmproxy/pdoc/issues/414.
   """
+  hh.run('pip install pdoc')
   # Use custom template ./pdoc/module.html.jinja2 and output ./docs/*.
   hh.run('pdoc --math -t ./pdoc -o ./docs ./resampler')  # --logo URL
+  # Run interactively in web browser:
+  #  pdoc --math -t ./pdoc ./resampler
 
-if 1:
+if 0:
   create_documentation_files()
 
+
 # %% tags=[]
-# Publish pdoc to GitHub.  delete ??
-_ = r"""
-tmp_dir=$(mktemp -d)
-cd "${tmp_dir}"
-git clone -q --branch=main https://github.com/hhoppe/resampler resampler
-(cd resampler; pdoc --html --force --template-dir=pdoc_template resampler)
-git clone -q --branch=gh-pages https://github.com/hhoppe/resampler gh-pages
-cd gh-pages
-git config user.email "hhoppe@gmail.com"
-git config user.name "Hugues Hoppe"
-cp ../resampler/html/resampler/index.html .
-git add index.html
-git commit --amend -m "Update documentation in branch gh-pages."
-git push -f -q origin gh-pages
-cd /
-rm -rf "${tmp_dir}"
-echo "Update should be visible soon at https://hhoppe.github.io/resampler/."
-"""
+def write_copy_of_notebook_without_code(filename: str, output_filename: str) -> None:
+  """Create a copy of the notebook without any code, to examine just the markdown and output."""
+  import nbformat  # See https://github.com/jupyter/nbformat/blob/main/nbformat/__init__.py
+  notebook = nbformat.reads(pathlib.Path(filename).read_text(), nbformat.NO_CONVERT)  # type: ignore
+  # https://nbformat.readthedocs.io/en/latest/format_description.html
+  del notebook['metadata']['jupytext']  # Remove pairing 'ipynb,py:percent'.
+  new_cells = []
+  for cell in notebook['cells']:
+    is_code = cell['cell_type'] == 'code'
+    if is_code:
+      if not cell['outputs']:  # (Checks if empty list.)
+        continue  # Omit code cells without any output.
+      cell['source'] = ''
+    new_cells.append(cell)
+  notebook['cells'] = new_cells
+  pathlib.Path(output_filename).write_text(nbformat.writes(notebook))  # type: ignore
+
+if 0:
+  write_copy_of_notebook_without_code('resampler_notebook.ipynb', 'no_code.ipynb')
+  # Remember to run command 'Trust notebook' when opening it.
 
 # %% [markdown]
 # # Epilog
