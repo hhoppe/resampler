@@ -19,8 +19,8 @@ def get_long_description():
 
 
 def get_requirements():
-  with open('resampler/requirements.txt') as f:
-    return [line.strip() for line in f]
+  path = pathlib.Path(NAME) / 'requirements.txt'
+  return [line.strip() for line in path.read_text().splitlines()]
 
 
 setuptools.setup(
