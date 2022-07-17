@@ -43,24 +43,20 @@
 
 # %% [markdown]
 # <!--
-# resize, warp, or interpolate arbitrary data arrays
-#
+# Resize, warp, or interpolate arbitrary data arrays.
 # A general-purpose library for resizing, scaling, transforming, and warping data sampled
 # on regular grids.
-#
-# flexible, differentiable resampling of arbitrary grids for efficient resizing and warping.
+# Flexible, differentiable resampling of arbitrary grids for efficient resizing and warping.
 # -->
 #
 # The `resampler` library enables fast differentiable resizing and warping of arbitrary grids.
 # It supports:
 #
-# - grids of arbitrary dimension (e.g., 1D audio, 2D images, 3D video, 4D batches of videos),
-#   containing
+# - grids of **any dimension** (e.g., 1D, 2D images, 3D video, 4D batches of videos), containing
 #
-# - sample values of arbitrary shape
-#   (e.g., scalars, RGB colors, motion vectors, Jacobian matrices) and
+# - **samples of any shape** (e.g., scalars, colors, motion vectors, Jacobian matrices) and
 #
-# - arbitrary numeric type (integer, floating, and complex);
+# - any **numeric type** (integer, floating, and complex);
 #
 # - either `dual` ("half-integer") or `primal` [**grid-type**](#Grid-types--dual-and-primal-)
 #   for each dimension;
@@ -68,13 +64,11 @@
 # - many [**boundary**](#Boundary-rules) rules,
 #   specified per dimension, extensible via subclassing;
 #
-# - an extensible set of parameterized [**filter**](#Filter-kernels) kernels,
-#   selectable per dimension;
+# - an extensible set of [**filter**](#Filter-kernels) kernels, selectable per dimension;
 #
-# - optional [**gamma**](#Gamma-correction) transfer functions
-#   for correct linear-space filtering;
+# - optional [**gamma**](#Gamma-correction) transfer functions for correct linear-space filtering;
 #
-# - prefiltering for accurate antialiasing when downsampling;
+# - prefiltering for accurate **antialiasing** when downsampling;
 #
 # - processing within several [**array libraries**](#Array-libraries)
 #   (`numpy`, `tensorflow`, and `torch`);
@@ -82,12 +76,12 @@
 # - efficient backpropagation of [**gradients**](#Gradient-backpropagation)
 #   for both `tensorflow` and `torch`;
 #
-# - easy installation, without any native-code extension module, yet
+# - easy installation, with **no native code**, yet
 #
-# - [**faster resizing**](#Test-other-libraries) than the C++ implementations
+# - [**faster resizing**](#Test-other-libraries) than C++ implementations
 #   in `tf.image`, `torch.nn`, and `torchvision`.
 #
-# A key strategy is to build on existing sparse matrix representations and operations.
+# A key strategy is to leverage existing sparse matrix representations and operations.
 
 # %% [markdown]
 # ## Example usage
@@ -146,9 +140,9 @@
 # media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
 # ```
 # > original
-# <img src="https://drive.google.com/uc?export=download&id=1WCwwbgYZordX14-XvHiV2Gc_60I1KD39"/>
-# upsampled
-# <img src="https://drive.google.com/uc?export=download&id=11Of3Gbv6p2BTxJD2rO0zAWEEv4w3BIe5"/>
+#   <img src="https://drive.google.com/uc?export=download&id=1WCwwbgYZordX14-XvHiV2Gc_60I1KD39"/>
+#   upsampled
+#   <img src="https://drive.google.com/uc?export=download&id=11Of3Gbv6p2BTxJD2rO0zAWEEv4w3BIe5"/>
 #
 # Most examples above use the default
 # [`resize()`](#Resize) settings:
@@ -794,23 +788,23 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
   assert np.allclose(result['nearest'], result['expected'], rtol=0, atol=1e-2)
   assert np.allclose(result['scipy'], result['expected'], rtol=0, atol=1e-6)
 
-  if EFFORT >= 2:
+  if 1:
     shape = 1000, 1000
     array = rng.random(shape) * 8.0 - 4.0
     hh.print_time(lambda: func(array))
     hh.print_time(lambda: func2(array, mode='exact'))
     hh.print_time(lambda: func2(array, mode='linear'))
     hh.print_time(lambda: func2(array, mode='nearest'))
-    # 0.091 s
-    # 0.094 s
-    # 0.019 s
-    # 0.010 s
+    # 32.5 ms
+    # 32.6 ms
+    # 4.92 ms
+    # 2.26 ms
     hh.prun(lambda: func2(array), top=4)  # The bottleneck is the array lookup.
-    # Prun: tottime    0.033 overall_cumtime
-    #         0.026    0.033 interpolate_using_cached_samples
-    #         0.004    0.004 _clip_dep_invoke_with_casting (/usr/local/lib/python3.7/dist-packages/numpy/core/_methods.py:106)
-    #         0.002    0.002 numpy.ndarray.astype
-    #         0.000    0.033 <lambda>
+    # Prun: tottime    0.006 overall_cumtime
+    #         0.005    0.006 interpolate_using_cached_samples (/tmp/ipykernel:20)
+    #         0.001    0.001 _clip_dep_invoke_with_casting (numpy/core/_methods.py:106)
+    #         0.001    0.001 numpy.ndarray.astype
+    #         0.000    0.000 _clip_dep_is_scalar_nan (numpy/core/_methods.py:91)
 
 test_cached_sampling_of_1d_function()
 
@@ -1852,6 +1846,42 @@ class QuadraticExtendSamples(ExtendSamples):
     return index, weight
 
 
+# %%
+def test_linear_boundary() -> None:
+  index = np.array([[-3], [-2], [-1], [0], [1], [2], [3], [2], [3]])
+  weight = np.array([[1.], [1.], [1.], [1.], [1.], [1.], [1.], [0.], [0.]])
+  size = 2
+  index, weight = LinearExtendSamples()(index, weight, size, DualGridtype())
+  assert np.allclose(
+      weight,
+      [
+       [0, 4, -3, 0, 0],
+       [0, 3, -2, 0, 0],
+       [0, 2, -1, 0, 0],
+       [1, 0, 0, 0, 0],
+       [1, 0, 0, 0, 0],
+       [0, 0, 0, -1, 2],
+       [0, 0, 0, -2, 3],
+       [0, 0, 0, 0, 0],
+       [0, 0, 0, 0, 0],
+      ])
+  assert np.all(
+      index ==
+      [
+       [0, 0, 1, 0, 0],
+       [0, 0, 1, 0, 0],
+       [0, 0, 1, 0, 0],
+       [0, 0, 0, 0, 0],
+       [1, 1, 1, 1, 1],
+       [1, 1, 1, 0, 1],
+       [1, 1, 1, 0, 1],
+       [1, 1, 1, 1, 1],
+       [1, 1, 1, 1, 1],
+      ])
+
+test_linear_boundary()
+
+
 # %% [markdown]
 # Component `OverrideExteriorValue` of `Boundary`:
 
@@ -2006,53 +2036,6 @@ _ADDITIONAL_BOUNDARIES = {
 BOUNDARIES: Dict[str, Boundary] = {**_OFTUSED_BOUNDARIES, **_ADDITIONAL_BOUNDARIES}
 """Shortcut names for some predefined boundary rules.
 Examples include: 'reflect', 'wrap', 'tile', 'clamp', 'border', etc.""";
-
-
-# %%
-def test_linear_boundary() -> None:
-  index = np.array([[-3], [-2], [-1], [0], [1], [2], [3], [2], [3]])
-  weight = np.array([[1.], [1.], [1.], [1.], [1.], [1.], [1.], [0.], [0.]])
-  size = 2
-  index, weight = LinearExtendSamples()(index, weight, size, DualGridtype())
-  assert np.allclose(
-      weight,
-      [
-       [0, 4, -3, 0, 0],
-       [0, 3, -2, 0, 0],
-       [0, 2, -1, 0, 0],
-       [1, 0, 0, 0, 0],
-       [1, 0, 0, 0, 0],
-       [0, 0, 0, -1, 2],
-       [0, 0, 0, -2, 3],
-       [0, 0, 0, 0, 0],
-       [0, 0, 0, 0, 0],
-      ])
-  assert np.all(
-      index ==
-      [
-       [0, 0, 1, 0, 0],
-       [0, 0, 1, 0, 0],
-       [0, 0, 1, 0, 0],
-       [0, 0, 0, 0, 0],
-       [1, 1, 1, 1, 1],
-       [1, 1, 1, 0, 1],
-       [1, 1, 1, 0, 1],
-       [1, 1, 1, 1, 1],
-       [1, 1, 1, 1, 1],
-      ])
-
-test_linear_boundary()
-
-
-# %%
-def test_sparse_csr_matrix_duplicate_entries_are_summed() -> None:
-  indptr = np.array([0, 2, 3, 6])
-  indices = np.array([0, 2, 2, 0, 1, 0])
-  data = np.array([1, 2, 3, 4, 5, 3])
-  new = scipy.sparse.csr_matrix((data, indices, indptr), shape=(3, 3)).toarray()
-  _check_eq(new, [[1, 0, 2], [0, 0, 3], [7, 5, 0]])
-
-test_sparse_csr_matrix_duplicate_entries_are_summed()
 
 
 # %% [markdown]
@@ -3064,6 +3047,17 @@ def test_that_very_large_cval_causes_numerical_noise_to_appear(debug: bool = Fal
   # Note that setting cval=1e20 will cause this numerical noise to appear!
 
 test_that_very_large_cval_causes_numerical_noise_to_appear()
+
+
+# %%
+def test_sparse_csr_matrix_duplicate_entries_are_summed() -> None:
+  indptr = np.array([0, 2, 3, 6])
+  indices = np.array([0, 2, 2, 0, 1, 0])
+  data = np.array([1, 2, 3, 4, 5, 3])
+  new = scipy.sparse.csr_matrix((data, indices, indptr), shape=(3, 3)).toarray()
+  _check_eq(new, [[1, 0, 2], [0, 0, 3], [7, 5, 0]])
+
+test_sparse_csr_matrix_duplicate_entries_are_summed()
 
 
 # %% tags=[]
@@ -4387,18 +4381,18 @@ def test_profile_resample() -> None:
 if EFFORT >= 2:
   test_profile_resample()
 # The bottleneck is the memory gather:
-# Prun: tottime   12.003 overall_cumtime
-#         7.614   11.562 resample
-#         1.157    1.157 numpy.core._multiarray_umath.c_einsum (built-in)
-#         1.138    1.512 interpolate_using_cached_samples
-#         0.532    1.976 numpy.core._multiarray_umath.implement_array_function (built-in)
-#         0.489    0.584 reflect
-# Prun: tottime   11.325 overall_cumtime
-#         7.292   11.208 resample
-#         1.153    1.506 interpolate_using_cached_samples
-#         1.081    1.081 numpy.core._multiarray_umath.c_einsum (built-in)
-#         0.488    0.578 reflect
-#         0.327    0.327 numpy.ndarray.astype
+# Prun: tottime    3.186 overall_cumtime
+#         1.864    2.816 resample (/tmp/ipykernel:1)
+#         0.412    0.841 numpy.core._multiarray_umath.implement_array_function (built-in)
+#         0.331    0.331 numpy.core._multiarray_umath.c_einsum (built-in)
+#         0.178    0.245 interpolate_using_cached_samples (/tmp/ipykernel:20)
+#         0.133    0.133 numpy.ufunc.reduce
+# Prun: tottime    2.900 overall_cumtime
+#         1.886    2.863 resample (/tmp/ipykernel:1)
+#         0.349    0.349 numpy.core._multiarray_umath.c_einsum (built-in)
+#         0.180    0.247 interpolate_using_cached_samples (/tmp/ipykernel:20)
+#         0.134    0.134 numpy.ufunc.reduce
+#         0.094    0.532 numpy.core._multiarray_umath.implement_array_function (built-in)
 
 # %% tags=[]
 def rotation_about_center_in_2d(src_shape: Any,
@@ -4493,6 +4487,7 @@ def test_resizer_produces_correct_shape(resizer, filter: str = 'lanczos3') -> No
 test_resizer_produces_correct_shape(resize)
 test_resizer_produces_correct_shape(resize_in_tensorflow)
 test_resizer_produces_correct_shape(resize_in_torch)
+test_resizer_produces_correct_shape(resize_using_resample)
 
 
 # %% [markdown]
