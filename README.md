@@ -15,10 +15,10 @@
 &nbsp;
 [**[PyPI package]**](https://pypi.org/project/resampler/)
 
-The Python notebook [`resampler_notebook.ipynb`](
+The notebook [`resampler_notebook.ipynb`](
   https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 hosts the source code for the
-[`resampler` package in PyPI](https://pypi.org/project/resampler/),
+[`resampler` library in PyPI](https://pypi.org/project/resampler/),
 interleaved with documentation, usage examples, unit tests, and signal-processing experiments.
 
 # Overview
@@ -26,27 +26,21 @@ interleaved with documentation, usage examples, unit tests, and signal-processin
 The `resampler` library enables fast differentiable resizing and warping of arbitrary grids.
 It supports:
 
-- grids of arbitrary dimension (e.g., 1D audio, 2D images, 3D video, 4D batches of videos),
-  containing
+- grids of **any dimension** (e.g., 1D, 2D images, 3D video, 4D batches of videos), containing
 
-- sample values of arbitrary shape
-  (e.g., scalars, RGB colors, motion vectors, Jacobian matrices) and
+- **samples of any shape** (e.g., scalars, colors, motion vectors, Jacobian matrices) and
 
-- arbitrary numeric type (integer, floating, and complex);
+- any **numeric type** (integer, floating, and complex);
 
-- either `dual` ("half-integer") or `primal` **grid-type**
-  for each dimension;
+- either `dual` ("half-integer") or `primal` **grid-type** for each dimension;
 
-- many **boundary** rules,
-  specified per dimension, extensible via subclassing;
+- many **boundary** rules, specified per dimension, extensible via subclassing;
 
-- an extensible set of parameterized **filter** kernels,
-  selectable per dimension;
+- an extensible set of **filter** kernels, selectable per dimension;
 
-- optional **gamma** transfer functions
-  for correct linear-space filtering;
+- optional **gamma** transfer functions for correct linear-space filtering;
 
-- prefiltering for accurate antialiasing when downsampling;
+- prefiltering for accurate **antialiasing** when downsampling;
 
 - processing within several **array libraries**
   (`numpy`, `tensorflow`, and `torch`);
@@ -54,12 +48,12 @@ It supports:
 - efficient backpropagation of **gradients**
   for both `tensorflow` and `torch`;
 
-- easy installation, without any native-code extension module, yet
+- easy installation, with **no native code**, yet
 
-- **faster resizing** than the C++ implementations
+- **faster resizing** than C++ implementations
   in `tf.image`, `torch.nn`, and `torchvision`.
 
-A key strategy is to build on existing sparse matrix representations and operations.
+A key strategy is to leverage existing sparse matrix representations and operations.
 
 ## Example usage
 
@@ -71,8 +65,7 @@ import resampler
 ```
 
 ```python
-rng = np.random.default_rng(seed=1)
-array = rng.random((4, 6, 3))  # 4x6 RGB image.
+array = np.random.default_rng(1).random((4, 6, 3))  # 4x6 RGB image.
 upsampled = resampler.resize(array, (128, 192))  # To 128x192 resolution.
 media.show_images({'4x6': array, '128x192': upsampled}, height=128)
 ```
