@@ -125,7 +125,7 @@
 # axs[1].plot(np.arange(len(new_primal)) / (len(new_primal) - 1), new_primal, '.')
 # plt.show()
 # ```
-# > <img src="https://github.com/hhoppe/resampler/raw/main/media/examples_1d_upsampling"/>
+# > <img src="https://github.com/hhoppe/resampler/raw/main/media/examples_1d_upsampling.png"/>
 #
 # ```python
 # batch_size = 4
