@@ -650,3 +650,5 @@ mitmproxy
 repo
 ufunc
 pytest
+cls
+RuntimeWarning
