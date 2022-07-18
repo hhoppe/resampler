@@ -5,7 +5,7 @@
 
 
 __docformat__ = 'google'
-__version__ = '0.3.1'
+__version__ = '0.3.2'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 
@@ -421,11 +421,11 @@ class _TorchArraylib(_Arraylib):
 
 def _as_arr(array: _Array) -> _Arraylib:
   """Return array wrapped as an `_Arraylib` for dispatch of functions."""
-  for class_ in ARRAYLIBS.values():
-    if class_.recognize(array):
-      return class_(array)
+  for cls in _DICT_ARRAYLIBS.values():
+    if cls.recognize(array):
+      return cls(array)
   raise AssertionError(
-      f'{array} {type(array)} {type(array).__module__} unrecognized by {list(ARRAYLIBS)}.')
+      f'{array} {type(array)} {type(array).__module__} unrecognized by {ARRAYLIBS}.')
 
 
 def _arr_arraylib(array: _Array) -> str:
@@ -495,15 +495,17 @@ def _arr_swapaxes(array: _Array, axis0: int, axis1: int) -> _Array:
 
 def _make_array(array: Any, arraylib: str) -> _Array:
   """Create an array defined in the library `arraylib`."""
-  return ARRAYLIBS[arraylib](array).array
+  return _DICT_ARRAYLIBS[arraylib](array).array
 
 
-ARRAYLIBS = {
+_DICT_ARRAYLIBS = {
     'numpy': _NumpyArraylib,
     'tensorflow': _TensorflowArraylib,
     'torch': _TorchArraylib,
 }
-"""Supported array libraries ('numpy', 'tensorflow', and 'torch')."""
+
+ARRAYLIBS = list(_DICT_ARRAYLIBS)
+"""Supported array libraries."""
 
 
 def _block_shape_with_min_size(shape: Tuple[int, ...], min_size: int,
@@ -688,12 +690,18 @@ class PrimalGridtype(Gridtype):
     return np.minimum(np.abs(index), size - 1)
 
 
-GRIDTYPES: Dict[str, Gridtype] = {
+_DICT_GRIDTYPES = {
     'dual': DualGridtype(),
     'primal': PrimalGridtype(),
 }
+
+GRIDTYPES = list(_DICT_GRIDTYPES)
 """Shortcut names for some predefined grid types, specified per dimension.
-The two entries are 'dual' and 'primal'."""
+These are: `'dual'` and `'primal'`.""";
+
+def _get_gridtype(gridtype: Union[str, Gridtype]) -> Gridtype:
+  """Return a `Gridtype`, which can be specified as a name in `GRIDTYPES`."""
+  return gridtype if isinstance(gridtype, Gridtype) else _DICT_GRIDTYPES[gridtype]
 
 
 def _get_gridtypes(
@@ -710,10 +718,8 @@ def _get_gridtypes(
     if dst_gridtype is not None:
       raise ValueError('Cannot have both gridtype and dst_gridtype.')
     src_gridtype = dst_gridtype = gridtype
-  src_gridtype2 = [g if isinstance(g, Gridtype) else GRIDTYPES[g]
-                   for g in np.broadcast_to(np.array(src_gridtype), src_ndim)]
-  dst_gridtype2 = [g if isinstance(g, Gridtype) else GRIDTYPES[g]
-                   for g in np.broadcast_to(np.array(dst_gridtype), dst_ndim)]
+  src_gridtype2 = [_get_gridtype(g) for g in np.broadcast_to(np.array(src_gridtype), src_ndim)]
+  dst_gridtype2 = [_get_gridtype(g) for g in np.broadcast_to(np.array(dst_gridtype), dst_ndim)]
   return src_gridtype2, dst_gridtype2
 
 
@@ -1017,7 +1023,7 @@ class Boundary:
     self.override_value(weight, point)
 
 
-_OFTUSED_BOUNDARIES = {
+_DICT_BOUNDARIES = {
     'reflect':  # (a.k.a. reflected, symm, symmetric, mirror, grid-mirror.)
         Boundary('reflect', extend_samples=ReflectExtendSamples()),
     'wrap':  # (a.k.a. periodic, repeat, grid-wrap.)
@@ -1038,10 +1044,6 @@ _OFTUSED_BOUNDARIES = {
     'quadratic_constant':
         Boundary('quadratic_constant', extend_samples=QuadraticExtendSamples(),
                  override_value=UnitDomainOverrideExteriorValue()),
-}
-"""A useful subset of `BOUNDARIES` for visualization in figures."""
-
-_ADDITIONAL_BOUNDARIES = {
     'reflect_clamp':  # (a.k.a. mirror-clamp-to-edge)
         Boundary('reflect_clamp', extend_samples=ReflectClampExtendSamples()),
     'constant':  # (a.k.a. constant, reflect-constant.)
@@ -1053,9 +1055,18 @@ _ADDITIONAL_BOUNDARIES = {
         Boundary('quadratic', extend_samples=QuadraticExtendSamples()),
 }
 
-BOUNDARIES: Dict[str, Boundary] = {**_OFTUSED_BOUNDARIES, **_ADDITIONAL_BOUNDARIES}
+BOUNDARIES = list(_DICT_BOUNDARIES)
 """Shortcut names for some predefined boundary rules.
-Examples include: 'reflect', 'wrap', 'tile', 'clamp', 'border', etc."""
+These include: `'reflect'`, `'wrap'`, `'tile'`, `'clamp'`, `'border'`, etc.
+See the source code for extensibility."""
+
+_OFTUSED_BOUNDARIES = ('reflect wrap tile clamp border natural'
+                       ' linear_constant quadratic_constant'.split())
+"""A useful subset of `BOUNDARIES` for visualization in figures."""
+
+def _get_boundary(boundary: Union[str, Boundary]) -> Boundary:
+  """Return a `Boundary`, which can be specified as a name in `BOUNDARIES`."""
+  return boundary if isinstance(boundary, Boundary) else _DICT_BOUNDARIES[boundary]
 
 
 @dataclasses.dataclass
@@ -1376,6 +1387,7 @@ class CardinalBsplineFilter(Filter):
   """
 
   def __init__(self, *, degree: int, sampled: bool = True) -> None:
+    self.degree = degree
     if degree < 0:
       raise ValueError(f'Bspline of degree {degree} is invalid.')
     radius = (degree + 1) / 2
@@ -1473,7 +1485,36 @@ class NarrowBoxFilter(Filter):
     return np.where((-radius <= x) & (x < radius), magnitude, 0.0)
 
 
-FILTERS: Dict[str, Filter] = {
+_DICT_FILTERS = {
+    'impulse': ImpulseFilter(),  # a.k.a. 'nearest'
+    'box': BoxFilter(),  # non-antialiased box, e.g. ImageMagick box.
+    'trapezoid': TrapezoidFilter(),  # "area" antialiasing, e.g., cv.INTER_AREA
+    'triangle': TriangleFilter(),  # a.k.a. 'linear'  ('bilinear' in 2D)
+    'cubic': CatmullRomFilter(),  # a.k.a. 'catmullrom', 'keys', 'bicubic'.
+    'sharpcubic': SharpCubicFilter(),  # cv.INTER_CUBIC, torch 'bicubic'.
+    'lanczos3': LanczosFilter(radius=3),
+    'lanczos5': LanczosFilter(radius=5),  # optionally: sampled=False
+    'lanczos10': LanczosFilter(radius=10),
+    'cardinal3': CardinalBsplineFilter(degree=3),
+    'cardinal5': CardinalBsplineFilter(degree=5),
+    'omoms3': OmomsFilter(degree=3),
+    'omoms5': OmomsFilter(degree=5),
+    'hamming3': GeneralizedHammingFilter(radius=3, a0=25/46),  # (a0 = ~0.54)
+    'kaiser3': KaiserFilter(radius=3.0, beta=7.12),
+    'gaussian': GaussianFilter(),
+    'bspline3': BsplineFilter(degree=3),
+    'mitchell': MitchellFilter(),  # a.k.a. 'mitchellcubic'
+    'narrowbox': NarrowBoxFilter(),
+    # Not in FILTERS:
+    'hann3': GeneralizedHammingFilter(radius=3, a0=0.5),
+    'lanczos4': LanczosFilter(radius=4),
+}
+
+FILTERS = [filter for filter in _DICT_FILTERS if filter not in 'hann3 lanczos4'.split()]
+"""Shortcut names for some predefined filter kernels.
+These names expand to:
+```
+{
     'impulse': ImpulseFilter(),  # a.k.a. 'nearest'
     'box': BoxFilter(),  # non-antialiased box, e.g. ImageMagick box.
     'trapezoid': TrapezoidFilter(),  # "area" antialiasing, e.g., cv.INTER_AREA
@@ -1494,18 +1535,11 @@ FILTERS: Dict[str, Filter] = {
     'mitchell': MitchellFilter(),  # a.k.a. 'mitchellcubic'
     'narrowbox': NarrowBoxFilter(),
 }
-"""Shortcut names for some predefined filter kernels.  These include 'impulse', 'box', 'trapezoid',
-'triangle', 'cubic', 'lanczos3', 'lanczos5', etc."""
-
-OTHER_FILTERS = {
-    'hann3': GeneralizedHammingFilter(radius=3, a0=0.5),
-    'lanczos4': LanczosFilter(radius=4),
-}
-
+```"""  # formatting??
 
 def _get_filter(filter: Union[str, Filter]) -> Filter:
   """Return a `Filter`, which can be specified as a name string key in `FILTERS`."""
-  return filter if isinstance(filter, Filter) else FILTERS[filter]
+  return filter if isinstance(filter, Filter) else _DICT_FILTERS[filter]
 
 
 def _to_float_01(array: _Array, dtype: Any) -> _Array:
@@ -1628,14 +1662,20 @@ class SrgbGamma(Gamma):
     return _from_float(x, dtype)
 
 
-GAMMAS: Dict[str, Gamma] = {
+_DICT_GAMMAS = {
     'identity': IdentityGamma(),
     'power2': PowerGamma(2.0),
     'power22': PowerGamma(2.2),
     'srgb': SrgbGamma(),
 }
-"""Shortcut names for some predefined gamma-correction schemes.  These include 'identity',
-'power2', 'power22', and 'srgb'."""
+
+GAMMAS = list(_DICT_GAMMAS)
+"""Shortcut names for some predefined gamma-correction schemes.
+These are: `'identity'`, `'power2'`, `'power22'`, and `'srgb'`.""";
+
+def _get_gamma(gamma: Union[str, Gamma]) -> Gamma:
+  """Return a `Gamma`, which can be specified as a name in `GAMMAS`."""
+  return gamma if isinstance(gamma, Gamma) else _DICT_GAMMAS[gamma]
 
 
 def _get_src_dst_gamma(gamma: Union[None, str, Gamma],
@@ -1659,8 +1699,8 @@ def _get_src_dst_gamma(gamma: Union[None, str, Gamma],
       raise ValueError('Cannot specify both gamma and dst_gamma.')
     src_gamma = dst_gamma = gamma
   assert src_gamma and dst_gamma
-  src_gamma = src_gamma if isinstance(src_gamma, Gamma) else GAMMAS[src_gamma]
-  dst_gamma = dst_gamma if isinstance(dst_gamma, Gamma) else GAMMAS[dst_gamma]
+  src_gamma = _get_gamma(src_gamma)
+  dst_gamma = _get_gamma(dst_gamma)
   return src_gamma, dst_gamma
 
 
@@ -1695,7 +1735,7 @@ def _create_resize_matrix(      # pylint: disable=too-many-statements
     scale: Scaling factor applied when mapping the source domain onto the destination domain.
     translate: Offset applied when mapping the scaled source domain onto the destination domain.
     dtype: Precision of computed resize matrix entries.
-    arraylib: Representation of output.  Must be an element of ARRAYLIBS.
+    arraylib: Representation of output.  Must be an element of `ARRAYLIBS`.
 
   Returns:
     sparse_matrix: Matrix whose rows express output sample values as affine combinations of the
@@ -1907,14 +1947,19 @@ def _apply_potential_digital_filter_1d(  # pylint: disable=too-many-statements
   cval = np.asarray(cval).astype(array.dtype, copy=False)
 
   # Use faster code if compatible dtype, gridtype, boundary, and filter:
-  if (filter.name in ('cardinal3', 'cardinal5') and
+  # ?? if (filter.name in ('cardinal3', 'cardinal5') and
+  use_scipy_spline_filter1d = (
+      isinstance(filter, CardinalBsplineFilter) and
+      filter.degree >= 2 and
       not np.issubdtype(array.dtype, np.complexfloating) and (
-          boundary.name == 'reflect' or (gridtype.name == 'dual' and boundary.name == 'wrap'))):
-    order = int(filter.name[len('cardinal'):])
+          boundary.name == 'reflect' or (gridtype.name == 'dual' and boundary.name == 'wrap')))
+  if use_scipy_spline_filter1d:
+    assert isinstance(filter, CardinalBsplineFilter)
+    # ?? order = int(filter.name[len('cardinal'):])
     mode = ({'dual': 'reflect', 'primal': 'mirror'}[gridtype.name]
             if boundary.name == 'reflect' else 'wrap')
     # compute_backward=True is same: matrix is symmetric and cval is unused.
-    return _spline_filter1d(array, axis=axis, order=order, mode=mode, output=array.dtype)
+    return _spline_filter1d(array, axis=axis, order=filter.degree, mode=mode, output=array.dtype)
 
   array_dim = np.moveaxis(array, axis, 0)
   l = original_l = math.ceil(filter.radius) - 1
@@ -2116,7 +2161,7 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
     boundary_dim = boundary2[dim]
     if boundary_dim == 'auto':
       boundary_dim = 'clamp' if is_minification else 'reflect'
-    boundary_dim = boundary_dim if isinstance(boundary_dim, Boundary) else BOUNDARIES[boundary_dim]
+    boundary_dim = _get_boundary(boundary_dim)
     resize_matrix, cval_weight = _create_resize_matrix(
         array.shape[dim],
         shape[dim],
@@ -2403,8 +2448,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
   if grid_ndim > array_ndim:
     raise ValueError(f'There are more coordinate dimensions ({grid_ndim}) in'
                      f' coords {coords} than in array.shape {array.shape}.')
-  gridtype2 = [g if isinstance(g, Gridtype) else GRIDTYPES[g]
-               for g in np.broadcast_to(np.array(gridtype), grid_ndim)]
+  gridtype2 = [_get_gridtype(g) for g in np.broadcast_to(np.array(gridtype), grid_ndim)]
   boundary2 = np.broadcast_to(np.array(boundary), grid_ndim).tolist()
   cval = np.broadcast_to(cval, sample_shape)
   prefilter = filter if prefilter is None else prefilter
@@ -2423,8 +2467,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
   for dim in range(grid_ndim):
     if boundary2[dim] == 'auto':
       boundary2[dim] = 'clamp' if is_minification else 'reflect'
-    boundary2[dim] = (boundary2[dim] if isinstance(boundary2[dim], Boundary) else
-                      BOUNDARIES[boundary2[dim]])
+    boundary2[dim] = _get_boundary(boundary2[dim])
 
   if max_block_size != _MAX_BLOCK_SIZE_RECURSING:
     array = src_gamma2.decode(array, precision)

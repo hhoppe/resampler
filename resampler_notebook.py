@@ -338,7 +338,7 @@
 
 # %% tags=[]
 __docformat__ = 'google'
-__version__ = '0.3.1'
+__version__ = '0.3.2'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 # %%
@@ -450,8 +450,12 @@ hh.start_timing_notebook_cells()
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
 # %% tags=[]
-# ('.../tqdm/auto.py:22: TqdmWarning: IProgress not found. Please update jupyter and ipywidgets.')
+# (".../tqdm/auto.py:22: TqdmWarning: IProgress not found. Please update jupyter and ipywidgets.")
 warnings.filterwarnings('ignore', message='IProgress not found')  # category=tqdm.TqdmWarning
+
+# %% tags=[]
+# ("RuntimeWarning: More than 20 figures have been opened." when run as script.)
+matplotlib.rcParams['figure.max_open_warning'] = 0
 
 # %%
 _URL_BASE = 'https://github.com/hhoppe/data/raw/main'
@@ -565,6 +569,23 @@ def crop_array(array: Any, width: Any, cval: Any = 0) -> _NDArray:
     width: Crop widths (or pad widths if negative) before each dimension and after each dimension.
       Must be broadcastable onto (2, array.ndim).
     cval: Value to use when padding.
+
+  >>> array1 = np.arange(15).reshape(3, 5)
+  >>> crop_array(array1, 1)
+  array([[6, 7, 8]])
+
+  >>> crop_array(array1, (1, 2))
+  array([[7]])
+
+  >>> crop_array(array1, ((2, 1), (-1, 2)))
+  array([[11, 12],
+         [ 0,  0]])
+
+  >>> crop_array([1], -3, cval=5)
+  array([5, 5, 5, 1, 5, 5, 5])
+
+  >>> crop_array([1], [[-2], [-1]], cval=5)
+  array([5, 5, 1, 5])
   """
   # https://stackoverflow.com/questions/66846983
   array = np.asarray(array)
@@ -575,18 +596,6 @@ def crop_array(array: Any, width: Any, cval: Any = 0) -> _NDArray:
   if (width < 0).any():
     array = np.pad(array, -np.minimum(width, 0).T, constant_values=cval)
   return array
-
-
-# %%
-def test_crop_array() -> None:
-  array1 = np.arange(15).reshape(3, 5)
-  _check_eq(crop_array(array1, 1), [[6, 7, 8]])
-  _check_eq(crop_array(array1, (1, 2)), [[7]])
-  _check_eq(crop_array(array1, ((2, 1), (-1, 2))), [[11, 12], [0, 0]])
-  _check_eq(crop_array([1], -3, cval=5), [5, 5, 5, 1, 5, 5, 5])
-  _check_eq(crop_array([1], [[-2], [-1]], cval=5), [5, 5, 1, 5])
-
-test_crop_array()
 
 
 # %%
@@ -917,10 +926,8 @@ test_profile_downsample_in_2d_using_box_filter()
 
 # %% [markdown]
 # The [`resize`](#resize-function) and [`resample`](#Resample)
-# functions operate transparently on multidimensional arrays from several libraries:
-# ```python
-# list(ARRAYLIBS)  # ['numpy', 'tensorflow', 'torch']
-# ```
+# functions operate transparently on multidimensional arrays from several libraries,
+# listed in `ARRAYLIBS`: `['numpy', 'tensorflow', 'torch']`.
 #
 # - The library is selected automatically based on the type of the `array` parameter.
 #
@@ -1163,11 +1170,11 @@ class _TorchArraylib(_Arraylib):
 # %% tags=[]
 def _as_arr(array: _Array) -> _Arraylib:
   """Return array wrapped as an `_Arraylib` for dispatch of functions."""
-  for class_ in ARRAYLIBS.values():
-    if class_.recognize(array):
-      return class_(array)
+  for cls in _DICT_ARRAYLIBS.values():
+    if cls.recognize(array):
+      return cls(array)
   raise AssertionError(
-      f'{array} {type(array)} {type(array).__module__} unrecognized by {list(ARRAYLIBS)}.')
+      f'{array} {type(array)} {type(array).__module__} unrecognized by {ARRAYLIBS}.')
 
 
 def _arr_arraylib(array: _Array) -> str:
@@ -1237,16 +1244,18 @@ def _arr_swapaxes(array: _Array, axis0: int, axis1: int) -> _Array:
 
 def _make_array(array: Any, arraylib: str) -> _Array:
   """Create an array defined in the library `arraylib`."""
-  return ARRAYLIBS[arraylib](array).array
+  return _DICT_ARRAYLIBS[arraylib](array).array
 
 
 # %% tags=[]
-ARRAYLIBS = {
+_DICT_ARRAYLIBS = {
     'numpy': _NumpyArraylib,
     'tensorflow': _TensorflowArraylib,
     'torch': _TorchArraylib,
 }
-"""Supported array libraries ('numpy', 'tensorflow', and 'torch').""";
+
+ARRAYLIBS = list(_DICT_ARRAYLIBS)
+"""Supported array libraries.""";
 
 
 # %% tags=[]
@@ -1557,12 +1566,18 @@ class PrimalGridtype(Gridtype):
 
 
 # %%
-GRIDTYPES: Dict[str, Gridtype] = {
+_DICT_GRIDTYPES = {
     'dual': DualGridtype(),
     'primal': PrimalGridtype(),
 }
+
+GRIDTYPES = list(_DICT_GRIDTYPES)
 """Shortcut names for some predefined grid types, specified per dimension.
-The two entries are 'dual' and 'primal'.""";
+These are: `'dual'` and `'primal'`.""";
+
+def _get_gridtype(gridtype: Union[str, Gridtype]) -> Gridtype:
+  """Return a `Gridtype`, which can be specified as a name in `GRIDTYPES`."""
+  return gridtype if isinstance(gridtype, Gridtype) else _DICT_GRIDTYPES[gridtype]
 
 
 # %%
@@ -1580,10 +1595,8 @@ def _get_gridtypes(
     if dst_gridtype is not None:
       raise ValueError('Cannot have both gridtype and dst_gridtype.')
     src_gridtype = dst_gridtype = gridtype
-  src_gridtype2 = [g if isinstance(g, Gridtype) else GRIDTYPES[g]
-                   for g in np.broadcast_to(np.array(src_gridtype), src_ndim)]
-  dst_gridtype2 = [g if isinstance(g, Gridtype) else GRIDTYPES[g]
-                   for g in np.broadcast_to(np.array(dst_gridtype), dst_ndim)]
+  src_gridtype2 = [_get_gridtype(g) for g in np.broadcast_to(np.array(src_gridtype), src_ndim)]
+  dst_gridtype2 = [_get_gridtype(g) for g in np.broadcast_to(np.array(dst_gridtype), dst_ndim)]
   return src_gridtype2, dst_gridtype2
 
 
@@ -2001,7 +2014,7 @@ class Boundary:
 # <a name="Predefined-boundary-rules" id="Predefined-boundary-rules"></a> Predefined boundary rules:
 
 # %%
-_OFTUSED_BOUNDARIES = {
+_DICT_BOUNDARIES = {
     'reflect':  # (a.k.a. reflected, symm, symmetric, mirror, grid-mirror.)
         Boundary('reflect', extend_samples=ReflectExtendSamples()),
     'wrap':  # (a.k.a. periodic, repeat, grid-wrap.)
@@ -2022,10 +2035,6 @@ _OFTUSED_BOUNDARIES = {
     'quadratic_constant':
         Boundary('quadratic_constant', extend_samples=QuadraticExtendSamples(),
                  override_value=UnitDomainOverrideExteriorValue()),
-}
-"""A useful subset of `BOUNDARIES` for visualization in figures."""
-
-_ADDITIONAL_BOUNDARIES = {
     'reflect_clamp':  # (a.k.a. mirror-clamp-to-edge)
         Boundary('reflect_clamp', extend_samples=ReflectClampExtendSamples()),
     'constant':  # (a.k.a. constant, reflect-constant.)
@@ -2037,9 +2046,18 @@ _ADDITIONAL_BOUNDARIES = {
         Boundary('quadratic', extend_samples=QuadraticExtendSamples()),
 }
 
-BOUNDARIES: Dict[str, Boundary] = {**_OFTUSED_BOUNDARIES, **_ADDITIONAL_BOUNDARIES}
+BOUNDARIES = list(_DICT_BOUNDARIES)
 """Shortcut names for some predefined boundary rules.
-Examples include: 'reflect', 'wrap', 'tile', 'clamp', 'border', etc.""";
+These include: `'reflect'`, `'wrap'`, `'tile'`, `'clamp'`, `'border'`, etc.
+See the source code for extensibility."""
+
+_OFTUSED_BOUNDARIES = ('reflect wrap tile clamp border natural'
+                       ' linear_constant quadratic_constant'.split())
+"""A useful subset of `BOUNDARIES` for visualization in figures."""
+
+def _get_boundary(boundary: Union[str, Boundary]) -> Boundary:
+  """Return a `Boundary`, which can be specified as a name in `BOUNDARIES`."""
+  return boundary if isinstance(boundary, Boundary) else _DICT_BOUNDARIES[boundary]
 
 
 # %% [markdown]
@@ -2406,6 +2424,7 @@ class CardinalBsplineFilter(Filter):
   """
 
   def __init__(self, *, degree: int, sampled: bool = True) -> None:
+    self.degree = degree
     if degree < 0:
       raise ValueError(f'Bspline of degree {degree} is invalid.')
     radius = (degree + 1) / 2
@@ -2504,7 +2523,36 @@ class NarrowBoxFilter(Filter):
 
 
 # %% tags=[]
-FILTERS: Dict[str, Filter] = {
+_DICT_FILTERS = {
+    'impulse': ImpulseFilter(),  # a.k.a. 'nearest'
+    'box': BoxFilter(),  # non-antialiased box, e.g. ImageMagick box.
+    'trapezoid': TrapezoidFilter(),  # "area" antialiasing, e.g., cv.INTER_AREA
+    'triangle': TriangleFilter(),  # a.k.a. 'linear'  ('bilinear' in 2D)
+    'cubic': CatmullRomFilter(),  # a.k.a. 'catmullrom', 'keys', 'bicubic'.
+    'sharpcubic': SharpCubicFilter(),  # cv.INTER_CUBIC, torch 'bicubic'.
+    'lanczos3': LanczosFilter(radius=3),
+    'lanczos5': LanczosFilter(radius=5),  # optionally: sampled=False
+    'lanczos10': LanczosFilter(radius=10),
+    'cardinal3': CardinalBsplineFilter(degree=3),
+    'cardinal5': CardinalBsplineFilter(degree=5),
+    'omoms3': OmomsFilter(degree=3),
+    'omoms5': OmomsFilter(degree=5),
+    'hamming3': GeneralizedHammingFilter(radius=3, a0=25/46),  # (a0 = ~0.54)
+    'kaiser3': KaiserFilter(radius=3.0, beta=7.12),
+    'gaussian': GaussianFilter(),
+    'bspline3': BsplineFilter(degree=3),
+    'mitchell': MitchellFilter(),  # a.k.a. 'mitchellcubic'
+    'narrowbox': NarrowBoxFilter(),
+    # Not in FILTERS:
+    'hann3': GeneralizedHammingFilter(radius=3, a0=0.5),
+    'lanczos4': LanczosFilter(radius=4),
+}
+
+FILTERS = [filter for filter in _DICT_FILTERS if filter not in 'hann3 lanczos4'.split()]
+"""Shortcut names for some predefined filter kernels.
+These names expand to:
+```
+{
     'impulse': ImpulseFilter(),  # a.k.a. 'nearest'
     'box': BoxFilter(),  # non-antialiased box, e.g. ImageMagick box.
     'trapezoid': TrapezoidFilter(),  # "area" antialiasing, e.g., cv.INTER_AREA
@@ -2525,18 +2573,11 @@ FILTERS: Dict[str, Filter] = {
     'mitchell': MitchellFilter(),  # a.k.a. 'mitchellcubic'
     'narrowbox': NarrowBoxFilter(),
 }
-"""Shortcut names for some predefined filter kernels.  These include 'impulse', 'box', 'trapezoid',
-'triangle', 'cubic', 'lanczos3', 'lanczos5', etc."""
+```"""  # formatting??
 
-OTHER_FILTERS = {
-    'hann3': GeneralizedHammingFilter(radius=3, a0=0.5),
-    'lanczos4': LanczosFilter(radius=4),
-}
-
-# %%
 def _get_filter(filter: Union[str, Filter]) -> Filter:
   """Return a `Filter`, which can be specified as a name string key in `FILTERS`."""
-  return filter if isinstance(filter, Filter) else FILTERS[filter]
+  return filter if isinstance(filter, Filter) else _DICT_FILTERS[filter]
 
 
 # %% [markdown]
@@ -2694,21 +2735,28 @@ class SrgbGamma(Gamma):
 
 
 # %%
-GAMMAS: Dict[str, Gamma] = {
+_DICT_GAMMAS = {
     'identity': IdentityGamma(),
     'power2': PowerGamma(2.0),
     'power22': PowerGamma(2.2),
     'srgb': SrgbGamma(),
 }
-"""Shortcut names for some predefined gamma-correction schemes.  These include 'identity',
-'power2', 'power22', and 'srgb'.""";
+
+GAMMAS = list(_DICT_GAMMAS)
+"""Shortcut names for some predefined gamma-correction schemes.
+These are: `'identity'`, `'power2'`, `'power22'`, and `'srgb'`.""";
+
+def _get_gamma(gamma: Union[str, Gamma]) -> Gamma:
+  """Return a `Gamma`, which can be specified as a name in `GAMMAS`."""
+  return gamma if isinstance(gamma, Gamma) else _DICT_GAMMAS[gamma]
 
 
 # %%
 def test_gamma() -> None:
-  for config1 in itertools.product(ARRAYLIBS, GAMMAS, 'uint8 uint16 uint32'.split()):
+  dtypes = 'uint8 uint16 uint32'.split()
+  for config1 in itertools.product(ARRAYLIBS, GAMMAS, dtypes):
     arraylib, gamma_name, dtype = config1
-    gamma = GAMMAS[gamma_name]
+    gamma = _get_gamma(gamma_name)
     if arraylib == 'torch' and dtype in ['uint16', 'uint32']:
       continue  # Unsupported in torch.
     int_max = np.iinfo(dtype).max
@@ -2725,10 +2773,11 @@ def test_gamma() -> None:
     encoded_numpy = _arr_numpy(encoded)
     _check_eq(encoded_numpy, array_numpy)
 
-  for config2 in itertools.product(
-      ARRAYLIBS, GAMMAS, 'float32 float64'.split(), 'float32 float64'.split()):
+  dtypes = 'float32 float64'.split()
+  precisions = 'float32 float64'.split()
+  for config2 in itertools.product(ARRAYLIBS, GAMMAS, dtypes, precisions):
     arraylib, gamma_name, dtype, precision = config2
-    gamma = GAMMAS[gamma_name]
+    gamma = _get_gamma(gamma_name)
     array_numpy = np.linspace(0.0, 1.0, 100, dtype=dtype)
     array = _make_array(array_numpy, arraylib)
     decoded = gamma.decode(array, np.dtype(precision))
@@ -2743,9 +2792,10 @@ if EFFORT >= 1:
 
 # %%
 def test_gamma_conversion_from_and_to_uint8_timings() -> None:
-  for config in itertools.product(['float32', 'float64'], GAMMAS, ARRAYLIBS):
+  dtypes = 'float32 float64'.split()
+  for config in itertools.product(dtypes, GAMMAS, ARRAYLIBS):
     dtype, gamma_name, arraylib = config
-    gamma = GAMMAS[gamma_name]
+    gamma = _get_gamma(gamma_name)
     array_uint8 = _make_array(np.ones((1024, 1024, 3), dtype=np.uint8), arraylib)
     array_float = _make_array(np.ones((1024, 1024, 3), dtype=dtype), arraylib)
     t0 = hh.get_time(lambda: gamma.decode(array_uint8, dtype=dtype))
@@ -2801,8 +2851,8 @@ def _get_src_dst_gamma(gamma: Union[None, str, Gamma],
       raise ValueError('Cannot specify both gamma and dst_gamma.')
     src_gamma = dst_gamma = gamma
   assert src_gamma and dst_gamma
-  src_gamma = src_gamma if isinstance(src_gamma, Gamma) else GAMMAS[src_gamma]
-  dst_gamma = dst_gamma if isinstance(dst_gamma, Gamma) else GAMMAS[dst_gamma]
+  src_gamma = _get_gamma(src_gamma)
+  dst_gamma = _get_gamma(dst_gamma)
   return src_gamma, dst_gamma
 
 
@@ -2848,7 +2898,7 @@ def _create_resize_matrix(      # pylint: disable=too-many-statements
     scale: Scaling factor applied when mapping the source domain onto the destination domain.
     translate: Offset applied when mapping the scaled source domain onto the destination domain.
     dtype: Precision of computed resize matrix entries.
-    arraylib: Representation of output.  Must be an element of ARRAYLIBS.
+    arraylib: Representation of output.  Must be an element of `ARRAYLIBS`.
 
   Returns:
     sparse_matrix: Matrix whose rows express output sample values as affine combinations of the
@@ -2979,7 +3029,7 @@ def test_create_resize_matrix_for_trapezoid_filter(src_size, dst_size, debug=Fal
     filter = TrapezoidFilter(radius=radius)
   resize_matrix, unused_cval_weight = _create_resize_matrix(
       src_size, dst_size, src_gridtype=DualGridtype(), dst_gridtype=DualGridtype(),
-      boundary=BOUNDARIES['reflect'], filter=filter)
+      boundary=_get_boundary('reflect'), filter=filter)
   resize_matrix = resize_matrix.toarray()
   if debug:
     print(resize_matrix)
@@ -3004,13 +3054,15 @@ if 1:
 def test_that_resize_matrices_are_equal_across_arraylib() -> None:
   import tensorflow as tf
 
-  for config in itertools.product(range(1, 6), range(1, 6)):
+  src_sizes = range(1, 6)
+  dst_sizes = range(1, 6)
+  for config in itertools.product(src_sizes, dst_sizes):
     src_size, dst_size = config
 
     def resize_matrix(arraylib: str) -> _TensorflowTensor:
       return _create_resize_matrix(
           src_size, dst_size, src_gridtype=DualGridtype(), dst_gridtype=DualGridtype(),
-          boundary=BOUNDARIES['reflect'], filter=FILTERS['lanczos3'], translate=0.8,
+          boundary=_get_boundary('reflect'), filter=_get_filter('lanczos3'), translate=0.8,
           dtype=np.float32, arraylib=arraylib)[0]
 
     numpy_array = resize_matrix('numpy').toarray()
@@ -3030,7 +3082,7 @@ def test_that_resize_combinations_are_affine() -> None:
     boundary, dst_size = config
     resize_matrix, cval_weight = _create_resize_matrix(
         21, dst_size, src_gridtype=DualGridtype(), dst_gridtype=DualGridtype(),
-        boundary=BOUNDARIES[boundary], filter=TriangleFilter(), scale=0.5, translate=0.3)
+        boundary=_get_boundary(boundary), filter=TriangleFilter(), scale=0.5, translate=0.3)
     if cval_weight is None:
       row_sum = np.asarray(resize_matrix.sum(axis=1)).reshape(-1)
       assert np.allclose(row_sum, 1.0, rtol=0, atol=1e-6), (
@@ -3044,7 +3096,7 @@ test_that_resize_combinations_are_affine()
 def test_that_very_large_cval_causes_numerical_noise_to_appear(debug: bool = False) -> None:
   resize_matrix, _ = _create_resize_matrix(
       2, 3, src_gridtype=DualGridtype(), dst_gridtype=DualGridtype(),
-      boundary=BOUNDARIES['linear_constant'], filter=CatmullRomFilter())
+      boundary=_get_boundary('linear_constant'), filter=CatmullRomFilter())
   diff = resize_matrix.toarray().sum(axis=-1) - 1.0
   if debug:
     print(diff)  # [8.8817842e-16 0.0000000e+00 8.8817842e-16]
@@ -3158,14 +3210,19 @@ def _apply_potential_digital_filter_1d(  # pylint: disable=too-many-statements
   cval = np.asarray(cval).astype(array.dtype, copy=False)
 
   # Use faster code if compatible dtype, gridtype, boundary, and filter:
-  if (filter.name in ('cardinal3', 'cardinal5') and
+  # ?? if (filter.name in ('cardinal3', 'cardinal5') and
+  use_scipy_spline_filter1d = (
+      isinstance(filter, CardinalBsplineFilter) and
+      filter.degree >= 2 and
       not np.issubdtype(array.dtype, np.complexfloating) and (
-          boundary.name == 'reflect' or (gridtype.name == 'dual' and boundary.name == 'wrap'))):
-    order = int(filter.name[len('cardinal'):])
+          boundary.name == 'reflect' or (gridtype.name == 'dual' and boundary.name == 'wrap')))
+  if use_scipy_spline_filter1d:
+    assert isinstance(filter, CardinalBsplineFilter)
+    # ?? order = int(filter.name[len('cardinal'):])
     mode = ({'dual': 'reflect', 'primal': 'mirror'}[gridtype.name]
             if boundary.name == 'reflect' else 'wrap')
     # compute_backward=True is same: matrix is symmetric and cval is unused.
-    return _spline_filter1d(array, axis=axis, order=order, mode=mode, output=array.dtype)
+    return _spline_filter1d(array, axis=axis, order=filter.degree, mode=mode, output=array.dtype)
 
   array_dim = np.moveaxis(array, axis, 0)
   l = original_l = math.ceil(filter.radius) - 1
@@ -3223,12 +3280,12 @@ def test_apply_potential_digital_filter_1d_quick() -> None:
 
     def inverse_convolution(array: _NDArray) -> _NDArray:
       return _apply_potential_digital_filter_1d(
-          array, GRIDTYPES['dual'], BOUNDARIES[boundary], 20.0, FILTERS['cardinal3'])
+          array, _get_gridtype('dual'), _get_boundary(boundary), 20.0, _get_filter('cardinal3'))
 
     array_np = np.array([1.0, 2.0, 5.0, 7.0], np.float32)
     reference = inverse_convolution(array_np)
 
-    for arraylib in set(ARRAYLIBS) - {'numpy'}:
+    for arraylib in [a for a in ARRAYLIBS if a != 'numpy']:
       array = _make_array(array_np, arraylib)
       result = inverse_convolution(array)
       assert np.allclose(result, reference)
@@ -3398,7 +3455,7 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
     boundary_dim = boundary2[dim]
     if boundary_dim == 'auto':
       boundary_dim = 'clamp' if is_minification else 'reflect'
-    boundary_dim = boundary_dim if isinstance(boundary_dim, Boundary) else BOUNDARIES[boundary_dim]
+    boundary_dim = _get_boundary(boundary_dim)
     resize_matrix, cval_weight = _create_resize_matrix(
         array.shape[dim],
         shape[dim],
@@ -3622,8 +3679,7 @@ def test_order_of_dimensions_does_not_affect_resize_results(step=3) -> None:
   shapes = [(3, 4, 5), (3, 2, 4), (6, 2, 2), (1, 1, 1)]
   boundaries = 'reflect tile border natural linear_constant'.split()
   filters = 'impulse box trapezoid lanczos3'.split()
-  configs: List[Sequence[Any]] = [
-      shapes, shapes, list(GRIDTYPES), list(GRIDTYPES), boundaries, filters]
+  configs: List[Sequence[Any]] = [shapes, shapes, GRIDTYPES, GRIDTYPES, boundaries, filters]
   assert all(len(elem) % step != 0 for elem in configs)
   for config in itertools.islice(itertools.product(*configs), 0, None, step):
     src_shape, dst_shape, src_gridtype, dst_gridtype, boundary, filter = config
@@ -3664,7 +3720,7 @@ if EFFORT >= 1:
 def test_apply_potential_digital_filter_1d(cval=-10.0, shape=(7, 8)) -> None:
   original = np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 10
   array1 = original.copy()
-  filters = ['cardinal3', 'cardinal5']
+  filters = 'cardinal3 cardinal5'.split()
   for config in itertools.product(GRIDTYPES, BOUNDARIES, filters):
     gridtype, boundary, filter = config
     if gridtype == 'primal' and boundary in ('wrap', 'tile'):
@@ -3672,7 +3728,8 @@ def test_apply_potential_digital_filter_1d(cval=-10.0, shape=(7, 8)) -> None:
     array2 = array1
     for dim in range(array2.ndim):
       array2 = _apply_potential_digital_filter_1d(
-          array2, GRIDTYPES[gridtype], BOUNDARIES[boundary], cval, FILTERS[filter], axis=dim)
+          array2, _get_gridtype(gridtype), _get_boundary(boundary), cval,
+          _get_filter(filter), axis=dim)
     bspline = BsplineFilter(degree=int(filter[-1:]))
     array3 = resize(array2, array2.shape, gridtype=gridtype, boundary=boundary,
                     cval=cval, filter=bspline)
@@ -3864,8 +3921,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
   if grid_ndim > array_ndim:
     raise ValueError(f'There are more coordinate dimensions ({grid_ndim}) in'
                      f' coords {coords} than in array.shape {array.shape}.')
-  gridtype2 = [g if isinstance(g, Gridtype) else GRIDTYPES[g]
-               for g in np.broadcast_to(np.array(gridtype), grid_ndim)]
+  gridtype2 = [_get_gridtype(g) for g in np.broadcast_to(np.array(gridtype), grid_ndim)]
   boundary2 = np.broadcast_to(np.array(boundary), grid_ndim).tolist()
   cval = np.broadcast_to(cval, sample_shape)
   prefilter = filter if prefilter is None else prefilter
@@ -3884,8 +3940,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
   for dim in range(grid_ndim):
     if boundary2[dim] == 'auto':
       boundary2[dim] = 'clamp' if is_minification else 'reflect'
-    boundary2[dim] = (boundary2[dim] if isinstance(boundary2[dim], Boundary) else
-                      BOUNDARIES[boundary2[dim]])
+    boundary2[dim] = _get_boundary(boundary2[dim])
 
   if max_block_size != _MAX_BLOCK_SIZE_RECURSING:
     array = src_gamma2.decode(array, precision)
@@ -4136,14 +4191,13 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
   assert np.all(np.array(new_shape) >= np.array(shape))
   scale = 1.1
   translate = -0.4, -0.03, 0.4
-  # Subsets of ARRAYLIBS, BOUNDARIES, FILTERS, and GAMMAS.
-  arraylibs = ['tensorflow', 'torch']
-  dtypes = ['float32', 'uint8', 'complex64', 'complex128', 'int32', 'uint32', 'float64']
-  boundaries = ['border', 'clamp', 'quadratic', 'reflect', 'wrap']
-  filters = ['box', 'bspline3', 'impulse', 'lanczos3', 'narrowbox', 'triangle',
-             'cardinal3', 'omoms5']
-  gammas = ['identity', 'power2']
-  configs = [arraylibs, dtypes, list(GRIDTYPES), boundaries, filters, gammas]
+  # Sublists of ARRAYLIBS, BOUNDARIES, FILTERS, and GAMMAS.
+  arraylibs = 'tensorflow torch'.split()
+  dtypes = 'float32 uint8 complex64 complex128 int32 uint32 float64'.split()
+  boundaries = 'border clamp quadratic reflect wrap'.split()
+  filters = 'box bspline3 impulse lanczos3 narrowbox triangle cardinal3 omoms5'.split()
+  gammas = 'identity power2'.split()
+  configs = [arraylibs, dtypes, GRIDTYPES, boundaries, filters, gammas]
   step = len(filters) * len(gammas) - 1 if step is None else step
   assert all(step == 1 or len(elem) % step != 0 for elem in configs)
   for config in itertools.islice(itertools.product(*configs), 0, None, step):
@@ -4350,8 +4404,8 @@ def test_resize_using_resample(shape=(3, 2, 5), new_shape=(4, 2, 7), step=None) 
   array = np.random.default_rng(0).random(shape)
   scale = 1.1
   translate = -0.4, -0.03, 0.4
-  gammas = ['identity', 'power2']  # sublist of GAMMAS
-  configs = [list(GRIDTYPES), list(BOUNDARIES), list(FILTERS), gammas]
+  gammas = 'identity power2'.split()  # Sublist of GAMMAS.
+  configs = [GRIDTYPES, BOUNDARIES, FILTERS, gammas]
   step = len(FILTERS) * len(gammas) - 1 if step is None else step
   assert all(len(elem) % step != 0 for elem in configs)
   for config in itertools.islice(itertools.product(*configs), 0, None, step):
@@ -4544,9 +4598,10 @@ test_resizer_produces_correct_shape(pil_image_resize)
 # %% tags=[]
 def test_pil_image_resize() -> None:
   hamming1 = GeneralizedHammingFilter(radius=1, a0=0.54)
+  at_boundaries = [False, True]
   scales = [3.7, 2.0, 1.0, 0.5, 0.41]
   filters = 'impulse box triangle hamming1 cubic lanczos3'.split()
-  for config in itertools.product([False, True], scales, filters):
+  for config in itertools.product(at_boundaries, scales, filters):
     at_boundary, scale, filter = config
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
@@ -4616,8 +4671,10 @@ test_resizer_produces_correct_shape(cv_resize, 'lanczos4')
 
 # %% tags=[]
 def test_cv_resize() -> None:
+  at_boundaries = [False, True]
+  scales = [2.0, 1.0, 0.5]
   filters = 'impulse triangle trapezoid sharpcubic lanczos4'.split()
-  for config in itertools.product([False, True], [2.0, 1.0, 0.5], filters):
+  for config in itertools.product(at_boundaries, scales, filters):
     at_boundary, scale, filter = config
     if scale < 1.0 and filter not in ['trapezoid', 'linear']:
       continue  # Downsampling is not behaving well except with AREA filter?
@@ -4698,10 +4755,11 @@ test_resizer_produces_correct_shape(scipy_ndimage_resize, 'cardinal3')
 
 # %% tags=[]
 def test_scipy_ndimage_resize() -> None:
+  boundaries = 'reflect wrap clamp border'.split()
+  at_boundaries = [False, True]
   scales = [2.0, 13 / 8, 1.0, 0.5]
   filters = 'box triangle cardinal3 cardinal5'.split()
-  boundaries = 'reflect wrap clamp border'.split()
-  for config in itertools.product(boundaries, [False, True], scales, filters):
+  for config in itertools.product(boundaries, at_boundaries, scales, filters):
     boundary, at_boundary, scale, filter = config
     if scale < 1.0:
       continue  # Downsampling is aliased because there is no prefilter.
@@ -4751,10 +4809,11 @@ test_resizer_produces_correct_shape(skimage_transform_resize, 'cardinal3')
 
 # %% tags=[]
 def test_skimage_transform_resize() -> None:
+  boundaries = 'reflect wrap clamp border'.split()
+  at_boundaries = [False, True]
   scales = [2.0, 13 / 8, 1.0, 0.5]
   filters = 'box triangle cardinal3 cardinal5'.split()
-  boundaries = 'reflect wrap clamp border'.split()
-  for config in itertools.product(boundaries, [False, True], scales, filters):
+  for config in itertools.product(boundaries, at_boundaries, scales, filters):
     boundary, at_boundary, scale, filter = config
     if scale < 1.0:
       continue  # Downsampling is poor due to the Gaussian prefilter.
@@ -4825,7 +4884,8 @@ def test_tf_image_resize() -> None:
   array = np.random.default_rng(0).random(original_shape)
   filters = list(_TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER)
   shapes = [(16, 13), (64, 53)]  # Try both downsampling and upsampling.
-  for config in itertools.product(filters, shapes, [True, False]):
+  antialiases = [True, False]
+  for config in itertools.product(filters, shapes, antialiases):
     filter, shape, antialias = config
     downsampling = np.any(np.array(shape) < np.array(original_shape[:2]))
     if downsampling and not antialias:
@@ -4897,9 +4957,10 @@ test_resizer_produces_correct_shape(torch_nn_resize, 'sharpcubic')
 
 # %% tags=[]
 def test_torch_nn_resize() -> None:
+  at_boundaries = [False, True]
   scales = [3.7, 2.0, 1.0, 0.5, 0.41]
   filters = 'impulse trapezoid triangle sharpcubic'.split()
-  for config in itertools.product([False, True], scales, filters):
+  for config in itertools.product(at_boundaries, scales, filters):
     at_boundary, scale, filter = config
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
@@ -4966,9 +5027,10 @@ test_resizer_produces_correct_shape(torchvision_resize, 'sharpcubic')
 
 # %% tags=[]
 def test_torchvision_resize() -> None:
+  at_boundaries = [False, True]
   scales = [3.7, 2.0, 1.0, 0.5, 0.41]
   filters = 'impulse triangle sharpcubic'.split()
-  for config in itertools.product([False, True], scales, filters):
+  for config in itertools.product(at_boundaries, scales, filters):
     at_boundary, scale, filter = config
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
@@ -5574,8 +5636,10 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
   assert rms < 0.07, (operation, method)
 
 def test_tensorflow_optimize_image_for_desired_upsamplings() -> None:
-  for operation in ['resize', 'resample', 'keras_resize']:
-    for method in ['gradient_tape', 'adam']:
+  operations = 'resize resample keras_resize'.split()
+  methods = 'gradient_tape adam'.split()
+  for operation in operations:
+    for method in methods:
       test_tensorflow_optimize_image_for_desired_upsampling(operation=operation, method=method)
 
 test_tensorflow_optimize_image_for_desired_upsamplings()
@@ -5636,7 +5700,8 @@ test_torch_optimize_image_for_desired_upsampling()
 # %% tags=[]
 def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -> None:
   import torch
-  for filter in ['cubic', 'cardinal3']:
+  filters = 'cubic cardinal3'.split()
+  for filter in filters:
     coords = np.moveaxis(np.indices(dst_shape) + 0.5, 0, -1) / dst_shape
     functions = [
         lambda array: resize(array, dst_shape, filter=filter),
@@ -5797,7 +5862,7 @@ if EFFORT >= 2:
 # pylint: disable-next=too-many-statements
 def visualize_filters(filters: Mapping[str, Filter]) -> None:
 
-  def analyze_filter(name: str, filter: Filter, ax=None) -> None:
+  def analyze_filter(name: str, filter: Filter, ax: Any = None) -> None:
     footnote = '*' if filter.requires_digital_filter else ''
     if isinstance(filter, TrapezoidFilter) and filter.radius == 0.0:
       filter = TrapezoidFilter(radius=0.75)  # Visualize some representative radius.
@@ -5886,14 +5951,14 @@ def visualize_filters(filters: Mapping[str, Filter]) -> None:
 # Export: outside library.
 if 0:  # For debug.
   print(' '.join(FILTERS))
-  visualize_filters({'hamming3': FILTERS['hamming3']})
+  visualize_filters({'hamming3': _get_filter('hamming3')})
 
 # %% [markdown]
 # <a name="Visualization-of-filters" id="Visualization-of-filters"></a>Visualization of filters:
 
 # %% tags=[]
 # Export: outside library.
-visualize_filters({**FILTERS, **OTHER_FILTERS})
+visualize_filters(_DICT_FILTERS)
 
 
 # %% tags=[]
@@ -6908,8 +6973,8 @@ def test_banded(debug=False) -> None:
     src_index = np.arange(size)[:, None] + np.arange(len(values)) - l
     weight = np.broadcast_to(values[None], (size, len(values)))
     src_position = np.broadcast_to(0.5, len(values))
-    src_gridtype = GRIDTYPES['dual']
-    src_index, weight = BOUNDARIES[boundary].apply(
+    src_gridtype = _get_gridtype('dual')
+    src_index, weight = _get_boundary(boundary).apply(
         src_index, weight, src_position, size, src_gridtype)
     data = weight.reshape(-1)
     row_ind = np.arange(size).repeat(src_index.shape[1])
@@ -7043,8 +7108,8 @@ def test_inverse_convolution_2d(  # pylint: disable=too-many-statements
       src_index = np.arange(size)[:, None] + np.arange(len(values)) - l
       weight = np.full((size, len(values)), values, dtype=array.dtype)
       src_position = np.broadcast_to(0.5, len(values))
-      src_gridtype = GRIDTYPES[gridtype]
-      src_index, weight = BOUNDARIES[boundary].apply(
+      src_gridtype = _get_gridtype(gridtype)
+      src_index, weight = _get_boundary(boundary).apply(
           src_index, weight, src_position, size, src_gridtype)
       if gridtype == 'primal' and boundary == 'wrap':
         # Overwrite redundant last row to preserve unreferenced last sample.
@@ -7356,7 +7421,7 @@ def generate_graphics_filters(num=1_001) -> None:
 
   for index, filter_name in enumerate(filters):
     ax = axs.flat[index]
-    filter = FILTERS[filter_name]
+    filter = _get_filter(filter_name)
     if filter_name == 'lanczos3':
       filter_name += ' (def.)'  # Default filter.
     if filter_name == 'trapezoid':
@@ -7406,7 +7471,7 @@ def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
         x = (np.arange(len(resized)) + 0.5) / len(resized) / scale - offset
         ax.plot(x, resized, '-', color=color, label=boundary)
         x = np.arange(len(array))
-        x = GRIDTYPES[gridtype].point_from_index(x, len(array))
+        x = _get_gridtype(gridtype).point_from_index(x, len(array))
         ax.plot(x, array, 'o', color=color)
         ax.set_xlim(-offset, 1.0 + offset)
         ax.set_ylim(0.4, 1.2)
