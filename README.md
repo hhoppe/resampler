@@ -69,14 +69,14 @@ array = np.random.default_rng(1).random((4, 6, 3))  # 4x6 RGB image.
 upsampled = resampler.resize(array, (128, 192))  # To 128x192 resolution.
 media.show_images({'4x6': array, '128x192': upsampled}, height=128)
 ```
-> <img src="https://drive.google.com/uc?export=download&id=1tXm7Z8_ILYpTOsW1a5Z4S-Dvd1vcn7Q5"/>
+> <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_upsampled.png"/>
 
 ```python
 image = media.read_image('https://github.com/hhoppe/data/raw/main/image.png')
 downsampled = resampler.resize(image, (32, 32))
 media.show_images({'128x128': image, '32x32': downsampled}, height=128)
 ```
-> <img src="https://drive.google.com/uc?export=download&id=1OiVNvszGZP3COh8mhI0dd2v00cMw2TA0"/>
+> <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_downsampled.png"/>
 
 ```python
 import matplotlib.pyplot as plt
@@ -95,7 +95,7 @@ axs[1].plot(np.arange(len(array)) / (len(array) - 1), array, 'o')
 axs[1].plot(np.arange(len(new_primal)) / (len(new_primal) - 1), new_primal, '.')
 plt.show()
 ```
-> <img src="https://drive.google.com/uc?export=download&id=1VGjyX2nvBKaWyGbrMt3g0Nd3G1YdtFjg"/>
+> <img src="https://github.com/hhoppe/resampler/raw/main/media/examples_1d_upsampling.png"/>
 
 ```python
 batch_size = 4
@@ -104,15 +104,15 @@ upsampled = resampler.resize(batch_of_images, (batch_size, 64, 64))
 spacer = np.ones((64, 16, 3))
 media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
 ```
-> <img src="https://drive.google.com/uc?export=download&id=1PLHu5mCpmb-_54ybvfr6kLUUTHD6l73t"/>
+> <img src="https://github.com/hhoppe/resampler/raw/main/media/example_batch_resize.png"/>
 
 ```python
 media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
 ```
 > original
-<img src="https://drive.google.com/uc?export=download&id=1WCwwbgYZordX14-XvHiV2Gc_60I1KD39"/>
-upsampled
-<img src="https://drive.google.com/uc?export=download&id=11Of3Gbv6p2BTxJD2rO0zAWEEv4w3BIe5"/>
+  <img src="https://github.com/hhoppe/resampler/raw/main/media/batch_original.gif"/>
+  upsampled
+  <img src="https://github.com/hhoppe/resampler/raw/main/media/batch_upsampled.gif"/>
 
 Most examples above use the default
 `resize()` settings:
@@ -143,7 +143,7 @@ new = resampler.resize(
     translate=(0.1, 0.35), precision='float64', dtype='float32')
 media.show_images({'image': image, 'new': new})
 ```
-> <img src="https://drive.google.com/uc?export=download&id=1WUsrghao2Py9hSCPWfinVYg6Lga55h1X"/>
+> <img src="https://github.com/hhoppe/resampler/raw/main/media/example_advanced_usage1.png"/>
 
 Warp an image by transforming it using
 [polar coordinates](https://en.wikipedia.org/wiki/Polar_coordinate_system):
@@ -157,8 +157,7 @@ coords = np.dstack((np.sin(angle) * radius, np.cos(angle) * radius)) + 0.5
 resampled = resampler.resample(image, coords, boundary='constant')
 media.show_images({'image': image, 'resampled': resampled})
 ```
-> <img src="https://drive.google.com/uc?export=download&id=1vqnNGeAw5uTNvMEt8hzQY3uXOJugMtJY"/>
-
+> <img src="https://github.com/hhoppe/resampler/raw/main/media/example_warp.png"/>
 
 **Limitations:**
 
