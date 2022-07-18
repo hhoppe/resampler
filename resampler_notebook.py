@@ -99,14 +99,14 @@
 # upsampled = resampler.resize(array, (128, 192))  # To 128x192 resolution.
 # media.show_images({'4x6': array, '128x192': upsampled}, height=128)
 # ```
-# > <img src="https://drive.google.com/uc?export=download&id=1tXm7Z8_ILYpTOsW1a5Z4S-Dvd1vcn7Q5"/>
+# > <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_upsampled.png"/>
 #
 # ```python
 # image = media.read_image('https://github.com/hhoppe/data/raw/main/image.png')
 # downsampled = resampler.resize(image, (32, 32))
 # media.show_images({'128x128': image, '32x32': downsampled}, height=128)
 # ```
-# > <img src="https://drive.google.com/uc?export=download&id=1OiVNvszGZP3COh8mhI0dd2v00cMw2TA0"/>
+# > <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_downsampled.png"/>
 #
 # ```python
 # import matplotlib.pyplot as plt
@@ -125,7 +125,7 @@
 # axs[1].plot(np.arange(len(new_primal)) / (len(new_primal) - 1), new_primal, '.')
 # plt.show()
 # ```
-# > <img src="https://drive.google.com/uc?export=download&id=1VGjyX2nvBKaWyGbrMt3g0Nd3G1YdtFjg"/>
+# > <img src="https://github.com/hhoppe/resampler/raw/main/media/examples_1d_upsampling"/>
 #
 # ```python
 # batch_size = 4
@@ -134,15 +134,15 @@
 # spacer = np.ones((64, 16, 3))
 # media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
 # ```
-# > <img src="https://drive.google.com/uc?export=download&id=1PLHu5mCpmb-_54ybvfr6kLUUTHD6l73t"/>
+# > <img src="https://github.com/hhoppe/resampler/raw/main/media/example_batch_resize.png"/>
 #
 # ```python
 # media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
 # ```
 # > original
-#   <img src="https://drive.google.com/uc?export=download&id=1WCwwbgYZordX14-XvHiV2Gc_60I1KD39"/>
+#   <img src="https://github.com/hhoppe/resampler/raw/main/media/batch_original.gif"/>
 #   upsampled
-#   <img src="https://drive.google.com/uc?export=download&id=11Of3Gbv6p2BTxJD2rO0zAWEEv4w3BIe5"/>
+#   <img src="https://github.com/hhoppe/resampler/raw/main/media/batch_upsampled.gif"/>
 #
 # Most examples above use the default
 # [`resize()`](#Resize) settings:
@@ -173,7 +173,7 @@
 #     translate=(0.1, 0.35), precision='float64', dtype='float32')
 # media.show_images({'image': image, 'new': new})
 # ```
-# > <img src="https://drive.google.com/uc?export=download&id=1WUsrghao2Py9hSCPWfinVYg6Lga55h1X"/>
+# > <img src="https://github.com/hhoppe/resampler/raw/main/media/example_advanced_usage1.png"/>
 #
 # Warp an image by transforming it using
 # [polar coordinates](https://en.wikipedia.org/wiki/Polar_coordinate_system):
@@ -187,7 +187,7 @@
 # resampled = resampler.resample(image, coords, boundary='constant')
 # media.show_images({'image': image, 'resampled': resampled})
 # ```
-# > <img src="https://drive.google.com/uc?export=download&id=1vqnNGeAw5uTNvMEt8hzQY3uXOJugMtJY"/>
+# > <img src="https://github.com/hhoppe/resampler/raw/main/media/example_warp.png"/>
 
 # %% [markdown]
 # **Limitations:**
@@ -220,7 +220,8 @@
 # %% [markdown]
 # <center>
 # <!-- Edit from Google Drive or https://docs.google.com/drawings/d/1XJWGNd8qRZloUryKZyGNmJZbbDARNNdpbCV8yNJQB2k/edit -->
-# <img style="margin: 15px 0px 0px 0px;" src="https://docs.google.com/drawings/d/e/2PACX-1vQ4RPXRkDabmjuNUvzi5XQwZsfH9eDiChsSjNbqOp8Du96_xNNkwM-fwZ800fLq3uE85wDVfb4oQd1D/pub?h=400" width="600"/>
+# <!-- https://docs.google.com/drawings/d/e/2PACX-1vQ4RPXRkDabmjuNUvzi5XQwZsfH9eDiChsSjNbqOp8Du96_xNNkwM-fwZ800fLq3uE85wDVfb4oQd1D/pub?h=400 -->
+# <img style="margin: 15px 0px 0px 0px;" src="https://github.com/hhoppe/resampler/raw/main/media/reconstruction_then_sampling.png" width="600"/>
 # <br/>
 # Figure 1: Reconstruction of an RGB color field from a 2D grid of pixel samples,
 # and sampling of the field to obtain pixel values.
@@ -235,7 +236,8 @@
 # - A [*regular grid*](https://en.wikipedia.org/wiki/Regular_grid) distributes samples
 #   within the domain according to the
 #   [**grid-type**](#Grid-types--dual-and-primal-) (*dual* or *primal*):
-#   <center><img style="margin: 15px 0px 15px 0px;" src="https://docs.google.com/drawings/d/e/2PACX-1vRPbU2t6ylO9WfyDUO3SEyHkc2tppSjbis0kb9RGGIU6jPPe9PqA2JNUjBSnVdf47ITsQIlLpmrsImg/pub?h=100"></center>
+#   <center><!-- https://docs.google.com/drawings/d/e/2PACX-1vRPbU2t6ylO9WfyDUO3SEyHkc2tppSjbis0kb9RGGIU6jPPe9PqA2JNUjBSnVdf47ITsQIlLpmrsImg/pub?h=100 -->
+#   <img style="margin: 15px 0px 15px 0px;" src="https://github.com/hhoppe/resampler/raw/main/media/dual_primal.png"/></center>
 #
 # - [*Reconstruction*](https://en.wikipedia.org/wiki/Sinc_interpolation)
 #   creates an interpolating function (e.g., a 2D color field)
@@ -243,15 +245,15 @@
 #   The function is obtained as a sum along each dimension of translated *reconstruction filters*
 #   [weighted](https://en.wikipedia.org/wiki/Lanczos_resampling)
 #   by the sample values:
-#   <center><img style="margin: 15px 0px 15px 0px;" src="https://drive.google.com/uc?export=download&id=1PwxaQ-lVsseukCGlRShUaUHH5qt3ke-6" width="500"/></center>
+#   <center><img style="margin: 15px 0px 15px 0px;" src="https://github.com/hhoppe/resampler/raw/main/media/reconstruction_weighted_kernels.png" width="500"/></center>
 #
 # - Common [**filter**](#Filter-kernels) choices include:
-#   <center><img style="margin: 15px 0px 15px 0px;" src="https://drive.google.com/uc?export=download&id=1WmyF2fbxuVpQAqCgCVXg6jOCRAUCC5NK"/></center>
+#   <center><img style="margin: 15px 0px 15px 0px;" src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png"/></center>
 #
 #
 # - [**Boundary**](#Boundary-rules) rules determine the behavior of the
 #   reconstruction near and beyond the domain extent.  Choices include:
-#   <center><img style="margin: 15px 0px 15px 0px;" src="https://drive.google.com/uc?export=download&id=1MDsWXRfdBTwZVWeTceq4gqjHBVCQbR4K"/></center>
+#   <center><img style="margin: 15px 0px 15px 0px;" src="https://github.com/hhoppe/resampler/raw/main/media/boundary_summary.png"/></center>
 #
 # - [*Sampling*](https://en.wikipedia.org/wiki/Sampling_(signal_processing))
 #   determines sample values given a field.
@@ -282,7 +284,7 @@
 #
 # - The [**resample**](#Resample) operation is a generalization in which
 #   the destination samples are mapped to *arbitrary* coordinates in the source domain:
-#   <center><img style="margin: 15px 0px 15px 0px;" src="https://drive.google.com/uc?export=download&id=1EWFR8dE3VpDICC98qD5NWgTQi-cttOEz"/></center>
+#   <center><img style="margin: 15px 0px 15px 0px;" src="https://github.com/hhoppe/resampler/raw/main/media/example_warp_coords.png"/></center>
 #   <!--TODO: antialias this result!-->
 #
 # - Efficient implementation of resize/resample is enabled by [two key
@@ -297,8 +299,7 @@
 #      reconstructed field is subsequently bandlimited by the sampling prefilter.
 
 # %% [markdown]
-# [extra notes]
-# <!--
+# <!-- ?
 #   However, the *intermediate function* is impractical to represent on a computer.
 #   Most computations involve discretized representations.
 #
@@ -1432,9 +1433,12 @@ test_split_prefix_dims()
 # which complicates data structures and algorithms
 # (e.g. the [FFT](https://en.wikipedia.org/wiki/Fast_Fourier_transform)).
 #
+# <!-- https://docs.google.com/drawings/d/e/2PACX-1vRbex6vhC3qe4tSfpnd6jy5AW07hLitZP27B0k1iNDfiNxiWEZTcjGZVrLqHbFAUv5eXD6-w2NYKdKx/pub?h=100 -->
+# <!-- https://docs.google.com/drawings/d/e/2PACX-1vQFcIpcQO-vskezYZL-Vb42yc2Ab7qsfMJ7Wr8kanRK4efhIdk0HwYSMPLq8k3OkloQd1ysuKukN-OK/pub?h=100 -->
+#
 # | `gridtype=` | `dual` (default) | `primal` |
 # | --- |:---:|:---:|
-# | Sample positions in 2D and 1D | ![Dual](https://docs.google.com/drawings/d/e/2PACX-1vRbex6vhC3qe4tSfpnd6jy5AW07hLitZP27B0k1iNDfiNxiWEZTcjGZVrLqHbFAUv5eXD6-w2NYKdKx/pub?h=100) | ![Primal](https://docs.google.com/drawings/d/e/2PACX-1vQFcIpcQO-vskezYZL-Vb42yc2Ab7qsfMJ7Wr8kanRK4efhIdk0HwYSMPLq8k3OkloQd1ysuKukN-OK/pub?h=100) |
+# | Sample positions in 2D and 1D | ![Dual](https://github.com/hhoppe/resampler/raw/main/media/dual_grid_small.png) | ![Primal](https://github.com/hhoppe/resampler/raw/main/media/primal_grid_small.png) |
 # | Nesting of samples across pyramid resolutions | The samples positions do *not* nest. | The *even* samples remain at coarser scale. |
 # | Number $N_\ell$ of samples (per-dimension) at pyramid level $\ell$ | $N_\ell=2^\ell$ | $N_\ell=2^\ell+1$ |
 # | Position of sample index $i$ within domain $[0, 1]$ | $\frac{i + 0.5}{N}$ ("half-integer" coordinates) | $\frac{i}{N-1}$ |
@@ -1587,15 +1591,16 @@ def _get_gridtypes(
 # ## <a name="Boundary-rules"></a>Boundary rules
 
 # %% [markdown]
-#
 # Reconstruction creates a field as a sum of filters
 # weighted by the sample values.
 # However, the source samples are within a finite domain grid.
 #
+# <!-- https://docs.google.com/drawings/d/e/2PACX-1vTcttrI22EFrE_n4_TOHxY-ue-TVzA7674-hGc9IsdiDWFEQ6Y4GGaa7Mez0VAyZH8EltM5ca2A2IS-/pub?h=150 -->
+#
 # <table><tr>
-# <td><img src="https://drive.google.com/uc?export=download&id=1PwxaQ-lVsseukCGlRShUaUHH5qt3ke-6" width="400"/></td>
+# <td><img src="https://github.com/hhoppe/resampler/raw/main/media/reconstruction_weighted_kernels.png" width="400"/></td>
 # <td>&emsp;&emsp;&emsp;&emsp;</td>
-# <td><img src="https://docs.google.com/drawings/d/e/2PACX-1vTcttrI22EFrE_n4_TOHxY-ue-TVzA7674-hGc9IsdiDWFEQ6Y4GGaa7Mez0VAyZH8EltM5ca2A2IS-/pub?h=150" width="350"/></td>
+# <td><img src="https://github.com/hhoppe/resampler/raw/main/media/reconstruction.png" width="350"/></td>
 # </tr></table>
 #
 # Boundary rules let us define the reconstructed function
@@ -1628,8 +1633,7 @@ def _get_gridtypes(
 
 # %% [markdown]
 # <center>
-# <!-- at https://drive.google.com/file/d/1Sve5qDZbJGVDUgDqJEQSM2PJ-ciH8myw/view?usp=sharing -->
-# <img src="https://drive.google.com/uc?export=download&id=1Sve5qDZbJGVDUgDqJEQSM2PJ-ciH8myw"/>
+# <img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_1D.png"/>
 # Figure ?: Boundary rules illustrated in 1D.
 # </center>
 # <br/>
@@ -1640,7 +1644,7 @@ def _get_gridtypes(
 
 # %% [markdown]
 # <center>
-# <img src="https://drive.google.com/uc?export=download&id=1rOgOyMvpKRszGknt_QDC-TAvxJXi9cj-"/>
+# <img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_2D.png"/>
 # Figure ?: Boundary rules illustrated in 2D.
 # </center>
 
@@ -2047,8 +2051,8 @@ Examples include: 'reflect', 'wrap', 'tile', 'clamp', 'border', etc.""";
 # is a sum of the grid samples $\{a_i\}$ weighted by a reconstruction
 # [*filter kernel*](https://en.wikipedia.org/wiki/Kernel_(statistics))
 # $\phi$.
-# <!--(A kernel is a # [window function](https://en.wikipedia.org/wiki/Window_function),
-# i.e., it has value zero outside of some some radius.)-->
+# <!-- (A kernel is a # [window function](https://en.wikipedia.org/wiki/Window_function),
+# i.e., it has value zero outside of some some radius.)? -->
 #
 # The [Nyquist-Shannon sampling
 # theorem](https://en.wikipedia.org/wiki/Nyquist%E2%80%93Shannon_sampling_theorem)
@@ -2069,7 +2073,7 @@ Examples include: 'reflect', 'wrap', 'tile', 'clamp', 'border', etc.""";
 #
 # Here is a subset of predefined `filter` choices:
 # <center><img style="margin: 15px 0px 15px 0px;"
-#  src="https://drive.google.com/uc?export=download&id=1WmyF2fbxuVpQAqCgCVXg6jOCRAUCC5NK"/></center>
+#  src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png"/></center>
 #
 # The `trapezoid` filter is an antialiased version of the `box` filter.
 # Its implementation is special in that its parameterized shape (edge slope)
