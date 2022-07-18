@@ -135,6 +135,7 @@ dmypy.json
 /tmp
 /docs
 
+/Notes.txt
 /resampler_other*
 /no_code.ipynb
 /Docker*
