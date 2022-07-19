@@ -27,8 +27,7 @@ jobs:
       - run: pip install -r resampler/requirements.txt
       - run: pip install pdoc
       # ADJUST THIS: build your documentation into docs/.
-      - run: pdoc --math -t ./pdoc -o ./docs ./resampler
-
+      - run: pdoc --math -t ./pdoc -o ./docs ./resampler --logo https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png --favicon https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha_scaletox64.ico --logo-link https://hhoppe.github.io/resampler/resampler.html
       - run: tar --directory docs/ -hcf artifact.tar .
       - uses: actions/upload-artifact@v3
         with:

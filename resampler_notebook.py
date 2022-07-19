@@ -219,8 +219,6 @@
 
 # %% [markdown]
 # <center>
-# <!-- Edit from Google Drive or https://docs.google.com/drawings/d/1XJWGNd8qRZloUryKZyGNmJZbbDARNNdpbCV8yNJQB2k/edit -->
-# <!-- https://docs.google.com/drawings/d/e/2PACX-1vQ4RPXRkDabmjuNUvzi5XQwZsfH9eDiChsSjNbqOp8Du96_xNNkwM-fwZ800fLq3uE85wDVfb4oQd1D/pub?h=400 -->
 # <img style="margin: 15px 0px 0px 0px;" src="https://github.com/hhoppe/resampler/raw/main/media/reconstruction_then_sampling.png" width="600"/>
 # <br/>
 # Figure 1: Reconstruction of an RGB color field from a 2D grid of pixel samples,
@@ -236,8 +234,7 @@
 # - A [*regular grid*](https://en.wikipedia.org/wiki/Regular_grid) distributes samples
 #   within the domain according to the
 #   [**grid-type**](#Grid-types--dual-and-primal-) (*dual* or *primal*):
-#   <center><!-- https://docs.google.com/drawings/d/e/2PACX-1vRPbU2t6ylO9WfyDUO3SEyHkc2tppSjbis0kb9RGGIU6jPPe9PqA2JNUjBSnVdf47ITsQIlLpmrsImg/pub?h=100 -->
-#   <img style="margin: 15px 0px 15px 0px;" src="https://github.com/hhoppe/resampler/raw/main/media/dual_primal.png"/></center>
+#   <center><img style="margin: 15px 0px 15px 0px;" src="https://github.com/hhoppe/resampler/raw/main/media/dual_primal.png"/></center>
 #
 # - [*Reconstruction*](https://en.wikipedia.org/wiki/Sinc_interpolation)
 #   creates an interpolating function (e.g., a 2D color field)
@@ -334,9 +331,8 @@
 """resampler: fast differentiable resizing and warping of arbitrary grids.
 
 .. include:: ../README.md
-""";
+"""
 
-# %% tags=[]
 __docformat__ = 'google'
 __version__ = '0.3.2'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
@@ -484,13 +480,13 @@ def example_vector_graphics_image() -> _NDArray:
 
 
 # %%
-def display_markdown(s: str) -> None:
-  IPython.display.display(IPython.display.Markdown(s))
+def display_markdown(text: str) -> None:
+  IPython.display.display(IPython.display.Markdown(text))
 
 
 # %%
-def display_html(s: str) -> None:
-  IPython.display.display(IPython.display.HTML(s))
+def display_html(text: str) -> None:
+  IPython.display.display(IPython.display.HTML(text))
 
 
 # %% tags=[]
@@ -561,7 +557,7 @@ if EFFORT >= 1:
 
 
 # %%
-def crop_array(array: Any, width: Any, cval: Any = 0) -> _NDArray:
+def crop_array(array: Any, width: Any, cval: Any = 0) -> _NDArray:  # ??move to other
   """Return array cropped (or padded) along each dimension.
 
   Args:
@@ -607,9 +603,9 @@ def show_grid_values(array, figsize=(14, 4), cmap='gray', **kwargs) -> None:
   ax.matshow(array, cmap=cmap, **kwargs)
   for yx in np.ndindex(array.shape):
     value = array[yx]
-    s = f'{value}' if np.issubdtype(array.dtype, np.integer) else f'{value:.3f}'
+    text = f'{value}' if np.issubdtype(array.dtype, np.integer) else f'{value:.3f}'
     # https://matplotlib.org/stable/api/_as_gen/matplotlib.patches.FancyBboxPatch.html
-    ax.text(*yx[::-1], s, va='center', ha='center',
+    ax.text(*yx[::-1], text, va='center', ha='center',
             bbox=dict(boxstyle='square,pad=0.1', fc='white', lw=0))
   _ = ax.xaxis.set_ticks([]), ax.yaxis.set_ticks([])
   plt.show()
@@ -627,20 +623,14 @@ if EFFORT >= 1:
 
 # %%
 def create_checkerboard(output_shape, block_shape=(1, 1), dtype=np.float32) -> _NDArray:
+  """Return a grid of alternating blocks of 0 and 1 values.
+
+  >>> array = create_checkerboard((5, 7)
+  >>> array.dtype, array.shape, array.sum()
+  np.float32, (5, 7), 17
+  """
   indices = np.moveaxis(np.indices(output_shape), 0, -1)
   return ((indices // block_shape).sum(axis=-1) % 2).astype(dtype)
-
-
-# %% tags=[]
-def test_checkerboard(shape=(5, 7), debug=False) -> None:
-  image = create_checkerboard(shape)
-  _check_eq(image.dtype, np.float32)
-  _check_eq(image.shape, shape)
-  _check_eq(image.sum(), np.prod(shape) // 2)
-  if debug:
-    media.show_image(image, border=True, height=image.shape[0] * 8)
-
-test_checkerboard()
 
 
 # %%
@@ -653,7 +643,7 @@ test_checkerboard()
 # ## Helper functions
 
 # %%
-def _real_precision(dtype: _DType) -> _DType:
+def _real_precision(dtype: Any) -> _DType:
   """Return the type of the real part of a complex number."""
   return np.array([], dtype=dtype).real.dtype
 
@@ -685,11 +675,17 @@ def test_precision() -> None:
 test_precision()
 
 
-# %%
+# %% tags=[]
 def _sinc(x: Any) -> _NDArray:
   """Return the value `np.sinc(x)` but improved to:
   (1) ignore underflow that occurs at 0.0 for np.float32, and
   (2) output exact zero for integer input values.
+
+  >>> _sinc(np.array([-3, -2, -1, 0], dtype=np.float32))
+  array([0., 0., 0., 1.], dtype=float32)
+
+  >>> _sinc(0)
+  1.0
   """
   x = np.asarray(x)
   x_is_scalar = x.ndim == 0
@@ -698,14 +694,6 @@ def _sinc(x: Any) -> _NDArray:
     result[x == np.floor(x)] = 0.0
     result[x == 0] = 1.0
     return result.item() if x_is_scalar else result
-
-
-# %%
-def test_sinc() -> None:
-  _check_eq(_sinc(np.array([-3, -2, -1, 0], dtype=np.float32)), [0, 0, 0, 1])
-  _check_eq(_sinc(0), 1.0)
-
-test_sinc()
 
 
 # %%
@@ -798,7 +786,7 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
   assert np.allclose(result['nearest'], result['expected'], rtol=0, atol=1e-2)
   assert np.allclose(result['scipy'], result['expected'], rtol=0, atol=1e-6)
 
-  if 1:
+  if 0:
     shape = 1000, 1000
     array = rng.random(shape) * 8.0 - 4.0
     hh.print_time(lambda: func(array))
@@ -952,44 +940,44 @@ class _Arraylib:
 
   @staticmethod
   def recognize(array: Any) -> bool:
-    """Return True if `array` is recognized by this array library."""
+    """Return True if `array` is recognized by this _Arraylib."""
 
   def numpy(self) -> _NDArray:
-    """Return a `numpy` version of this array."""
+    """Return a `numpy` version of `self.array`."""
 
   def dtype(self) -> _DType:
-    """Return the numpy dtype of the array."""
+    """Return the equivalent of `self.array.dtype` as a `numpy` `dtype`."""
 
   def astype(self, dtype: Any) -> _Array:
-    """Return the array with values cast as numpy dtype."""
+    """Return the equivalent of `self.array.astype(dtype, copy=False)` with `numpy` `dtype`."""
 
   def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
-    """Return the array with values clipped to the range [low, high]."""
+    """Return the equivalent of `self.array.clip(low, high, dtype=dtype)` with `numpy` `dtype`."""
 
   def square(self) -> _Array:
-    """Return a new array with values squared."""
+    """Return the equivalent of `np.square(self.array)`."""
 
   def sqrt(self) -> _Array:
-    """Return a new array with values square-rooted."""
+    """Return the equivalent of `np.sqrt(self.array)`."""
 
   def gather(self, table: Any) -> _Array:
-    """Return `table[array]`."""
+    """Return the equivalent of `table[self.array]`."""
 
   def where(self, if_true: Any, if_false: Any) -> _Array:
-    """Return `where(array, if_true, if_false)`."""
+    """Return the equivalent of `np.where(self.array, if_true, if_false)`."""
 
   def transpose(self, axes: Sequence[int]) -> _Array:
-    """Return the array with its axes permuted."""
+    """Return the equivalent of `np.transpose(self.array, axes)`."""
 
   def concatenate(self, arrays: Sequence[_Array], axis: int) -> _Array:
-    """Return the concatenation of arrays; uses self only to determine arraylib!"""
+    """Return the equivalent of `np.concatenate(arrays, axis)`; ignores self.array."""
 
 
 # %% tags=[]
 class _NumpyArraylib(_Arraylib):
   """Numpy implementation of the array abstraction."""
 
-  def __init__(self, array: Any) -> None:
+  def __init__(self, array: _NDArray) -> None:
     super().__init__(arraylib='numpy', array=np.asarray(array))
 
   @staticmethod
@@ -1033,7 +1021,7 @@ class _NumpyArraylib(_Arraylib):
 class _TensorflowArraylib(_Arraylib):
   """Tensorflow implementation of the array abstraction."""
 
-  def __init__(self, array: Any) -> None:
+  def __init__(self, array: _NDArray) -> None:
     import tensorflow as tf
     super().__init__(arraylib='tensorflow', array=tf.convert_to_tensor(array))
 
@@ -1093,7 +1081,7 @@ class _TensorflowArraylib(_Arraylib):
 class _TorchArraylib(_Arraylib):
   """Torch implementation of the array abstraction."""
 
-  def __init__(self, array: Any) -> None:
+  def __init__(self, array: _NDArray) -> None:
     import torch
     super().__init__(arraylib='torch', array=torch.as_tensor(array))
 
@@ -1168,8 +1156,17 @@ class _TorchArraylib(_Arraylib):
 # has jax.numpy.einsum() too.
 
 # %% tags=[]
+_DICT_ARRAYLIBS = {
+    'numpy': _NumpyArraylib,
+    'tensorflow': _TensorflowArraylib,
+    'torch': _TorchArraylib,
+}
+
+ARRAYLIBS = list(_DICT_ARRAYLIBS)
+"""Array libraries supported automatically in the resize and resampling operations."""
+
 def _as_arr(array: _Array) -> _Arraylib:
-  """Return array wrapped as an `_Arraylib` for dispatch of functions."""
+  """Return `array` wrapped as an `_Arraylib` for dispatch of functions."""
   for cls in _DICT_ARRAYLIBS.values():
     if cls.recognize(array):
       return cls(array)
@@ -1177,63 +1174,64 @@ def _as_arr(array: _Array) -> _Arraylib:
       f'{array} {type(array)} {type(array).__module__} unrecognized by {ARRAYLIBS}.')
 
 
+# %% tags=[]
 def _arr_arraylib(array: _Array) -> str:
-  """Return the name of the arraylib representing the array."""
+  """Return the name of the `Arraylib` representing `array`."""
   return _as_arr(array).arraylib
 
 
 def _arr_numpy(array: _Array) -> _NDArray:
-  """Return a `numpy` version of this array."""
+  """Return a `numpy` version of `array`."""
   return _as_arr(array).numpy()
 
 
 def _arr_dtype(array: _Array) -> _DType:
-  """Return the numpy dtype of the array."""
+  """Return the equivalent of `array.dtype` as a `numpy` `dtype`."""
   return _as_arr(array).dtype()
 
 
 def _arr_astype(array: _Array, dtype: Any) -> _Array:
-  """Return the array with values cast as numpy dtype."""
+  """Return the equivalent of `array.astype(dtype)` with `numpy` `dtype`."""
   return _as_arr(array).astype(dtype)
 
 
 def _arr_clip(array: _Array, low: Any, high: Any, dtype: Any = None) -> _Array:
-  """Return the array with values clipped to the range [low, high]."""
+  """Return the equivalent of `array.clip(low, high, dtype)` with `numpy` `dtype`."""
   return _as_arr(array).clip(low, high, dtype)
 
 
 def _arr_square(array: _Array) -> _Array:
-  """Return a new array with values squared."""
+  """Return the equivalent of `np.square(array)`."""
   return _as_arr(array).square()
 
 
 def _arr_sqrt(array: _Array) -> _Array:
-  """Return a new array with values square-rooted."""
+  """Return the equivalent of `np.sqrt(array)`."""
   return _as_arr(array).sqrt()
 
 
 def _arr_gather(table: Any, indices: Any) -> _Array:
-  """Return `table[indices]`."""
+  """Return the equivalent of `table[indices]`."""
   return _as_arr(indices).gather(table)
 
 
 def _arr_where(condition: Any, if_true: Any, if_false: Any) -> _Array:
-  """Return `where(condition, if_true, if_false)`."""
+  """Return the equivalent of `np.where(condition, if_true, if_false)`."""
   return _as_arr(condition).where(if_true, if_false)
 
 
 def _arr_transpose(array: _Array, axes: Sequence[int]) -> _Array:
-  """Return the array with its axes permuted."""
+  """Return the equivalent of `np.transpose(array, axes)`."""
   return _as_arr(array).transpose(axes)
 
 
 def _arr_concatenate(arrays: Sequence[Any], axis: int) -> _Array:
-  """Return the concatenation of arrays."""
+  """Return the equivalent of `np.concatenate(arrays, axis)`."""
   return _as_arr(arrays[0]).concatenate(arrays, axis)
 
 
 def _arr_swapaxes(array: _Array, axis0: int, axis1: int) -> _Array:
-  """Return the array with its axes swapped."""
+  """Return the equivalent of `np.swapaxes(array, axis0, axis1)`."""
   ndim = array.ndim
   assert 0 <= axis0 < ndim and 0 <= axis1 < ndim, (axis0, axis1, ndim)
   axes = list(range(ndim))
@@ -1242,20 +1240,9 @@ def _arr_swapaxes(array: _Array, axis0: int, axis1: int) -> _Array:
   return _arr_transpose(array, axes)
 
 
-def _make_array(array: Any, arraylib: str) -> _Array:
-  """Create an array defined in the library `arraylib`."""
+def _make_array(array: _NDArray, arraylib: str) -> _Array:
+  """Return an array from the library `arraylib` initialized with the `numpy` `array`."""
   return _DICT_ARRAYLIBS[arraylib](array).array
-
-
-# %% tags=[]
-_DICT_ARRAYLIBS = {
-    'numpy': _NumpyArraylib,
-    'tensorflow': _TensorflowArraylib,
-    'torch': _TorchArraylib,
-}
-
-ARRAYLIBS = list(_DICT_ARRAYLIBS)
-"""Supported array libraries.""";
 
 
 # %% tags=[]
@@ -1442,9 +1429,6 @@ test_split_prefix_dims()
 # which complicates data structures and algorithms
 # (e.g. the [FFT](https://en.wikipedia.org/wiki/Fast_Fourier_transform)).
 #
-# <!-- https://docs.google.com/drawings/d/e/2PACX-1vRbex6vhC3qe4tSfpnd6jy5AW07hLitZP27B0k1iNDfiNxiWEZTcjGZVrLqHbFAUv5eXD6-w2NYKdKx/pub?h=100 -->
-# <!-- https://docs.google.com/drawings/d/e/2PACX-1vQFcIpcQO-vskezYZL-Vb42yc2Ab7qsfMJ7Wr8kanRK4efhIdk0HwYSMPLq8k3OkloQd1ysuKukN-OK/pub?h=100 -->
-#
 # | `gridtype=` | `dual` (default) | `primal` |
 # | --- |:---:|:---:|
 # | Sample positions in 2D and 1D | ![Dual](https://github.com/hhoppe/resampler/raw/main/media/dual_grid_small.png) | ![Primal](https://github.com/hhoppe/resampler/raw/main/media/primal_grid_small.png) |
@@ -1467,10 +1451,10 @@ class Gridtype:
   specified per domain dimension.
 
   Examples:
-    `resize(source, shape, gridtype='primal')`  # Sets both src and dst.
+    `resize(source, shape, gridtype='primal')`  # Sets both src and dst to be `primal` grids.
 
     `resize(source, shape, src_gridtype=['dual', 'primal'],
-           dst_gridtype='dual')`  # Source is dual in dim0 and primal in dim1.
+           dst_gridtype='dual')`  # Source is `dual` in dim0 and `primal` in dim1.
   """
 
   name: str
@@ -1486,8 +1470,8 @@ class Gridtype:
     """Return [0.0, 1.0] coordinates given [0, size - 1] indices."""
 
   def index_from_point(self, point: Any, size: int) -> _NDArray:
-    """Return location x given coordinates [0.0, 1.0], where x == 0.0 is the
-    first grid sample and x == size - 1.0 is the last grid sample."""
+    """Return location x given coordinates [0.0, 1.0], where x == 0.0 is the first grid sample
+    and x == size - 1.0 is the last grid sample."""
 
   def reflect(self, index: Any, size: int) -> _NDArray:
     """Map integer sample indices to interior ones using boundary reflection."""
@@ -1502,7 +1486,7 @@ class Gridtype:
 class DualGridtype(Gridtype):
   """Samples are at the center of cells in a uniform partition of the domain.
 
-  For a unit-domain dimension with N samples, each sample 0 <= i <= N has position (i + 0.5) / N,
+  For a unit-domain dimension with N samples, each sample 0 <= i < N has position (i + 0.5) / N,
   e.g., [0.125, 0.375, 0.625, 0.875] for N = 4.
   """
 
@@ -1535,7 +1519,7 @@ class DualGridtype(Gridtype):
 class PrimalGridtype(Gridtype):
   """Samples are at the vertices of cells in a uniform partition of the domain.
 
-  For a unit-domain dimension with N samples, each sample 0 <= i <= N has position i / (N - 1),
+  For a unit-domain dimension with N samples, each sample 0 <= i < N has position i / (N - 1),
   e.g., [0, 1/3, 2/3, 1] for N = 4.
   """
 
@@ -1572,8 +1556,15 @@ _DICT_GRIDTYPES = {
 }
 
 GRIDTYPES = list(_DICT_GRIDTYPES)
-"""Shortcut names for some predefined grid types, specified per dimension.
-These are: `'dual'` and `'primal'`.""";
+r"""Shortcut names for the two predefined grid types (specified per dimension):
+
+| name               | `Gridtype`       | position of sample $0 \le i < N$ in domain $[0, 1]$ |
+|--------------------|------------------|:---:|
+| `'dual'` (default) | `DualGridtype`   | $(i + 0.5) / N$ |
+| `'primal'`         | `PrimalGridtype` | $i / (N - 1)$   |
+
+See the source code for extensibility.
+"""
 
 def _get_gridtype(gridtype: Union[str, Gridtype]) -> Gridtype:
   """Return a `Gridtype`, which can be specified as a name in `GRIDTYPES`."""
@@ -1607,8 +1598,6 @@ def _get_gridtypes(
 # Reconstruction creates a field as a sum of filters
 # weighted by the sample values.
 # However, the source samples are within a finite domain grid.
-#
-# <!-- https://docs.google.com/drawings/d/e/2PACX-1vTcttrI22EFrE_n4_TOHxY-ue-TVzA7674-hGc9IsdiDWFEQ6Y4GGaa7Mez0VAyZH8EltM5ca2A2IS-/pub?h=150 -->
 #
 # <table><tr>
 # <td><img src="https://github.com/hhoppe/resampler/raw/main/media/reconstruction_weighted_kernels.png" width="400"/></td>
@@ -2037,7 +2026,7 @@ _DICT_BOUNDARIES = {
                  override_value=UnitDomainOverrideExteriorValue()),
     'reflect_clamp':  # (a.k.a. mirror-clamp-to-edge)
         Boundary('reflect_clamp', extend_samples=ReflectClampExtendSamples()),
-    'constant':  # (a.k.a. constant, reflect-constant.)
+    'constant':  # (a.k.a. reflect-constant.)
         Boundary('constant', extend_samples=ReflectExtendSamples(),
                  override_value=UnitDomainOverrideExteriorValue()),
     'linear':
@@ -2047,9 +2036,26 @@ _DICT_BOUNDARIES = {
 }
 
 BOUNDARIES = list(_DICT_BOUNDARIES)
-"""Shortcut names for some predefined boundary rules.
-These include: `'reflect'`, `'wrap'`, `'tile'`, `'clamp'`, `'border'`, etc.
-See the source code for extensibility."""
+"""Shortcut names for some predefined boundary rules (as defined by `_DICT_BOUNDARIES`):
+
+| name                   | a.k.a. / comments |
+|------------------------|-------------------|
+| `'reflect'`            | *reflected*, *symm*, *symmetric*, *mirror*, *grid-mirror* |
+| `'wrap'`               | *periodic*, *repeat*, *grid-wrap* |
+| `'tile'`               | like `reflect` within unit domain, then tile discontinuously |
+| `'clamp'`              | *clamped*, *nearest*, *edge*, *clamp-to-edge*, repeat last sample |
+| `'border'`             | *grid-constant*, use `cval` for samples outside unit domain |
+| `'natural'`            | *renormalize*, ignore samples outside unit domain |
+| `'reflect_clamp'`      | *mirror-clamp-to-edge* |
+| `'constant'`           | like `reflect` but replace by `cval` outside unit domain |
+| `'linear'`             | extrapolate from 2 last samples |
+| `'quadratic'`          | extrapolate from 3 last samples |
+| `'linear_constant'`    | like `linear` but replace by `cval` outside unit domain |
+| `'quadratic_constant'` | like `quadratic` but replace by `cval` outside unit domain |
+
+These boundary rules may be specified per dimension.  See the source code for extensibility
+using the classes `RemapCoordinates`, `ExtendSamples`, and `OverrideExteriorValue`.
+"""
 
 _OFTUSED_BOUNDARIES = ('reflect wrap tile clamp border natural'
                        ' linear_constant quadratic_constant'.split())
@@ -2544,36 +2550,39 @@ _DICT_FILTERS = {
     'mitchell': MitchellFilter(),  # a.k.a. 'mitchellcubic'
     'narrowbox': NarrowBoxFilter(),
     # Not in FILTERS:
+    'hamming1': GeneralizedHammingFilter(radius=1, a0=0.54),
     'hann3': GeneralizedHammingFilter(radius=3, a0=0.5),
     'lanczos4': LanczosFilter(radius=4),
 }
 
-FILTERS = [filter for filter in _DICT_FILTERS if filter not in 'hann3 lanczos4'.split()]
-"""Shortcut names for some predefined filter kernels.
-These names expand to:
-```
-{
-    'impulse': ImpulseFilter(),  # a.k.a. 'nearest'
-    'box': BoxFilter(),  # non-antialiased box, e.g. ImageMagick box.
-    'trapezoid': TrapezoidFilter(),  # "area" antialiasing, e.g., cv.INTER_AREA
-    'triangle': TriangleFilter(),  # a.k.a. 'linear'  ('bilinear' in 2D)
-    'cubic': CatmullRomFilter(),  # a.k.a. 'catmullrom', 'keys', 'bicubic'.
-    'sharpcubic': SharpCubicFilter(),  # cv.INTER_CUBIC, torch 'bicubic'.
-    'lanczos3': LanczosFilter(radius=3),
-    'lanczos5': LanczosFilter(radius=5),  # optionally: sampled=False
-    'lanczos10': LanczosFilter(radius=10),
-    'cardinal3': CardinalBsplineFilter(degree=3),
-    'cardinal5': CardinalBsplineFilter(degree=5),
-    'omoms3': OmomsFilter(degree=3),
-    'omoms5': OmomsFilter(degree=5),
-    'hamming3': GeneralizedHammingFilter(radius=3, a0=25/46),  # (a0 = ~0.54)
-    'kaiser3': KaiserFilter(radius=3.0, beta=7.12),
-    'gaussian': GaussianFilter(),
-    'bspline3': BsplineFilter(degree=3),
-    'mitchell': MitchellFilter(),  # a.k.a. 'mitchellcubic'
-    'narrowbox': NarrowBoxFilter(),
-}
-```"""  # formatting??
+FILTERS = [filter for filter in _DICT_FILTERS if filter not in 'hamming1 hann3 lanczos4'.split()]
+r"""Shortcut names for some predefined filter kernels (specified per dimension).
+The names expand to:
+
+| name           | `Filter`                      | a.k.a. / comments |
+|----------------|-------------------------------|-------------------|
+| `'impulse'`    | `ImpulseFilter()`             | *nearest* |
+| `'box'`        | `BoxFilter()`                 | non-antialiased box, e.g. ImageMagick |
+| `'trapezoid'`  | `TrapezoidFilter()`           | *area* antialiasing, e.g. `cv.INTER_AREA` |
+| `'triangle'`   | `TriangleFilter()`            | *linear*  (*bilinear* in 2D), spline `order=1` |
+| `'cubic'`      | `CatmullRomFilter()`          | *catmullrom*, *keys*, *bicubic* |
+| `'sharpcubic'` | `SharpCubicFilter()`          | `cv.INTER_CUBIC`, `torch 'bicubic'` |
+| `'lanczos3'`   | `LanczosFilter`(radius=3)     | support window [-3, 3] |
+| `'lanczos5'`   | `LanczosFilter`(radius=5)     | [-5, 5] |
+| `'lanczos10'`  | `LanczosFilter`(radius=10)    | [-10, 10] |
+| `'cardinal3'`  | `CardinalBsplineFilter`(degree=3) | *spline interpolation*, `order=3` |
+| `'cardinal5'`  | `CardinalBsplineFilter`(degree=5) | *spline interpolation*, `order=5` |
+| `'omoms3'`     | `OmomsFilter`(degree=3)       | non-$C^1$, [-3, 3] |
+| `'omoms5'`     | `OmomsFilter`(degree=5)       | non-$C^1$, [-5, 5] |
+| `'hamming3'`   | `GeneralizedHammingFilter`(...) | (radius=3, a0=25/46) |
+| `'kaiser3'`    | `KaiserFilter`(radius=3.0, beta=7.12) | |
+| `'gaussian'`   | `GaussianFilter()`            | non-interpolating, default $\sigma=1.25/3$ |
+| `'bspline3'`   | `BsplineFilter`(degree=3)     | non-interpolating |
+| `'mitchell'`   | `MitchellFilter()`            | *mitchellcubic* |
+| `'narrowbox'`  | `NarrowBoxFilter()`           | for visualization of sample positions |
+
+See the source code for extensibility.
+"""
 
 def _get_filter(filter: Union[str, Filter]) -> Filter:
   """Return a `Filter`, which can be specified as a name string key in `FILTERS`."""
@@ -2743,8 +2752,17 @@ _DICT_GAMMAS = {
 }
 
 GAMMAS = list(_DICT_GAMMAS)
-"""Shortcut names for some predefined gamma-correction schemes.
-These are: `'identity'`, `'power2'`, `'power22'`, and `'srgb'`.""";
+r"""Shortcut names for some predefined gamma-correction schemes:
+
+| name          | `Gamma`             | Decoding function (linear $l$ from encoded $e$) |
+|---------------|---------------------|-------------------|
+| `'identity'`  | `IdentityGamma()`   | $l = e$ |
+| `'power2'`    | `PowerGamma`(2.0)   | $l = e^{2.0}$ |
+| `'power22'`   | `PowerGamma`(2.2)   | $l = e^{2.2}$ |
+| `'srgb'`      | `SrgbGamma()`       | $l = \mathrm{where}(e > 0.0045, ((e + 0.055) / 1.055)^{2.4}, x / 12.92)$ |
+
+See the source code for extensibility.
+"""
 
 def _get_gamma(gamma: Union[str, Gamma]) -> Gamma:
   """Return a `Gamma`, which can be specified as a name in `GAMMAS`."""
@@ -2877,7 +2895,7 @@ def _create_resize_matrix(      # pylint: disable=too-many-statements
     prefilter: Optional[Filter] = None,
     scale: float = 1.0,
     translate: float = 0.0,
-    dtype: _DType = np.float64,
+    dtype: Any = np.float64,
     arraylib: str = 'numpy') -> Tuple[Any, Any]:
   """Compute affine weights for 1D resampling from `src_size` to `dst_size`.
 
@@ -4479,8 +4497,8 @@ def rotation_about_center_in_2d(src_shape: Any,
     return np.diag(tuple(scale) + (1.0,))
 
   def rotation_matrix_2d(angle: float) -> _NDArray:
-    c, s = np.cos(angle), np.sin(angle)
-    return np.array([[c, s, 0], [-s, c, 0], [0, 0, 1]])
+    cos, sin = np.cos(angle), np.sin(angle)
+    return np.array([[cos, sin, 0], [-sin, cos, 0], [0, 0, 1]])
 
   src_shape = np.asarray(src_shape)
   dst_shape = src_shape if dst_shape is None else np.asarray(dst_shape)
@@ -4577,7 +4595,7 @@ def pil_image_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
       'impulse': PIL.Image.Resampling.NEAREST,
       'box': PIL.Image.Resampling.BOX,
       'triangle': PIL.Image.Resampling.BILINEAR,
-      'hamming1': PIL.Image.Resampling.HAMMING,  # GeneralizedHammingFilter(1, a0=0.54)
+      'hamming1': PIL.Image.Resampling.HAMMING,
       'cubic': PIL.Image.Resampling.BICUBIC,
       'lanczos3': PIL.Image.Resampling.LANCZOS,
   }[filter]
@@ -4597,7 +4615,6 @@ test_resizer_produces_correct_shape(pil_image_resize)
 
 # %% tags=[]
 def test_pil_image_resize() -> None:
-  hamming1 = GeneralizedHammingFilter(radius=1, a0=0.54)
   at_boundaries = [False, True]
   scales = [3.7, 2.0, 1.0, 0.5, 0.41]
   filters = 'impulse box triangle hamming1 cubic lanczos3'.split()
@@ -4607,8 +4624,7 @@ def test_pil_image_resize() -> None:
     original = np.array(row, dtype=np.float32)
     shape = (int(original.shape[0] * scale),)
     result = pil_image_resize(original, shape, filter)
-    filter2: Union[Filter, str] = hamming1 if filter == 'hamming1' else filter
-    reference = resize(original, shape, filter=filter2, boundary='natural')
+    reference = resize(original, shape, filter=filter, boundary='natural')
     atol = 2e-7 if scale in (2.0, 1.0, 0.5) else 3e-6
     assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
 
@@ -5950,7 +5966,6 @@ def visualize_filters(filters: Mapping[str, Filter]) -> None:
 # %% tags=[]
 # Export: outside library.
 if 0:  # For debug.
-  print(' '.join(FILTERS))
   visualize_filters({'hamming3': _get_filter('hamming3')})
 
 # %% [markdown]
@@ -5981,6 +5996,7 @@ visualize_kaiser_filter_for_various_beta_values()
 
 # %%
 def experiment_kaiser_filter_beta_parameters(n: int = 12, s: float = 2.0) -> None:
+  """Compute attenuation and beta for number of taps `n` and sampling rate `s`."""
   # The two filter parameters are the number n of taps and the filter
   # half-width f_h.  The filter half-width f_h defines transition band;
   # high f_h in the low-res layers to maximize attenuation in the stopband;
@@ -7343,6 +7359,21 @@ generate_graphics_for_example_usage()
 
 
 # %% tags=[]
+def generate_graphics_resampled_spiral_with_alpha() -> None:
+  image = media.read_image('https://github.com/hhoppe/data/raw/main/image.png')
+  image = crop_array(image, ((0, 0, 0), (0, 0, -1)), 255)  # Add alpha channel with value 255.
+  shape = image.shape[:2]
+  yx = ((np.indices(shape).T + 0.5) / shape - 0.5).T  # [-0.5, 0.5]^2
+  radius, angle = np.linalg.norm(yx, axis=0), np.arctan2(*yx)
+  angle += (0.8 - radius).clip(0, 1) * 2.0 - 0.6
+  coords = np.dstack((np.sin(angle) * radius, np.cos(angle) * radius)) + 0.5
+  resampled = resample(image, coords, boundary='constant')
+  media.show_image(resampled)
+
+generate_graphics_resampled_spiral_with_alpha()
+
+
+# %% tags=[]
 def generate_graphics_warp_samples() -> None:
   image = EXAMPLE_IMAGE
   shape = 32, 32
@@ -7520,14 +7551,14 @@ def visualize_boundary_rules_in_2d(*, scale=0.6, src_gridtype=('dual', 'primal')
   if 1:
     # In Colab, the defined HTML style is local to each cell (iframe), whereas in jupyter the
     # style is global across all cells.
-    s = """
+    text = """
       <style>
         table.show_images2 { font-size: FONT-SIZE; }
         table.show_images2 div div:nth-of-type(2) { padding-top: 5px; }
         .show_images2 td { padding:1px; }
       </style>
     """.replace('FONT-SIZE', 'medium' if hh.in_colab() else 'small')
-    display_html(s)
+    display_html(text)
   # array = np.array([[1.0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0], [0, 1, 0, 0]])
   # array = np.indices((4, 4), dtype=np.float64).sum(axis=0) / 6.0
   # array = np.dstack((array,) * 3)
@@ -7647,8 +7678,8 @@ def experiment_compare_upsampling_with_other_libraries(scale=2.0, shape=(200, 40
       'skimage.transform.resize': lambda: skimage_transform_resize(array, shape, filter='cardinal3'),
       'tf.resize lanczos5': lambda: tf_image_resize(array, shape, filter='lanczos5'),
       'tf.resize lanczos3': lambda: tf_image_resize(array, shape, filter='lanczos3'),
-      # 'tf.resize cubic new': lambda: tf_image_resize(array, shape, filter='cubic'),  # newer: resize_with_scale_and_translate('keyscubic')
-      'tf.resize cubic (aa False)': lambda: tf_image_resize(array, shape, filter='cubic', antialias=False),  # older: gen_image_ops.resize_bicubic()
+      # 'tf.resize cubic new': lambda: tf_image_resize(array, shape, filter='cubic'),  # newer; resize_with_scale_and_translate('keyscubic')
+      'tf.resize cubic (aa False)': lambda: tf_image_resize(array, shape, filter='cubic', antialias=False),  # older; gen_image_ops.resize_bicubic()
       'torch.nn.interp sharpcubic': lambda: torch_nn_resize(array, shape, 'sharpcubic'),
       'torch.nn.interpolate linear': lambda: torch_nn_resize(array, shape, 'triangle'),
       # 'torch.nn.interp cubic AA': lambda: torch_nn_resize(array, shape, 'sharpcubic', antialias=True),
@@ -7665,9 +7696,7 @@ def experiment_compare_upsampling_with_other_libraries(scale=2.0, shape=(200, 40
     elapsed, image = hh.get_time_and_result(func, max_time=0.05)
     image = _arr_numpy(image)
     _check_eq(image.dtype, np.float32)
-    s = 0  # 0 or 2.  (Recall that boundary rules are broken in scipy 1.4.1.)
-    crop = s, s, 0
-    psnr = get_psnr(crop_array(image, crop), crop_array(original, crop))
+    psnr = get_psnr(image, original)
     name = f'{name}  psnr:{psnr:.2f} dB  ({elapsed * 1000:.2f} ms)'
     images[name] = image
 
@@ -7748,9 +7777,7 @@ def experiment_compare_downsampling_with_other_libraries(scale=0.1, shape=(100, 
     elapsed, image = hh.get_time_and_result(func, max_time=0.05)
     image = _arr_numpy(image)
     upsampled = _original_resize(image, original.shape[:2], filter='lanczos5')
-    s = 0  # 0 or 2.  (Recall that boundary rules are broken in scipy 1.4.1.)
-    crop = s, s, 0
-    psnr = get_psnr(crop_array(upsampled, crop), crop_array(original, crop))
+    psnr = get_psnr(upsampled, original)
     name = f'{name}  psnr:{psnr:.2f} dB  ({elapsed * 1000:.2f} ms)'
     images[name] = image
 
@@ -7865,7 +7892,6 @@ def write_library_python_file() -> None:
     if cell_text == '# Export: end notebook header.':
       within_notebook_header = False
       continue
-    cell_text = re.sub(r'""";$', '"""', cell_text)
     outside_lib = within_notebook_header or contains_only_comments(cell_text) or any(
         s in cell_text for s in ['# Export: outside library.', 'def test', 'def experiment',
                                  'def visualize', 'def generate_graphics'])
@@ -7932,11 +7958,11 @@ def run_lint(filename: str, strict: bool = False) -> None:
 
 
 # %% tags=[]
-if EFFORT >= 2 or 0:
+if EFFORT >= 2 or 1:
   run_lint('resampler_notebook.py')
 
 # %% tags=[]
-if EFFORT >= 2 or 0:
+if EFFORT >= 2 or 1:
   run_lint('resampler/__init__.py', strict=True)
 
 
@@ -7982,7 +8008,7 @@ def create_documentation_files() -> None:
   """
   hh.run('pip install pdoc')
   # Use custom template ./pdoc/module.html.jinja2 and output ./docs/*.
-  hh.run('pdoc --math -t ./pdoc -o ./docs ./resampler')  # --logo URL
+  hh.run('pdoc --math -t ./pdoc -o ./docs ./resampler --logo https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png --favicon https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha_scaletox64.ico --logo-link https://hhoppe.github.io/resampler/resampler.html')
   # Run interactively in web browser:
   #  pdoc --math -t ./pdoc ./resampler
 
