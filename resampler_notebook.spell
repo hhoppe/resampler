@@ -652,3 +652,6 @@ ufunc
 pytest
 cls
 RuntimeWarning
+favicon
+le
+mathrm
