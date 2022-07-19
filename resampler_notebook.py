@@ -334,7 +334,7 @@
 """
 
 __docformat__ = 'google'
-__version__ = '0.3.2'
+__version__ = '0.3.3'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 # %%
@@ -557,7 +557,7 @@ if EFFORT >= 1:
 
 
 # %%
-def crop_array(array: Any, width: Any, cval: Any = 0) -> _NDArray:  # ??move to other
+def crop_array(array: Any, width: Any, cval: Any = 0) -> _NDArray:
   """Return array cropped (or padded) along each dimension.
 
   Args:
@@ -3228,7 +3228,6 @@ def _apply_potential_digital_filter_1d(  # pylint: disable=too-many-statements
   cval = np.asarray(cval).astype(array.dtype, copy=False)
 
   # Use faster code if compatible dtype, gridtype, boundary, and filter:
-  # ?? if (filter.name in ('cardinal3', 'cardinal5') and
   use_scipy_spline_filter1d = (
       isinstance(filter, CardinalBsplineFilter) and
       filter.degree >= 2 and
@@ -3236,7 +3235,6 @@ def _apply_potential_digital_filter_1d(  # pylint: disable=too-many-statements
           boundary.name == 'reflect' or (gridtype.name == 'dual' and boundary.name == 'wrap')))
   if use_scipy_spline_filter1d:
     assert isinstance(filter, CardinalBsplineFilter)
-    # ?? order = int(filter.name[len('cardinal'):])
     mode = ({'dual': 'reflect', 'primal': 'mirror'}[gridtype.name]
             if boundary.name == 'reflect' else 'wrap')
     # compute_backward=True is same: matrix is symmetric and cval is unused.
@@ -3370,7 +3368,8 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
     shape: The number of grid samples in each coordinate dimension of the output array.  The source
       `array` must have at least as many dimensions as `len(shape)`.
     gridtype: Placement of samples on all dimensions of both the source and output domain grids,
-      specified as either a name in `GRIDTYPES` or a `Gridtype` instance.  The default is 'dual'.
+      specified as either a name in `GRIDTYPES` or a `Gridtype` instance.  It defaults to `'dual'`
+      if `gridtype`, `src_gridtype`, and `dst_gridtype` are all kept `None`.
     src_gridtype: Placement of the samples in the source domain grid for each dimension.
       Parameters `gridtype` and `src_gridtype` cannot both be set.
     dst_gridtype: Placement of the samples in the output domain grid for each dimension.
@@ -3861,7 +3860,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
       i.e. with a range [0, 1] on each coordinate dimension.  The output grid has shape
       `coords.shape[:-1]` and each of its grid samples has shape `array.shape[coords.shape[-1]:]`.
     gridtype: Placement of the samples in the source domain grid for each dimension, specified as
-      either a name in `GRIDTYPES` or a `Gridtype` instance.
+      either a name in `GRIDTYPES` or a `Gridtype` instance.  It defaults to `'dual'`.
     boundary: The reconstruction boundary rule for each dimension in `coords.shape[-1]`, specified
       as either a name in `BOUNDARIES` or a `Boundary` instance.  The special value 'auto' uses
       'reflect' for upsampling and 'clamp' for downsampling.
@@ -4103,8 +4102,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     cval_weight_reshaped = cval_weight.reshape(cval_weight.shape + (1,) * len(sample_shape))
     array += _make_array((cval_weight_reshaped * cval).astype(precision, copy=False), arraylib)
 
-  if max_block_size != _MAX_BLOCK_SIZE_RECURSING:
-    array = dst_gamma2.encode(array, dtype=dtype)
+  array = dst_gamma2.encode(array, dtype=dtype)
 
   return array
 
@@ -4328,8 +4326,9 @@ def resample_affine(
       (in a space with `len(shape)` dimensions) into unit-domain source points (in a space with
       `matrix.shape[0]` dimensions).  If the matrix has `len(shape) + 1` columns, the last column
       is the affine offset (i.e., translation).
-    gridtype: Placement of samples on both the source and output domain grids, specified as either
-      a name in `GRIDTYPES` or a `Gridtype` instance.  The default is 'dual'.
+    gridtype: Placement of samples on all dimensions of both the source and output domain grids,
+      specified as either a name in `GRIDTYPES` or a `Gridtype` instance.  It defaults to `'dual'`
+      if `gridtype`, `src_gridtype`, and `dst_gridtype` are all kept `None`.
     src_gridtype: Placement of samples in the source domain grid for each dimension.
       Parameters `gridtype` and `src_gridtype` cannot both be set.
     dst_gridtype: Placement of samples in the output domain grid for each dimension.
@@ -7374,6 +7373,25 @@ generate_graphics_resampled_spiral_with_alpha()
 
 
 # %% tags=[]
+def generate_graphics_resampled_spiral_large() -> None:
+  image = EXAMPLE_IMAGE
+  image = crop_array(image, ((0, 0, 0), (0, 0, -1)), 255)  # Add alpha channel with value 255.
+  shape = image.shape[:2]
+  shape = (1280, 1280)
+  yx = ((np.indices(shape).T + 0.5) / shape - 0.5).T  # [-0.5, 0.5]^2
+  radius, angle = np.linalg.norm(yx, axis=0), np.arctan2(*yx)
+  angle += (0.8 - radius).clip(0, 1) * 0.8 - 0.3
+  coords = np.dstack((np.sin(angle) * radius, np.cos(angle) * radius)) + 0.5
+  resampled = resample(image, coords, boundary='constant')[320:-320]
+  media.show_image(resampled)
+
+if 0:
+  generate_graphics_resampled_spiral_large()
+if 0:
+  media.show_image(resize(EXAMPLE_IMAGE, (1280, 1280), filter='lanczos3')[320:-320])
+
+
+# %% tags=[]
 def generate_graphics_warp_samples() -> None:
   image = EXAMPLE_IMAGE
   shape = 32, 32
@@ -7958,11 +7976,11 @@ def run_lint(filename: str, strict: bool = False) -> None:
 
 
 # %% tags=[]
-if EFFORT >= 2 or 1:
+if EFFORT >= 1:
   run_lint('resampler_notebook.py')
 
 # %% tags=[]
-if EFFORT >= 2 or 1:
+if EFFORT >= 1:
   run_lint('resampler/__init__.py', strict=True)
 
 
