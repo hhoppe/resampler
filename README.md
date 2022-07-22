@@ -43,10 +43,10 @@ It supports:
 - prefiltering for accurate **antialiasing** when downsampling;
 
 - processing within several **array libraries**
-  (`numpy`, `tensorflow`, and `torch`);
+  (`numpy`, `tensorflow`, `torch`, and `jax`);
 
 - efficient backpropagation of **gradients**
-  for both `tensorflow` and `torch`;
+  for `tensorflow`, `torch`, and `jax`;
 
 - easy installation, with **no native code**, yet
 
