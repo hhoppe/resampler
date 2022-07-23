@@ -328,7 +328,7 @@
 """
 
 __docformat__ = 'google'
-__version__ = '0.3.4'
+__version__ = '0.3.5'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 # %%
@@ -339,6 +339,7 @@ __version_info__ = tuple(int(num) for num in __version__.split('.'))
 # %% tags=[]
 import dataclasses
 import functools
+import itertools
 import math
 import typing
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
@@ -385,12 +386,11 @@ def _check_eq(a: Any, b: Any) -> None:
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
 # %% tags=[]
-# !pip install -q hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy Pillow scikit-image tensorflow-cpu torch torchvision
+# !pip install -q autopep8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy Pillow pylint scikit-image tensorflow-cpu torch torchvision
 
 # %% tags=[]
 import copy
 import collections
-import itertools
 import os
 import pathlib
 from typing import Mapping
@@ -425,19 +425,19 @@ _: Any = np.seterr(all='raise')  # Let all numpy warnings raise errors.
 hh.start_timing_notebook_cells()
 
 # %%
-# https://stackoverflow.com/a/42121886 : omit "This TensorFlow binary is optimized with oneAPI.."
+# Silence "This TensorFlow binary is optimized with oneAPI.."; https://stackoverflow.com/a/42121886
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
 # %% tags=[]
-# Remove tf warning: "TqdmWarning: IProgress not found. Please update jupyter and ipywidgets."
+# Silence tf warning: "TqdmWarning: IProgress not found. Please update jupyter and ipywidgets."
 warnings.filterwarnings('ignore', message='IProgress not found')  # category=tqdm.TqdmWarning
 
 # %%
-if 0:  # To silence "WARNING:absl:No GPU/TPU found, falling back to CPU".
+if 0:  # Silence "WARNING:absl:No GPU/TPU found, falling back to CPU".
   os.environ['JAX_PLATFORM_NAME'] = 'cpu'
 
 # %% tags=[]
-# Remove "RuntimeWarning: More than 20 figures have been opened." when run as script.
+# Silence "RuntimeWarning: More than 20 figures have been opened." when run as script.
 matplotlib.rcParams['figure.max_open_warning'] = 0
 
 
@@ -527,7 +527,8 @@ def get_ssim(image1: _NDArray, image2: _NDArray) -> float:
   assert np.issubdtype(image2.dtype, np.floating)
   if 1:
     # Default win_size=7, no Gaussian weighting.
-    kwargs = dict(channel_axis=2) if skimage.__version__ >= '0.19.' else dict(multichannel=True)
+    skimage_version = tuple(int(num) for num in skimage.__version__.split('.'))
+    kwargs = dict(channel_axis=2) if skimage_version >= (0, 19) else dict(multichannel=True)
     ssim: float = skimage.metrics.structural_similarity(image1, image2, **kwargs).item()
     return ssim
 
@@ -666,6 +667,12 @@ def _real_precision(dtype: Any) -> _DType:
 
 
 # %%
+def _complex_precision(dtype: Any) -> _DType:
+  """Return a complex type to represent a non-complex type."""
+  return np.find_common_type([], [dtype, np.complex64])
+
+
+# %%
 def _get_precision(precision: Any, dtypes: List[_DType], weight_dtypes: List[_DType]) -> _DType:
   """Return dtype based on desired precision or on data and weight types."""
   precision = np.dtype(precision if precision is not None else
@@ -718,15 +725,6 @@ def _is_symmetric(matrix: Any, tol: float = 1e-10) -> bool:
   """Return True if the sparse matrix is symmetric."""
   norm: float = scipy.sparse.linalg.norm(matrix - matrix.T, np.inf)
   return norm <= tol
-
-
-# %%
-def _spline_filter1d(*args: Any, mode: Optional[str] = None, **kwargs: Any) -> _NDArray:
-  """Wrapper to use 'grid-wrap' if scipy is a recent version."""
-  if mode == 'wrap':
-    scipy_version = tuple(int(num) for num in scipy.__version__.split('.'))
-    mode = 'grid-wrap' if scipy_version >= (1, 6) else 'wrap'
-  return scipy.ndimage.spline_filter1d(*args, mode=mode, **kwargs)
 
 
 # %%
@@ -945,6 +943,18 @@ test_profile_downsample_in_2d_using_box_filter()
 # (See also https://github.com/jonasrauber/eagerpy for a more complete
 # but less specialized library.)
 
+# %%
+# Because np.ndarray supports strides, np.moveaxis() and np.permute() are constant-time.
+# However, ndarray.reshape() often creates a copy of the array if the data is non-contiguous,
+# e.g. dim=1 in an RGB image.
+#
+# In contrast, tf.Tensor does not support strides, so tf.transpose() returns a new permuted
+# tensor.  However, tf.reshape() is always efficient.
+
+# In numpy, `sparse @ dense` calls scipy.sparse._sparsetools.csr_matvecs() in
+# https://github.com/scipy/scipy/blob/master/scipy/sparse/sparsetools/csr.h
+# which iteratively calls the LEVEL 1 BLAS function axpy().
+
 # %% tags=[]
 @dataclasses.dataclass
 class _Arraylib:
@@ -968,6 +978,14 @@ class _Arraylib:
   def astype(self, dtype: Any) -> _Array:
     """Return the equivalent of `self.array.astype(dtype, copy=False)` with `numpy` `dtype`."""
 
+  def reshape(self, shape: Tuple[int, ...]) -> _Array:
+    """Return the equivalent of `self.array.reshape(shape)`."""
+    return self.array.reshape(shape)
+
+  def possibly_make_contiguous(self) -> _Array:
+    """Return an array which may be a contiguous copy of `self.array`."""
+    return self.array
+
   def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
     """Return the equivalent of `self.array.clip(low, high, dtype=dtype)` with `numpy` `dtype`."""
 
@@ -979,6 +997,8 @@ class _Arraylib:
 
   def gather(self, table: Any) -> _Array:
     """Return the equivalent of `table[self.array]`."""
+    indices = self.array
+    return table[indices]
 
   def where(self, if_true: Any, if_false: Any) -> _Array:
     """Return the equivalent of `np.where(self.array, if_true, if_false)`."""
@@ -986,13 +1006,25 @@ class _Arraylib:
   def transpose(self, axes: Sequence[int]) -> _Array:
     """Return the equivalent of `np.transpose(self.array, axes)`."""
 
+  def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
+    """Return the best order in which to process dims for resizing `self.array` to `dst_shape`."""
+
   @staticmethod
   def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
     """Return the equivalent of `np.concatenate(arrays, axis)`."""
 
   @staticmethod
+  def einsum(subscripts: str, *operands: _Array) -> _Array:
+    """Return the equivalent of `np.einsum(subscripts, *operands, optimize=True)`."""
+
+  @staticmethod
+  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
+    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
+    return sparse @ dense
+
+  @staticmethod
   def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
-    """Return a sparse matrix; see `_make_sparse_resize_matrix`."""
+    """Return a sparse matrix for 1D resize; see `_make_sparse_resize_matrix`."""
 
 
 # %% tags=[]
@@ -1024,10 +1056,6 @@ class _NumpyArraylib(_Arraylib):
   def sqrt(self) -> _Array:
     return np.sqrt(self.array)
 
-  def gather(self, table: Any) -> _Array:
-    indices = self.array
-    return table[indices]
-
   def where(self, if_true: Any, if_false: Any) -> _Array:
     condition = self.array
     return np.where(condition, if_true, if_false)
@@ -1035,9 +1063,28 @@ class _NumpyArraylib(_Arraylib):
   def transpose(self, axes: Sequence[int]) -> _Array:
     return np.transpose(self.array, tuple(axes))
 
+  def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
+    # Our heuristics: (1) a dimension with small scaling (especially minification) gets priority,
+    # and (2) timings show preference to resizing dimensions with larger strides first.
+    # The optimal ordering might be related to the logic in np.einsum_path().  (Unfortunately,
+    # np.einsum() does not support the sparse multiplications that we require here.)
+    src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
+    strides: Sequence[int] = self.array.strides
+    largest_stride_dim = max(range(len(src_shape)), key=lambda dim: strides[dim])
+
+    def priority(dim: int) -> float:
+      scaling = dst_shape[dim] / src_shape[dim]
+      return scaling * ((0.49 if scaling < 1.0 else 0.65) if dim == largest_stride_dim else 1.0)
+
+    return sorted(range(len(src_shape)), key=priority)
+
   @staticmethod
   def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
     return np.concatenate(arrays, axis)
+
+  @staticmethod
+  def einsum(subscripts: str, *operands: _Array) -> _Array:
+    return np.einsum(subscripts, *operands, optimize=True)
 
   @staticmethod
   def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
@@ -1075,6 +1122,10 @@ class _TensorflowArraylib(_Arraylib):
     import tensorflow as tf
     return tf.cast(self.array, dtype)
 
+  def reshape(self, shape: Tuple[int, ...]) -> _Array:
+    import tensorflow as tf
+    return tf.reshape(self.array, shape)
+
   def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
     import tensorflow as tf
     array = self.array
@@ -1106,10 +1157,31 @@ class _TensorflowArraylib(_Arraylib):
     import tensorflow as tf
     return tf.transpose(self.array, tuple(axes))
 
+  def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
+    # It seems that strides are unavailable in Tensorflow.
+    # Our heuristic is to process dimension 1 first iff dimension 0 is upsampling.  Improve?
+    src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
+    dims = list(range(len(src_shape)))
+    if len(dims) > 1 and dst_shape[0] / src_shape[0] > 1.0:
+      dims[:2] = [1, 0]
+    return dims
+
   @staticmethod
   def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
     import tensorflow as tf
     return tf.concat(arrays, axis)
+
+  @staticmethod
+  def einsum(subscripts: str, *operands: _Array) -> _Array:
+    import tensorflow as tf
+    return tf.einsum(subscripts, *operands, optimize='greedy')
+
+  @staticmethod
+  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
+    import tensorflow as tf
+    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
+      sparse = sparse.with_values(_arr_astype(sparse.values, _arr_dtype(dense)))
+    return tf.sparse.sparse_dense_matmul(sparse, dense)
 
   @staticmethod
   def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
@@ -1175,6 +1247,9 @@ class _TorchArraylib(_Arraylib):
     }[np.dtype(dtype).type]
     return self.array.type(torch_type)
 
+  def possibly_make_contiguous(self) -> _Array:
+    return self.array.contiguous()
+
   def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
     array = self.array
     array = _arr_astype(array, dtype) if dtype is not None else array
@@ -1199,10 +1274,37 @@ class _TorchArraylib(_Arraylib):
     import torch
     return torch.permute(self.array, tuple(axes))
 
+  def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
+    # Similar to `_NumpyArraylib`.  We access `array.stride()` instead of `array.strides`.
+    src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
+    strides: Sequence[int] = self.array.stride()
+    largest_stride_dim = max(range(len(src_shape)), key=lambda dim: strides[dim])
+
+    def priority(dim: int) -> float:
+      scaling = dst_shape[dim] / src_shape[dim]
+      return scaling * ((0.49 if scaling < 1.0 else 0.65) if dim == largest_stride_dim else 1.0)
+
+    return sorted(range(len(src_shape)), key=priority)
+
   @staticmethod
   def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
     import torch
     return torch.cat(tuple(arrays), axis)
+
+  @staticmethod
+  def einsum(subscripts: str, *operands: _Array) -> _Array:
+    import torch
+    operands = tuple(torch.as_tensor(operand) for operand in operands)
+    if any(np.issubdtype(_arr_dtype(array), np.complexfloating) for array in operands):
+      operands = tuple(_arr_astype(array, _complex_precision(_arr_dtype(array)))
+                       for array in operands)
+    return torch.einsum(subscripts, *operands)
+
+  @staticmethod
+  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
+    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
+      sparse = _arr_astype(sparse, _arr_dtype(dense))
+    return sparse @ dense
 
   @staticmethod
   def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
@@ -1241,6 +1343,9 @@ class _JaxArraylib(_Arraylib):
   def astype(self, dtype: Any) -> _Array:
     return self.array.astype(dtype)  # (copy=False is unavailable)
 
+  def possibly_make_contiguous(self) -> _Array:
+    return self.array.copy()
+
   def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
     import jax.numpy as jnp
     array = self.array
@@ -1256,10 +1361,6 @@ class _JaxArraylib(_Arraylib):
     import jax.numpy as jnp
     return jnp.sqrt(self.array)
 
-  def gather(self, table: Any) -> _Array:
-    indices = self.array
-    return table[indices]
-
   def where(self, if_true: Any, if_false: Any) -> _Array:
     import jax.numpy as jnp
     condition = self.array
@@ -1269,10 +1370,23 @@ class _JaxArraylib(_Arraylib):
     import jax.numpy as jnp
     return jnp.transpose(self.array, tuple(axes))  # type: ignore[no-untyped-call]
 
+  def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
+    # It seems that strides are unavailable in Jax.  Heuristic is similar to `_TensorflowArraylib`.
+    src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
+    dims = list(range(len(src_shape)))
+    if len(dims) > 1 and dst_shape[0] / src_shape[0] > 1.0:
+      dims[:2] = [1, 0]
+    return dims
+
   @staticmethod
   def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
     import jax.numpy as jnp
     return jnp.concatenate(arrays, axis)
+
+  @staticmethod
+  def einsum(subscripts: str, *operands: _Array) -> _Array:
+    import jax.numpy as jnp
+    return jnp.einsum(subscripts, *operands, optimize='greedy')  # type: ignore[no-untyped-call]
 
   @staticmethod
   def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
@@ -1325,6 +1439,14 @@ def _arr_astype(array: _Array, dtype: Any) -> _Array:
   """Return the equivalent of `array.astype(dtype)` with `numpy` `dtype`."""
   return _as_arr(array).astype(dtype)
 
+def _arr_reshape(array: _Array, shape: Tuple[int, ...]) -> _Array:
+  """Return the equivalent of `array.reshape(shape)."""
+  return _as_arr(array).reshape(shape)
+
+def _arr_possibly_make_contiguous(array: _Array) -> _Array:
+  """Return an array which may be a contiguous copy of `array`."""
+  return _as_arr(array).possibly_make_contiguous()
+
 def _arr_clip(array: _Array, low: Any, high: Any, dtype: Any = None) -> _Array:
   """Return the equivalent of `array.clip(low, high, dtype)` with `numpy` `dtype`."""
   return _as_arr(array).clip(low, high, dtype)
@@ -1349,23 +1471,47 @@ def _arr_transpose(array: _Array, axes: Sequence[int]) -> _Array:
   """Return the equivalent of `np.transpose(array, axes)`."""
   return _as_arr(array).transpose(axes)
 
+def _arr_best_dims_order_for_resize(array: _Array, dst_shape: Tuple[int, ...]) -> List[int]:
+  """Return the best order in which to process dims for resizing `array` to `dst_shape`."""
+  return _as_arr(array).best_dims_order_for_resize(dst_shape)
+
 def _arr_concatenate(arrays: Sequence[Any], axis: int) -> _Array:
   """Return the equivalent of `np.concatenate(arrays, axis)`."""
   arraylib = _arr_arraylib(arrays[0])
   return _DICT_ARRAYLIBS[arraylib].concatenate(arrays, axis)
 
-def _arr_swapaxes(array: _Array, axis0: int, axis1: int) -> _Array:
-  """Return the equivalent of `np.swapaxes(array, axis0, axis1)`."""
-  ndim = array.ndim
-  assert 0 <= axis0 < ndim and 0 <= axis1 < ndim, (axis0, axis1, ndim)
+def _arr_einsum(subscripts: str, *operands: _Array) -> _Array:
+  """Return the equivalent of `np.einsum(subscripts, *operands, optimize=True)`."""
+  arraylib = _arr_arraylib(operands[0])
+  return _DICT_ARRAYLIBS[arraylib].einsum(subscripts, *operands)
+
+def _arr_swapaxes(array: _Array, axis1: int, axis2: int) -> _Array:
+  """Return the equivalent of `np.swapaxes(array, axis1, axis2)`."""
+  ndim = len(array.shape)
+  assert 0 <= axis1 < ndim and 0 <= axis2 < ndim, (axis1, axis2, ndim)
   axes = list(range(ndim))
-  axes[axis0] = axis1
-  axes[axis1] = axis0
+  axes[axis1] = axis2
+  axes[axis2] = axis1
   return _arr_transpose(array, axes)
+
+def _arr_moveaxis(array: _Array, source: int, destination: int) -> _Array:
+  """Return the equivalent of `np.moveaxis(array, source, destination)`."""
+  ndim = len(array.shape)
+  assert 0 <= source < ndim and 0 <= destination < ndim, (source, destination, ndim)
+  axes = [n for n in range(ndim) if n != source]
+  axes.insert(destination, source)
+  return _arr_transpose(array, axes)
+
+def _arr_sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
+  """Return the multiplication of the `sparse` and `dense` matrices."""
+  arraylib = _arr_arraylib(dense)
+  return _DICT_ARRAYLIBS[arraylib].sparse_dense_matmul(sparse, dense)
 
 def _make_sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray,
                                src_index: _NDArray, arraylib: str) -> _Array:
-  """Return a sparse matrix with values `weight` in positions given by `src_index`.??"""
+  """Return a sparse matrix for a 1D resize operation, expressing destination samples as linear
+  combination of source samples.  The matrix `shape` is `(dst_size, src_size)`.  Each row of the
+  2D matrices `weight` and `src_index` provide values and positions in each sparse row."""
   dst_size, _ = shape
   _check_eq(src_index.shape[0], dst_size)
   return _DICT_ARRAYLIBS[arraylib].sparse_resize_matrix(shape, weight, src_index)
@@ -2140,35 +2286,23 @@ class Boundary:
 
 # %%
 _DICT_BOUNDARIES = {
-    'reflect':  # (a.k.a. reflected, symm, symmetric, mirror, grid-mirror.)
-        Boundary('reflect', extend_samples=ReflectExtendSamples()),
-    'wrap':  # (a.k.a. periodic, repeat, grid-wrap.)
-        Boundary('wrap', extend_samples=WrapExtendSamples()),
-    'tile':  # (a.k.a. wrap.)
-        Boundary('title', coord_remap=TileRemapCoordinates(),
-                 extend_samples=ReflectExtendSamples()),
-    'clamp':  # (a.k.a. clamped, nearest, edge, clamp-to-edge.)
-        Boundary('clamp', extend_samples=ClampExtendSamples()),
-    'border':  # (a.k.a. grid-constant.)
-        Boundary('border', extend_samples=BorderExtendSamples()),
-    'natural':  # (a.k.a. IgnoreOutside, renormalize.)
-        Boundary('natural', extend_samples=ValidExtendSamples(),
-                 override_value=UnitDomainOverrideExteriorValue()),
-    'linear_constant':
-        Boundary('linear_constant', extend_samples=LinearExtendSamples(),
-                 override_value=UnitDomainOverrideExteriorValue()),
-    'quadratic_constant':
-        Boundary('quadratic_constant', extend_samples=QuadraticExtendSamples(),
-                 override_value=UnitDomainOverrideExteriorValue()),
-    'reflect_clamp':  # (a.k.a. mirror-clamp-to-edge)
-        Boundary('reflect_clamp', extend_samples=ReflectClampExtendSamples()),
-    'constant':  # (a.k.a. reflect-constant.)
-        Boundary('constant', extend_samples=ReflectExtendSamples(),
-                 override_value=UnitDomainOverrideExteriorValue()),
-    'linear':
-        Boundary('linear', extend_samples=LinearExtendSamples()),
-    'quadratic':
-        Boundary('quadratic', extend_samples=QuadraticExtendSamples()),
+    'reflect': Boundary('reflect', extend_samples=ReflectExtendSamples()),
+    'wrap': Boundary('wrap', extend_samples=WrapExtendSamples()),
+    'tile': Boundary('title', coord_remap=TileRemapCoordinates(),
+                     extend_samples=ReflectExtendSamples()),
+    'clamp': Boundary('clamp', extend_samples=ClampExtendSamples()),
+    'border': Boundary('border', extend_samples=BorderExtendSamples()),
+    'natural': Boundary('natural', extend_samples=ValidExtendSamples(),
+                        override_value=UnitDomainOverrideExteriorValue()),
+    'linear_constant': Boundary('linear_constant', extend_samples=LinearExtendSamples(),
+                                override_value=UnitDomainOverrideExteriorValue()),
+    'quadratic_constant': Boundary('quadratic_constant', extend_samples=QuadraticExtendSamples(),
+                                   override_value=UnitDomainOverrideExteriorValue()),
+    'reflect_clamp': Boundary('reflect_clamp', extend_samples=ReflectClampExtendSamples()),
+    'constant': Boundary('constant', extend_samples=ReflectExtendSamples(),
+                         override_value=UnitDomainOverrideExteriorValue()),
+    'linear': Boundary('linear', extend_samples=LinearExtendSamples()),
+    'quadratic': Boundary('quadratic', extend_samples=QuadraticExtendSamples()),
 }
 
 BOUNDARIES = list(_DICT_BOUNDARIES)
@@ -2299,7 +2433,7 @@ class ImpulseFilter(Filter):
     raise AssertionError('The Impulse is infinitely narrow, so cannot be directly evaluated.')
 
 
-# %%
+# %% tags=[]
 class BoxFilter(Filter):
   """See https://en.wikipedia.org/wiki/Box_function.
 
@@ -2310,10 +2444,11 @@ class BoxFilter(Filter):
     super().__init__(name='box', radius=0.5, continuous=False)
 
   def __call__(self, x: Any) -> _NDArray:
-    return np.where((-0.5 <= x) & (x < 0.5), 1.0, 0.0)
-    # An alternative definition is symmetric with values 0.5 at the endpoints:
-    # x = np.abs(x)
-    # return np.where(x < 0.5, 1.0, np.where(x == 0.5, 0.5, 0.0))
+    use_asymmetric = True
+    if use_asymmetric:
+      return np.where((-0.5 <= x) & (x < 0.5), 1.0, 0.0)
+    x = np.abs(x)
+    return np.where(x < 0.5, 1.0, np.where(x == 0.5, 0.5, 0.0))
 
 
 # %%
@@ -2482,7 +2617,9 @@ class GeneralizedHammingFilter(Filter):
   See https://en.wikipedia.org/wiki/Window_function#Hann_and_Hamming_windows,
   and hamming() in https://github.com/scipy/scipy/blob/master/scipy/signal/windows/windows.py.
 
-  Generalized version of np.hamming() and np.hanning().
+  Note that 'hamming3' is `(radius=3, a0=25/46)`, which close to but different from `a0=0.54`.
+
+  See also np.hamming() and np.hanning().
   """
 
   def __init__(self, *, radius: int, a0: float) -> None:
@@ -2565,7 +2702,7 @@ class BsplineFilter(Filter):
     return np.where(x < self.radius, self.bspline(x + self.radius), 0.0)
 
 
-# %%
+# %% tags=[]
 class CardinalBsplineFilter(Filter):
   """Interpolating B-spline, achieved with aid of digital pre or post filter.
 
@@ -2583,7 +2720,8 @@ class CardinalBsplineFilter(Filter):
     if degree < 0:
       raise ValueError(f'Bspline of degree {degree} is invalid.')
     radius = (degree + 1) / 2
-    super().__init__(name=f'cardinal{degree}', radius=radius, requires_digital_filter=True)
+    super().__init__(name=f'cardinal{degree}', radius=radius,
+                     requires_digital_filter=degree >= 2, continuous=degree >= 1)
     t = list(range(degree + 2))
     bspline = scipy.interpolate.BSpline.basis_element(t)
 
@@ -2598,7 +2736,7 @@ class CardinalBsplineFilter(Filter):
     return self.function(x)
 
 
-# %%
+# %% tags=[]
 class OmomsFilter(Filter):
   """OMOMS interpolating filter, with aid of digital pre or post filter.
 
@@ -2630,7 +2768,7 @@ class OmomsFilter(Filter):
     raise AssertionError
 
 
-# %%
+# %% tags=[]
 class GaussianFilter(Filter):
   r"""See https://en.wikipedia.org/wiki/Gaussian_function.
 
@@ -2661,7 +2799,7 @@ class GaussianFilter(Filter):
     return np.where(x < self.radius, v0r, 0.0)
 
 
-# %%
+# %% tags=[]
 class NarrowBoxFilter(Filter):
   """Compact footprint, used for visualization of grid sample location.
 
@@ -2693,24 +2831,24 @@ class NarrowBoxFilter(Filter):
 
 # %% tags=[]
 _DICT_FILTERS = {
-    'impulse': ImpulseFilter(),  # a.k.a. 'nearest'
-    'box': BoxFilter(),  # non-antialiased box, e.g. ImageMagick box.
-    'trapezoid': TrapezoidFilter(),  # "area" antialiasing, e.g., cv.INTER_AREA
-    'triangle': TriangleFilter(),  # a.k.a. 'linear'  ('bilinear' in 2D)
-    'cubic': CatmullRomFilter(),  # a.k.a. 'catmullrom', 'keys', 'bicubic'.
-    'sharpcubic': SharpCubicFilter(),  # cv.INTER_CUBIC, torch 'bicubic'.
+    'impulse': ImpulseFilter(),
+    'box': BoxFilter(),
+    'trapezoid': TrapezoidFilter(),
+    'triangle': TriangleFilter(),
+    'cubic': CatmullRomFilter(),
+    'sharpcubic': SharpCubicFilter(),
     'lanczos3': LanczosFilter(radius=3),
-    'lanczos5': LanczosFilter(radius=5),  # optionally: sampled=False
+    'lanczos5': LanczosFilter(radius=5),
     'lanczos10': LanczosFilter(radius=10),
     'cardinal3': CardinalBsplineFilter(degree=3),
     'cardinal5': CardinalBsplineFilter(degree=5),
     'omoms3': OmomsFilter(degree=3),
     'omoms5': OmomsFilter(degree=5),
-    'hamming3': GeneralizedHammingFilter(radius=3, a0=25/46),  # (a0 = ~0.54)
+    'hamming3': GeneralizedHammingFilter(radius=3, a0=25/46),
     'kaiser3': KaiserFilter(radius=3.0, beta=7.12),
     'gaussian': GaussianFilter(),
     'bspline3': BsplineFilter(degree=3),
-    'mitchell': MitchellFilter(),  # a.k.a. 'mitchellcubic'
+    'mitchell': MitchellFilter(),
     'narrowbox': NarrowBoxFilter(),
     # Not in FILTERS:
     'hamming1': GeneralizedHammingFilter(radius=1, a0=0.54),
@@ -2718,7 +2856,7 @@ _DICT_FILTERS = {
     'lanczos4': LanczosFilter(radius=4),
 }
 
-FILTERS = [filter for filter in _DICT_FILTERS if filter not in 'hamming1 hann3 lanczos4'.split()]
+FILTERS = list(itertools.takewhile(lambda x: x != 'hamming1', _DICT_FILTERS))
 r"""Shortcut names for some predefined filter kernels (specified per dimension).
 The names expand to:
 
@@ -2986,7 +3124,7 @@ def test_gamma_conversion_from_and_to_uint8_timings() -> None:
     t1 = hh.get_time(lambda: gamma.encode(array_float, dtype=np.uint8))
     print(f'# {dtype}  {gamma_name:9} {arraylib:11} decode={t0:5.3f}  encode={t1:5.3f} s')
 
-if EFFORT >= 2 or 0:
+if EFFORT >= 2:
   test_gamma_conversion_from_and_to_uint8_timings()
 
 
@@ -3225,49 +3363,8 @@ test_sparse_csr_matrix_duplicate_entries_are_summed()
 
 
 # %% tags=[]
-# Move to _Arraylib ??
-def _best_order_in_which_to_process_dimensions(
-    array: _Array, dst_shape: Tuple[int, ...]) -> List[int]:
-  """Return the best order in which to process dimensions when resizing `array` to `dst_shape`.
-
-  For numpy: (1) a dimension with small scaling (especially minification) gets priority, and
-             (2) timings show preference to resizing dimensions with larger strides first.
-
-  For tensorflow and jax: process dimension 1 first iff dimension 0 is upsampling.  Improve?
-
-  For torch: same as numpy.
-  """
-  # The optimal ordering might be related to the logic in np.einsum_path().  (Unfortunately,
-  # np.einsum() does not support the sparse multiplications that we require here.)
-  # No way to access strides in Tensorflow and Jax?
-  src_shape: Tuple[int, ...] = array.shape[:len(dst_shape)]
-  arraylib = _arr_arraylib(array)
-  strides: Sequence[int] = (array.strides if arraylib == 'numpy' else
-                            list(reversed(range(len(src_shape)))) if arraylib == 'tensorflow' else
-                            array.stride() if arraylib == 'torch' else
-                            list(reversed(range(len(src_shape)))) if arraylib == 'jax' else
-                            1/0)
-  largest_stride_dim = max(range(len(src_shape)), key=lambda dim: strides[dim])
-
-  def priority(dim: int) -> float:
-    scaling = dst_shape[dim] / src_shape[dim]
-    if arraylib == 'numpy':
-      return scaling * ((0.49 if scaling < 1.0 else 0.65) if dim == largest_stride_dim else 1.0)
-    if arraylib == 'tensorflow':
-      return 2.0 if scaling > 1.0 and dim == largest_stride_dim else 1.0
-    if arraylib == 'torch':
-      return scaling * ((0.49 if scaling < 1.0 else 0.65) if dim == largest_stride_dim else 1.0)
-    if arraylib == 'jax':
-      return 2.0 if scaling > 1.0 and dim == largest_stride_dim else 1.0
-    raise AssertionError(f'{arraylib} is unrecognized.')
-
-  dim_order = sorted(range(len(src_shape)), key=priority)
-  return dim_order
-
-
-# %% tags=[]
 # pylint: disable-next=too-many-statements disable-next=too-many-branches
-def _apply_potential_digital_filter_1d(
+def _apply_digital_filter_1d(
     array: _Array, gridtype: Gridtype, boundary: Boundary, cval: Any, filter: Filter,
     axis: int = 0, compute_backward: bool = False) -> _Array:
   """Apply inverse convolution to the specified dimension of the array.
@@ -3275,9 +3372,7 @@ def _apply_potential_digital_filter_1d(
   Find the array coefficients such that convolution with the (continuous) filter (given
   gridtype and boundary) interpolates the original array values.
   """
-  if not filter.requires_digital_filter:
-    return array
-
+  assert filter.requires_digital_filter
   # First convert to generic wrapper, then move to _Arraylib??
   arraylib = _arr_arraylib(array)
 
@@ -3285,18 +3380,20 @@ def _apply_potential_digital_filter_1d(
     import tensorflow as tf
 
     def forward(x: _NDArray) -> _NDArray:
-      return _apply_potential_digital_filter_1d(x, gridtype, boundary, cval, filter, axis)
+      return _apply_digital_filter_1d(x, gridtype, boundary, cval, filter, axis)
 
     def backward(grad_output: _NDArray) -> _NDArray:
-      return _apply_potential_digital_filter_1d(grad_output, gridtype, boundary, cval, filter,
-                                                axis, compute_backward=True)
+      return _apply_digital_filter_1d(
+          grad_output, gridtype, boundary, cval, filter, axis, compute_backward=True)
 
     @tf.custom_gradient
     def tensorflow_inverse_convolution(x: Any) -> _TensorflowTensor:
-      y = tf.numpy_function(forward, [x], x.dtype)
+      # Although `forward` accesses parameters gridtype, boundary, etc., it is not stateful
+      # because the function is redefined on each invocation of _apply_digital_filter_1d.
+      y = tf.numpy_function(forward, [x], x.dtype, stateful=False)
 
       def grad(grad_output: Any) -> _TensorflowTensor:
-        return tf.numpy_function(backward, [grad_output], x.dtype)
+        return tf.numpy_function(backward, [grad_output], x.dtype, stateful=False)
 
       return y, grad
 
@@ -3306,16 +3403,21 @@ def _apply_potential_digital_filter_1d(
     import torch
 
     class InverseConvolution(torch.autograd.Function):
-      """Differentiable wrapper for _apply_potential_digital_filter_1d."""
+      """Differentiable wrapper for _apply_digital_filter_1d."""
 
       @staticmethod
-      def forward(unused_ctx: Any, x: Any) -> torch.Tensor:  # type: ignore[override]
-        return torch.as_tensor(_apply_potential_digital_filter_1d(
+      def forward(ctx: Any, *args: _TorchTensor, **kwargs: Any) -> _TorchTensor:
+        del ctx
+        assert not kwargs
+        x, = args
+        return torch.as_tensor(_apply_digital_filter_1d(
             x.detach().numpy(), gridtype, boundary, cval, filter, axis))
 
       @staticmethod
-      def backward(unused_ctx: Any, grad_output: Any) -> torch.Tensor:  # type: ignore[override]
-        return torch.as_tensor(_apply_potential_digital_filter_1d(
+      def backward(ctx: Any, *grad_outputs: _TorchTensor) -> _TorchTensor:
+        del ctx
+        grad_output, = grad_outputs
+        return torch.as_tensor(_apply_digital_filter_1d(
             grad_output.detach().numpy(), gridtype, boundary, cval, filter,
             axis, compute_backward=True))
 
@@ -3327,11 +3429,11 @@ def _apply_potential_digital_filter_1d(
 
     @jax.custom_gradient
     def jax_inverse_convolution(x: _JaxArray) -> _JaxArray:
-      y = jnp.asarray(_apply_potential_digital_filter_1d(  # type: ignore[no-untyped-call]
+      y = jnp.asarray(_apply_digital_filter_1d(  # type: ignore[no-untyped-call]
           x.to_py(), gridtype, boundary, cval, filter, axis))
 
       def grad(grad_output: _JaxArray) -> _JaxArray:
-        return jnp.asarray(_apply_potential_digital_filter_1d(  # type: ignore[no-untyped-call]
+        return jnp.asarray(_apply_digital_filter_1d(  # type: ignore[no-untyped-call]
             grad_output.to_py(), gridtype, boundary, cval, filter, axis, compute_backward=True))
 
       return y, grad
@@ -3341,16 +3443,19 @@ def _apply_potential_digital_filter_1d(
   assert np.issubdtype(array.dtype, np.inexact)
   cval = np.asarray(cval).astype(array.dtype, copy=False)
 
-  # Use faster code if compatible dtype, gridtype, boundary, and filter:
-  use_scipy_spline_filter1d = (
-      isinstance(filter, CardinalBsplineFilter) and filter.degree >= 2 and
-      (boundary.name == 'reflect' or (gridtype.name == 'dual' and boundary.name == 'wrap')))
-  if use_scipy_spline_filter1d:
-    assert isinstance(filter, CardinalBsplineFilter)
-    mode = ({'dual': 'reflect', 'primal': 'mirror'}[gridtype.name]
-            if boundary.name == 'reflect' else 'wrap')
+  # Use fast spline_filter1d() if compatible gridtype, boundary, and filter:
+  mode = {
+      ('reflect', 'dual'): 'reflect',
+      ('reflect', 'primal'): 'mirror',
+      ('wrap', 'dual'): 'grid-wrap',
+      ('wrap', 'primal'): 'wrap',
+  }.get((boundary.name, gridtype.name))
+  use_split_filter1d = isinstance(filter, CardinalBsplineFilter) and filter.degree >= 2 and mode
+  if use_split_filter1d:
+    assert isinstance(filter, CardinalBsplineFilter)  # Help mypy.
     # compute_backward=True is same: matrix is symmetric and cval is unused.
-    return _spline_filter1d(array, axis=axis, order=filter.degree, mode=mode, output=array.dtype)
+    return scipy.ndimage.spline_filter1d(
+        array, axis=axis, order=filter.degree, mode=mode, output=array.dtype)
 
   array_dim = np.moveaxis(array, axis, 0)
   l = original_l = math.ceil(filter.radius) - 1
@@ -3403,11 +3508,11 @@ def _apply_potential_digital_filter_1d(
 
 
 # %% tags=[]
-def test_apply_potential_digital_filter_1d_quick() -> None:
+def test_apply_digital_filter_1d_quick() -> None:
   for boundary in 'reflect linear border'.split():
 
     def inverse_convolution(array: _Array) -> _Array:
-      return _apply_potential_digital_filter_1d(
+      return _apply_digital_filter_1d(
           array, _get_gridtype('dual'), _get_boundary(boundary), 20.0, _get_filter('cardinal3'))
 
     array_np = np.array([1.0, 2.0, 5.0, 7.0], np.float32)
@@ -3426,7 +3531,7 @@ def test_apply_potential_digital_filter_1d_quick() -> None:
 
 
 if EFFORT >= 1:
-  test_apply_potential_digital_filter_1d_quick()
+  test_apply_digital_filter_1d_quick()
 
 
 # %% [markdown]
@@ -3551,7 +3656,7 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   precision = _get_precision(precision, [array_dtype, dtype], [])
   weight_precision = _real_precision(precision)
   if dim_order is None:
-    dim_order = _best_order_in_which_to_process_dimensions(array, shape)
+    dim_order = _arr_best_dims_order_for_resize(array, shape)
   else:
     dim_order = tuple(dim_order)
     if sorted(dim_order) != list(range(len(shape))):
@@ -3597,119 +3702,25 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
         dtype=weight_precision,
         arraylib=arraylib)
 
-    def potential_pre_digital_filter(array_flat: Any) -> _Array:
-      if not is_minification:
-        array_flat = _apply_potential_digital_filter_1d(
-            array_flat, src_gridtype2[dim], boundary_dim, cval, filter2[dim])
-      return array_flat
+    array_dim = _arr_moveaxis(array, dim, 0)
+    array_flat = _arr_reshape(array_dim, (array_dim.shape[0], -1))
+    array_flat = _arr_possibly_make_contiguous(array_flat)
+    if not is_minification and filter2[dim].requires_digital_filter:
+      array_flat = _apply_digital_filter_1d(
+          array_flat, src_gridtype2[dim], boundary_dim, cval, filter2[dim])
 
-    def potential_post_digital_filter(array_flat: Any) -> _Array:
-      if is_minification:  # use prefilter2[dim]?
-        array_flat = _apply_potential_digital_filter_1d(
-            array_flat, dst_gridtype2[dim], boundary_dim, cval, filter2[dim])
-      return array_flat
-
-    # Move to _Arraylib??
-
-    if arraylib == 'numpy':
-
-      def resize_numpy_dim() -> _NDArray:
-        # Because np.ndarray supports strides, np.moveaxis() and np.permute() are constant-time.
-        # However, ndarray.reshape() often creates a copy of the array if the data is
-        # non-contiguous, e.g. dim=1 in an RGB image.
-        array_dim = np.moveaxis(array, dim, 0)
-        array_flat = array_dim.reshape(array_dim.shape[0], -1)
-        array_flat = potential_pre_digital_filter(array_flat)
-
-        # The dot() calls scipy.sparse._sparsetools.csr_matvecs() in
-        # https://github.com/scipy/scipy/blob/master/scipy/sparse/sparsetools/csr.h
-        # which iteratively calls the LEVEL 1 BLAS function axpy().
-        array_flat = resize_matrix.dot(array_flat)
-        if cval_weight is not None:
-          cval_flat = np.broadcast_to(cval, array_dim.shape[1:]).reshape(-1)
-          array_flat += cval_weight[:, None] * cval_flat
-
-        array_flat = potential_post_digital_filter(array_flat)
-        array_dim = array_flat.reshape(array_flat.shape[0], *array_dim.shape[1:])
-        return np.moveaxis(array_dim, 0, dim)
-
-      array = resize_numpy_dim()
-
-    elif arraylib == 'tensorflow':
-
-      def resize_tensorflow_dim() -> _TensorflowTensor:
-        import tensorflow as tf
-        # Because tf.Tensor does not support strides, tf.transpose() returns a
-        # new permuted tensor.  However, tf.reshape() is always efficient.
-        perm = [dim] + list(range(dim)) + list(range(dim + 1, array_ndim))
-        array_dim = tf.transpose(array, perm)
-        array_flat = tf.reshape(array_dim, [array_dim.shape[0], -1])
-        array_flat = potential_pre_digital_filter(array_flat)
-
-        array_flat = tf.sparse.sparse_dense_matmul(resize_matrix, array_flat)
-        if cval_weight is not None:
-          cval_flat = np.broadcast_to(cval, array_dim.shape[1:]).reshape(-1)
-          array_flat += cval_weight[:, None] * cval_flat
-
-        array_flat = potential_post_digital_filter(array_flat)
-        array_dim = tf.reshape(array_flat, [array_flat.shape[0], *array_dim.shape[1:]])
-        perm = list(range(1, dim + 1)) + [0] + list(range(dim + 1, array_ndim))
-        return tf.transpose(array_dim, perm)
-
+    array_flat = _arr_sparse_dense_matmul(resize_matrix, array_flat)
+    if cval_weight is not None:
+      cval_flat = np.broadcast_to(cval, array_dim.shape[1:]).reshape(-1)
       if np.issubdtype(array_dtype, np.complexfloating):
-        resize_matrix = resize_matrix.with_values(_arr_astype(resize_matrix.values, array_dtype))
-        if cval_weight is not None:
-          cval_weight = _arr_astype(cval_weight, array_dtype)
-      array = resize_tensorflow_dim()
+        cval_weight = _arr_astype(cval_weight, array_dtype)  # (Only necessary for 'tensorflow'.)
+      array_flat += cval_weight[:, None] * cval_flat
 
-    elif arraylib == 'torch':
-
-      def resize_torch_dim() -> _TorchTensor:
-        import torch
-        array_dim = array.moveaxis(dim, 0)
-        array_flat: torch.Tensor = array_dim.reshape(array_dim.shape[0], -1)
-        internal_torch_contiguous = True
-        if internal_torch_contiguous:  # Greatly improves timings in some cases.
-          array_flat = array_flat.contiguous()
-        array_flat = potential_pre_digital_filter(array_flat)
-
-        array_flat = resize_matrix @ array_flat  # Or torch.mm(resize_matrix, array_float).
-        if cval_weight is not None:
-          cval_flat = np.broadcast_to(cval, array_dim.shape[1:]).reshape(-1)
-          array_flat += cval_weight[:, None] * cval_flat
-
-        array_flat = potential_post_digital_filter(array_flat)
-        array_dim = array_flat.reshape(array_flat.shape[0], *array_dim.shape[1:])
-        return array_dim.moveaxis(0, dim)
-
-      if np.issubdtype(array_dtype, np.complexfloating):
-        resize_matrix = _arr_astype(resize_matrix, array_dtype)
-      array = resize_torch_dim()
-
-    elif arraylib == 'jax':
-
-      def resize_jax_dim() -> _JaxArray:
-        import jax.numpy as jnp
-        array_dim = jnp.moveaxis(array, dim, 0)
-        array_flat = array_dim.reshape(array_dim.shape[0], -1)
-        internal_jax_contiguous = True
-        if internal_jax_contiguous:  # Greatly improves timings in some cases.
-          array_flat = array_flat.copy()
-        array_flat = potential_pre_digital_filter(array_flat)
-
-        array_flat = resize_matrix @ array_flat
-        if cval_weight is not None:
-          cval_flat = np.broadcast_to(cval, array_dim.shape[1:]).reshape(-1)
-          array_flat += cval_weight[:, None] * cval_flat
-
-        array_flat = potential_post_digital_filter(array_flat)
-        array_dim = array_flat.reshape(array_flat.shape[0], *array_dim.shape[1:])
-        return jnp.moveaxis(array_dim, 0, dim)
-
-      array = resize_jax_dim()
-
-    else:
-      AssertionError(f'{arraylib} is unrecognized.')
+    if is_minification and filter2[dim].requires_digital_filter:  # use prefilter2[dim]?
+      array_flat = _apply_digital_filter_1d(
+          array_flat, dst_gridtype2[dim], boundary_dim, cval, filter2[dim])
+    array_dim = _arr_reshape(array_flat, (array_flat.shape[0], *array_dim.shape[1:]))
+    array = _arr_moveaxis(array_dim, 0, dim)
 
   array = dst_gamma2.encode(array, dtype=dtype)
   return array
@@ -3751,7 +3762,7 @@ if 0:  # For testing.
   # "The given NumPy array is not writable, and PyTorch does not support non-writable tensors".
 
 
-# %%
+# %% tags=[]
 # Export: outside library.
 def resize_showing_domain_boundary(array: _NDArray, shape, *,
                                    translate=0.2, scale=0.6, **kwargs) -> _NDArray:
@@ -3767,7 +3778,7 @@ def resize_showing_domain_boundary(array: _NDArray, shape, *,
   return array
 
 
-# %%
+# %% tags=[]
 def test_linear_precision_of_1d_primal_upsampling() -> None:
   array = np.arange(7.0)
   new = resize(array, (13,), gridtype='primal', filter='triangle')
@@ -3853,7 +3864,7 @@ if EFFORT >= 1:
 
 
 # %%
-def test_apply_potential_digital_filter_1d(cval=-10.0, shape=(7, 8)) -> None:
+def test_apply_digital_filter_1d(cval=-10.0, shape=(7, 8)) -> None:
   original = np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 10
   array1 = original.copy()
   filters = 'cardinal3 cardinal5'.split()
@@ -3863,7 +3874,7 @@ def test_apply_potential_digital_filter_1d(cval=-10.0, shape=(7, 8)) -> None:
       continue  # Last value on each dimension is ignored and so will not match.
     array2 = array1
     for dim in range(array2.ndim):
-      array2 = _apply_potential_digital_filter_1d(
+      array2 = _apply_digital_filter_1d(
           array2, _get_gridtype(gridtype), _get_boundary(boundary), cval,
           _get_filter(filter), axis=dim)
     bspline = BsplineFilter(degree=int(filter[-1:]))
@@ -3871,7 +3882,7 @@ def test_apply_potential_digital_filter_1d(cval=-10.0, shape=(7, 8)) -> None:
                     cval=cval, filter=bspline)
     assert np.allclose(array3, original), config
 
-test_apply_potential_digital_filter_1d()
+test_apply_digital_filter_1d()
 
 
 # %% tags=[]
@@ -4082,8 +4093,9 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     array = src_gamma2.decode(array, precision)
     for dim in range(grid_ndim):
       assert not is_minification
-      array = _apply_potential_digital_filter_1d(
-          array, gridtype2[dim], boundary2[dim], cval, filter2[dim], axis=dim)
+      if filter2[dim].requires_digital_filter:
+        array = _apply_digital_filter_1d(
+            array, gridtype2[dim], boundary2[dim], cval, filter2[dim], axis=dim)
 
   if np.prod(resampled_shape) > max_block_size > 0:
     block_shape = _block_shape_with_min_size(resampled_shape, max_block_size)
@@ -4156,7 +4168,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     if boundary_dim.uses_cval or filter2[dim].name == 'narrowbox':
       uses_cval = True
 
-  # Move to _Arraylib??
+  # Gather the samples.
 
   if arraylib == 'tensorflow':
     import tensorflow as tf
@@ -4186,8 +4198,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
 
   samples_ndim = len(samples.shape)
 
-  # Compute an Einstein summation over the samples and each of the
-  # per-dimension weights.
+  # Compute an Einstein summation over the samples and each of the per-dimension weights.
 
   def label(dims: Iterable[int]) -> str:
     return ''.join(chr(ord('a') + i) for i in dims)
@@ -4201,28 +4212,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
                        list(range(resampled_ndim + grid_ndim, samples_ndim)))  # 'abe'
   subscripts = ','.join(labels) + '->' + output_label  # 'abcde,abc,abd->abe'
 
-  # Move to _Arraylib??
-
-  if arraylib == 'numpy':
-    array = np.einsum(subscripts, *operands, optimize=True)  # (8, 9, 3)
-
-  elif arraylib == 'tensorflow':
-    import tensorflow as tf
-    array = tf.einsum(subscripts, *operands, optimize='greedy')
-
-  elif arraylib == 'torch':
-    import torch
-    operands = [torch.as_tensor(operand) for operand in operands]
-    if np.issubdtype(precision, np.complexfloating):
-      operands = [_arr_astype(operand, precision) for operand in operands]
-    array = torch.einsum(subscripts, *operands)
-
-  elif arraylib == 'jax':
-    import jax.numpy as jnp
-    array = jnp.einsum(subscripts, *operands, optimize='greedy')  # type: ignore[no-untyped-call]
-
-  else:
-    raise AssertionError(f'{arraylib} is unrecognized.')
+  array = _arr_einsum(subscripts, *operands)  # (8, 9, 3)
 
   if uses_cval:
     cval_weight = 1.0 - np.multiply.reduce(
@@ -4376,7 +4366,7 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
 if EFFORT >= 1:
   # hh.prun(lambda: test_that_all_resize_and_resample_agree(), mode='full')
   test_that_all_resize_and_resample_agree()  # ~5.5 s on 1st run due to jax compiles; then ~450 ms.
-if EFFORT >= 2 or 0:
+if EFFORT >= 2:
   test_that_all_resize_and_resample_agree(step=1)
 
 
@@ -5504,7 +5494,7 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
 
 if EFFORT >= 1:
   test_profile_downsampling((1000, 2000, 3), (100, 200), also_prun=True)
-if EFFORT >= 2 or 0:
+if EFFORT >= 2:
   test_profile_downsampling((2000, 2000, 1), (1000, 1000))
   test_profile_downsampling((2000, 2000, 3), (1000, 1000))
   test_profile_downsampling((2000, 2000, 4), (1000, 1000))
@@ -5734,7 +5724,7 @@ if EFFORT >= 1:
 # %% [markdown]
 # - Tensorflow gradient-descent optimization:
 
-# %%
+# %% tags=[]
 def test_tensorflow_optimize_image_for_desired_upsampling(
     operation='resize', method='gradient_tape', num_steps=30, debug=False,
     src_shape=(8, 8, 3), dst_shape=(16, 16), filter='triangle') -> None:
@@ -5792,9 +5782,11 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
 def test_tensorflow_optimize_image_for_desired_upsamplings() -> None:
   operations = 'resize resample keras_resize'.split()
   methods = 'gradient_tape adam'.split()
-  for operation in operations:
-    for method in methods:
-      test_tensorflow_optimize_image_for_desired_upsampling(operation=operation, method=method)
+  filters = 'triangle cardinal3'.split()
+  for config in itertools.product(operations, methods, filters):
+    operation, method, filter = config
+    test_tensorflow_optimize_image_for_desired_upsampling(
+        operation=operation, method=method, filter=filter)
 
 if EFFORT >= 1:
   test_tensorflow_optimize_image_for_desired_upsamplings()
@@ -5965,7 +5957,7 @@ def experiment_find_the_best_max_block_size(src_size=64, dst_size=4096) -> None:
       elapsed = hh.get_time(rotate_image)
       print(f'# max_block_size={max_block_size:10_} {elapsed:.3f} s')
 
-if EFFORT >= 2 or 0:
+if EFFORT >= 2:
   experiment_find_the_best_max_block_size()
 # 2021-11-05 Colab CPU (Intel Xeon CPU E5-2650 v4 @ 2.20GHz):
 # max_block_size=     4_000 24.637 s
@@ -6028,11 +6020,12 @@ if EFFORT >= 2 or 0:
 # pylint: disable-next=too-many-statements
 def visualize_filters(filters: Mapping[str, Filter]) -> None:
 
+  # pylint: disable-next=too-many-statements
   def analyze_filter(name: str, filter: Filter, ax: Any = None) -> None:
     footnote = '*' if filter.requires_digital_filter else ''
     if isinstance(filter, TrapezoidFilter) and filter.radius == 0.0:
       filter = TrapezoidFilter(radius=0.75)  # Visualize some representative radius.
-      footnote = '\u2020'
+      footnote = '\u2020'  # Unicode dagger.
     radius = filter.radius
     # Mock that the filter is a partition of unity for accurate un-normalized integral
     # (e.g. 'lanczos3') and for raw interp_error (e.g. 'gaussian').
@@ -6071,6 +6064,8 @@ def visualize_filters(filters: Mapping[str, Filter]) -> None:
 
       integral = y.sum() / (len(y) - 1) * 2.0 * pad
       # (Typically the discretized kernel is renormalized anyway.)
+      if not filter.continuous and abs(integral - 1.0) < 1e-3:
+        integral = 1.0
       assert (abs(integral - 1.0) < 1e-6) == filter.unit_integral, integral
 
       assert (abs(np.diff(y)) < 0.001).all() == filter.continuous
@@ -6137,6 +6132,14 @@ visualize_trapezoid_filters()
 
 
 # %% tags=[]
+def visualize_cardinal_bsplines() -> None:
+  visualize_filters({f'cardinal{degree}': CardinalBsplineFilter(degree=degree)
+                     for degree in range(6)})
+
+visualize_cardinal_bsplines()
+
+
+# %% tags=[]
 def visualize_kaiser_filter_for_various_beta_values(radius=3.0) -> None:
   visualize_filters({f'kaiser_radius{radius}_beta{beta}': KaiserFilter(radius=radius, beta=beta)
                     for beta in [1.0, 2.0, 4.0, 7.0, 10.0, 20.0]})
@@ -6162,7 +6165,7 @@ def experiment_kaiser_filter_beta_parameters(n: int = 12, s: float = 2.0) -> Non
     beta = (0.1102 * (A - 8.7) if A > 50 else
             0.5842 * (A - 21)**0.4 + 0.07886 * (A - 21) if 21 <= A <= 50 else
             0.0)
-    hh.show(f_h, delta_f, A, beta)
+    print(f'f_h={f_h}, delta_f={delta_f}, A={A}, beta={beta}')
 
 experiment_kaiser_filter_beta_parameters()
 
@@ -6179,8 +6182,8 @@ def test_kaiser_filter_fractional_radius(radius=3, s=2.0, n=12, debug=False) -> 
   f2 = KaiserFilter(radius=3, beta=beta)(x)
   f3 = KaiserFilter(radius=L/2, beta=beta)(x)  # L/2 == 2.75
   if debug:
-    hh.show(np.i0([0.0, 4.0]))
-    hh.show(i, x, L, window, f1, f2, f3)
+    print(np.i0([0.0, 4.0]))
+    print(f'i={i}, x={x}, L={L}, window={window}, f1={f1}, f2={f2}, f3={f3}')
   assert np.allclose(f1, f3)
 
 test_kaiser_filter_fractional_radius()
@@ -6201,8 +6204,8 @@ def compare_boundary_rules_on_cropped_windows_of_images(
   All filtering is done in lightness space (i.e. with gamma='identity').
   """
   rng = np.random.default_rng(0)
-  # Note: 'linear' and 'linear_constant' are identical for resize() because the evaluated coordinate
-  # is never outside the domain (even though the filter kernel does extend outside).
+  # Note: 'linear' and 'linear_constant' are identical for resize() because the evaluated
+  # coordinate is never outside the domain (even though the filter kernel does extend outside).
   boundaries = [b for b in BOUNDARIES
                 if 'constant' not in b and b not in 'wrap tile reflect_clamp border'.split()]
 
@@ -7193,7 +7196,9 @@ def test_banded(debug=False) -> None:
     # https://github.com/scipy/scipy/blob/master/scipy/ndimage/src/ni_interpolation.c#L145
     # https://github.com/scipy/scipy/blob/master/scipy/ndimage/src/ni_splines.c
     # Drawbacks: not as precise; only Bspline (no OMOMS); limited boundaries.
-    new = _spline_filter1d(array, order=l * 2 + 1, axis=0, mode=boundary, output=array.dtype)
+    mode = {'reflect': 'reflect', 'wrap': 'grid-wrap'}[boundary]
+    new = scipy.ndimage.spline_filter1d(
+        array, order=l * 2 + 1, axis=0, mode=mode, output=array.dtype)
     if debug:
       print('ndimage', new, matrix.dot(new))
     assert np.allclose(matrix.dot(new), array)
@@ -7261,14 +7266,17 @@ def test_inverse_convolution_2d(  # pylint: disable=too-many-statements
   values = filter(x)
   UNDEFINED = 1e20
   mode = {
-      'dual': {'reflect': 'reflect', 'wrap': 'wrap', 'clamp': 'nearest'},
-      'primal': {'reflect': 'mirror', 'wrap': 'n/a', 'clamp': 'nearest'},
-  }[gridtype][boundary]
+      ('dual', 'reflect'): 'reflect',
+      ('dual', 'wrap'): 'grid-wrap',
+      ('dual', 'clamp'): 'nearest',
+      ('primal', 'reflect'): 'mirror',
+      ('primal', 'clamp'): 'nearest',
+  }[gridtype, boundary]
 
   def run_spline_filter1d(array: _NDArray) -> _NDArray:
     array = array.copy()
     for dim in range(2):
-      _spline_filter1d(array, order=degree, axis=dim, mode=mode, output=array)
+      scipy.ndimage.spline_filter1d(array, order=degree, axis=dim, mode=mode, output=array)
     return array
 
   def run_general(array: _NDArray) -> _NDArray:
@@ -7987,7 +7995,7 @@ if EFFORT >= 3:
 
 # %% tags=[]
 def test_downsample_timing() -> None:
-  """Check that we account for strides in _best_order_in_which_to_process_dimensions()."""
+  """Check that we account for strides in `_arr_best_dims_order_for_resize()`."""
   for with_copy in [False, True]:
     for shape in [(1000, 2000), (900, 1800), (800, 1600)]:
       array = resize(media.to_float01(example_tissot_image()),
@@ -8102,6 +8110,7 @@ write_library_python_file()
 # %% tags=[]
 def run_doctest(filename: str, debug: bool = False) -> None:
   """Run tests within the function doc strings."""
+  assert running_in_notebook()
   hh.run(f'python3 -m doctest{" -v" if debug else ""} {filename}')
 
 if EFFORT >= 1:
@@ -8114,6 +8123,7 @@ if EFFORT >= 2:
 
 # %% tags=[]
 def run_pytest_command() -> None:  # (This function name cannot end in 'test', else recursion.)
+  assert running_in_notebook()
   hh.run('pytest --doctest-modules --ignore=Old --ignore=Other --ignore=resampler_other.py')
 
 if EFFORT >= 2:
@@ -8155,12 +8165,11 @@ def run_lint(filename: str, strict: bool = False) -> None:
                      ',R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412,C0413')
   pylint_args = f'--indent-string="  " --disable={pylint_disabled}'
   pylint_grep = (" | egrep -v 'E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)"
-                 r"|W0221.*(forward|backward)|colab|has been rated at|\*\* Module|(^-+$)|(^$)'" +
+                 r"|colab|has been rated at|\*\* Module|(^-+$)|(^$)'" +
                  ("" if strict else " | grep -v 'Missing function or method docstring'"))
   hh.run(f'echo mypy; mypy {mypy_args} "{filename}" | {mypy_grep} || true')
   hh.run(f'echo autopep8; autopep8 {autopep8_args} {autopep8_ignore} "{filename}"')
   hh.run(f'echo pylint; pylint {pylint_args} "{filename}" {pylint_grep} || true')
-  # hh.run(f'echo doctest; python3 -m doctest -v "{filename}"')
   print('All ran.')
 
 
@@ -8176,7 +8185,7 @@ if EFFORT >= 1:
 # %% [markdown]
 # In Windows Emacs, `compile` command:
 # ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'f=resampler_notebook.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "type annotation for one or more arguments|gradgradcheck|Untyped decorator|Name .In| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703,E402 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0302,C0415,R0902,R0903,R0913,R0914,W0640,W0125,C0413,W1514 --disable=C0301,C0114,W0301,R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412 "$f" | egrep -v "E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)|W0221.*(forward|backward)|colab"; echo All ran.'
+# c:/windows/sysnative/wsl -e bash -lc 'f=resampler_notebook.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "type annotation for one or more arguments|gradgradcheck|Untyped decorator|Name .In| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703,E402 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0302,C0415,R0902,R0903,R0913,R0914,W0640,W0125,C0413,W1514 --disable=C0301,C0114,W0301,R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412 "$f" | egrep -v "E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)|colab"; echo All ran.'
 # ```
 
 # %% [markdown]
