@@ -58,7 +58,7 @@
 #
 # - any **numeric type** (integer, floating, and complex);
 #
-# - either `dual` ("half-integer") or `primal` [**grid-type**](#Grid-types--dual-and-primal-)
+# - either `'dual'` ("half-integer") or `'primal'` [**grid-type**](#Grid-types--dual-and-primal-)
 #   for each dimension;
 #
 # - many [**boundary**](#Boundary-rules) rules,
@@ -68,7 +68,7 @@
 #
 # - optional [**gamma**](#Gamma-correction) transfer functions for correct linear-space filtering;
 #
-# - prefiltering for accurate **antialiasing** when downsampling;
+# - prefiltering for accurate **antialiasing** when `resize` downsampling;
 #
 # - processing within several [**array libraries**](#Array-libraries)
 #   (`numpy`, `tensorflow`, `torch`, and `jax`);
@@ -76,7 +76,7 @@
 # - efficient backpropagation of [**gradients**](#Gradient-backpropagation)
 #   for `tensorflow`, `torch`, and `jax`;
 #
-# - easy installation, with **no native code**, yet
+# - few dependencies (only `scipy`) and **no native code**, yet
 #
 # - [**faster resizing**](#Test-other-libraries) than C++ implementations
 #   in `tf.image`, `torch.nn`, and `torchvision`.
@@ -84,7 +84,7 @@
 # A key strategy is to leverage existing sparse matrix representations and operations.
 
 # %% [markdown]
-# ## Example usage
+# **Example usage:**
 
 # %% [markdown]
 # ```python
@@ -131,12 +131,6 @@
 # batch_size = 4
 # batch_of_images = media.moving_circle((16, 16), batch_size)
 # upsampled = resampler.resize(batch_of_images, (batch_size, 64, 64))
-# spacer = np.ones((64, 16, 3))
-# media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
-# ```
-# > <img src="https://github.com/hhoppe/resampler/raw/main/media/example_batch_resize.png"/>
-#
-# ```python
 # media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
 # ```
 # > original
@@ -198,7 +192,7 @@
 
 
 # %% [markdown]
-# ## Signal-processing concepts
+# # Signal-processing concepts
 
 # %% [markdown]
 # In [digital signal processing](https://en.wikipedia.org/wiki/Digital_signal_processing),
@@ -938,7 +932,6 @@ test_profile_downsample_in_2d_using_box_filter()
 #
 # - The `_arr_*()` functions dispatch the `_Arraylib` methods based on the array type.
 #
-# - Function `_make_array()` creates an array of a specified `arraylib`.
 #
 # (See also https://github.com/jonasrauber/eagerpy for a more complete
 # but less specialized library.)
@@ -1709,13 +1702,13 @@ test_split_prefix_dims()
 # which complicates data structures and algorithms
 # (e.g. the [FFT](https://en.wikipedia.org/wiki/Fast_Fourier_transform)).
 #
-# | `gridtype=` | `dual` (default) | `primal` |
+# | `gridtype` | `'dual'`<br/>`DualGridtype()`<br/>(default) | `'primal'`<br/>`PrimalGridtype()`<br/>&nbsp; |
 # | --- |:---:|:---:|
-# | Sample positions in 2D and 1D | ![Dual](https://github.com/hhoppe/resampler/raw/main/media/dual_grid_small.png) | ![Primal](https://github.com/hhoppe/resampler/raw/main/media/primal_grid_small.png) |
-# | Nesting of samples across pyramid resolutions | The samples positions do *not* nest. | The *even* samples remain at coarser scale. |
-# | Number $N_\ell$ of samples (per-dimension) at pyramid level $\ell$ | $N_\ell=2^\ell$ | $N_\ell=2^\ell+1$ |
+# | Sample positions in 2D<br/>and in 1D at different resolutions | ![Dual](https://github.com/hhoppe/resampler/raw/main/media/dual_grid_small.png) | ![Primal](https://github.com/hhoppe/resampler/raw/main/media/primal_grid_small.png) |
+# | Nesting of samples across resolutions | The samples positions do *not* nest. | The *even* samples remain at coarser scale. |
+# | Number $N_\ell$ of samples (per-dimension) at resolution level $\ell$ | $N_\ell=2^\ell$ | $N_\ell=2^\ell+1$ |
 # | Position of sample index $i$ within domain $[0, 1]$ | $\frac{i + 0.5}{N}$ ("half-integer" coordinates) | $\frac{i}{N-1}$ |
-# | Image pyramid resolutions ($N_\ell\!\times\!N_\ell$) for dyadic scales | $1\!\times\!1, ~~2\!\times\!2, ~~4\!\times\!4, ~~8\!\times\!8, ~\ldots$ | $2\!\times\!2, ~~3\!\times\!3, ~~5\!\times\!5, ~~9\!\times\!9, ~\ldots$ |
+# | Image resolutions ($N_\ell\times N_\ell$) for dyadic scales | $1\times1, ~~2\times2, ~~4\times4, ~~8\times8, ~\ldots$ | $2\times2, ~~3\times3, ~~5\times5, ~~9\times9, ~\ldots$ |
 #
 # We support both grid-types, selectable as either `gridtype='dual'` or `gridtype='primal'`.
 # To avoid confusion, the `coords` parameter in `resample()` refers to coordinates with respect
@@ -1731,10 +1724,10 @@ class Gridtype:
   specified per domain dimension.
 
   Examples:
-    `resize(source, shape, gridtype='primal')`  # Sets both src and dst to be `primal` grids.
+    `resize(source, shape, gridtype='primal')`  # Sets both src and dst to be `'primal'` grids.
 
     `resize(source, shape, src_gridtype=['dual', 'primal'],
-           dst_gridtype='dual')`  # Source is `dual` in dim0 and `primal` in dim1.
+           dst_gridtype='dual')`  # Source is `'dual'` in dim0 and `'primal'` in dim1.
   """
 
   name: str
@@ -1840,10 +1833,13 @@ _DICT_GRIDTYPES = {
 GRIDTYPES = list(_DICT_GRIDTYPES)
 r"""Shortcut names for the two predefined grid types (specified per dimension):
 
-| name               | `Gridtype`       | position of sample $0 \le i < N$ in domain $[0, 1]$ |
-|--------------------|------------------|:---:|
-| `'dual'` (default) | `DualGridtype`   | $(i + 0.5) / N$ |
-| `'primal'`         | `PrimalGridtype` | $i / (N - 1)$   |
+| `gridtype` | `'dual'`<br/>`DualGridtype()`<br/>(default) | `'primal'`<br/>`PrimalGridtype()`<br/>&nbsp; |
+| --- |:---:|:---:|
+| Sample positions in 2D<br/>and in 1D at different resolutions | ![Dual](https://github.com/hhoppe/resampler/raw/main/media/dual_grid_small.png) | ![Primal](https://github.com/hhoppe/resampler/raw/main/media/primal_grid_small.png) |
+| Nesting of samples across resolutions | The samples positions do *not* nest. | The *even* samples remain at coarser scale. |
+| Number $N_\ell$ of samples (per-dimension) at resolution level $\ell$ | $N_\ell=2^\ell$ | $N_\ell=2^\ell+1$ |
+| Position of sample index $i$ within domain $[0, 1]$ | $\frac{i + 0.5}{N}$ ("half-integer" coordinates) | $\frac{i}{N-1}$ |
+| Image resolutions ($N_\ell\times N_\ell$) for dyadic scales | $1\times1, ~~2\times2, ~~4\times4, ~~8\times8, ~\ldots$ | $2\times2, ~~3\times3, ~~5\times5, ~~9\times9, ~\ldots$ |
 
 See the source code for extensibility.
 """
@@ -1924,7 +1920,7 @@ def _get_gridtypes(
 
 # %% [markdown]
 # Here is a visualization of the same boundary rules applied in 2D,
-# using different grid types for each dimension (`dual` in $y$ and `primal` in $x$):
+# using different grid types for each dimension (`'dual'` in $y$ and `'primal'` in $x$):
 
 # %% [markdown]
 # <center>
@@ -2312,19 +2308,29 @@ BOUNDARIES = list(_DICT_BOUNDARIES)
 |------------------------|-------------------|
 | `'reflect'`            | *reflected*, *symm*, *symmetric*, *mirror*, *grid-mirror* |
 | `'wrap'`               | *periodic*, *repeat*, *grid-wrap* |
-| `'tile'`               | like `reflect` within unit domain, then tile discontinuously |
+| `'tile'`               | like `'reflect'` within unit domain, then tile discontinuously |
 | `'clamp'`              | *clamped*, *nearest*, *edge*, *clamp-to-edge*, repeat last sample |
 | `'border'`             | *grid-constant*, use `cval` for samples outside unit domain |
 | `'natural'`            | *renormalize*, ignore samples outside unit domain |
 | `'reflect_clamp'`      | *mirror-clamp-to-edge* |
-| `'constant'`           | like `reflect` but replace by `cval` outside unit domain |
+| `'constant'`           | like `'reflect'` but replace by `cval` outside unit domain |
 | `'linear'`             | extrapolate from 2 last samples |
 | `'quadratic'`          | extrapolate from 3 last samples |
-| `'linear_constant'`    | like `linear` but replace by `cval` outside unit domain |
-| `'quadratic_constant'` | like `quadratic` but replace by `cval` outside unit domain |
+| `'linear_constant'`    | like `'linear'` but replace by `cval` outside unit domain |
+| `'quadratic_constant'` | like `'quadratic'` but replace by `cval` outside unit domain |
 
 These boundary rules may be specified per dimension.  See the source code for extensibility
 using the classes `RemapCoordinates`, `ExtendSamples`, and `OverrideExteriorValue`.
+
+<center>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_1D.png"/><br/>
+Boundary rules illustrated in 1D.
+</center>
+
+<center>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_2D.png"/><br/>
+Boundary rules illustrated in 2D.
+</center>
 """
 
 _OFTUSED_BOUNDARIES = ('reflect wrap tile clamp border natural'
@@ -2369,7 +2375,7 @@ def _get_boundary(boundary: Union[str, Boundary]) -> Boundary:
 # <center><img style="margin: 15px 0px 15px 0px;"
 #  src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png"/></center>
 #
-# The `trapezoid` filter is an antialiased version of the `box` filter.
+# The `'trapezoid'` filter is an antialiased version of the `'box'` filter.
 # Its implementation is special in that its parameterized shape (edge slope)
 # is made to adapt to the scaling factor in a `resize` operation.
 #
@@ -2826,8 +2832,7 @@ class NarrowBoxFilter(Filter):
 # $f(\textbf{x}) = \text{jinc}(\|\textbf{x}\|)$,
 # where $\text{jinc}(r) = 2J_1(\pi r)/(\pi r)$.
 # (The Fourier transform of a circle
-# [involves the first-order Bessel function of the first kind](
-#   https://en.wikipedia.org/wiki/Airy_disk).)
+# [involves the first-order Bessel function of the first kind](https://en.wikipedia.org/wiki/Airy_disk).)
 
 # %% tags=[]
 _DICT_FILTERS = {
@@ -2882,7 +2887,14 @@ The names expand to:
 | `'mitchell'`   | `MitchellFilter()`            | *mitchellcubic* |
 | `'narrowbox'`  | `NarrowBoxFilter()`           | for visualization of sample positions |
 
-See the source code for extensibility.
+<center>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png"/>
+Some example filter kernels.
+</center>
+
+The
+[notebook](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+visualizes all filters in 1D and 2D.  See the source code for extensibility.
 """
 
 def _get_filter(filter: Union[str, Filter]) -> Filter:
@@ -2902,17 +2914,17 @@ def _get_filter(filter: Union[str, Filter]) -> Filter:
 # (a.k.a. [gamma correction](https://en.wikipedia.org/wiki/Gamma_correction)\)
 # prior to quantization.
 #
-# Here is a summary of the predefined schemes in the package:
+# Here is a summary of the predefined schemes:
 #
-# | `gamma` scheme | Decoding function (linear space from stored value) | Encoding function (stored value from linear space) |
-# |---|:---:|:---:|
-# | `'identity'` | $l = e$ | $e = l$ |
-# | `'power2'` | $l = e^{2.0}$ | $e = l^{1/2.0}$ |
-# | `'power22'` | $l = e^{2.2}$ | $e = l^{1/2.2}$ |
-# | `'srgb'` ([sRGB](https://en.wikipedia.org/wiki/SRGB))$^*$ | $l = \left(\left(e + 0.055\right) / 1.055\right)^{2.4}$ | $e = l^{1/2.4} * 1.055 - 0.055$ |
+# | name | `Gamma` | Decoding function<br/> (linear space from stored value) | Encoding function<br/> (stored value from linear space) |
+# |---|---|:---:|:---:|
+# | `'identity'` | `IdentityGamma()` | $l = e$ | $e = l$ |
+# | `'power2'` | `PowerGamma(2.0)` | $l = e^{2.0}$ | $e = l^{1/2.0}$ |
+# | `'power22'` | `PowerGamma(2.2)` | $l = e^{2.2}$ | $e = l^{1/2.2}$ |
+# | `'srgb'` | `SrgbGamma()` | $l = \left(\left(e + 0.055\right) / 1.055\right)^{2.4}$ | $e = l^{1/2.4} * 1.055 - 0.055$ |
 #
-# ($^{*}$The case of `gamma='srgb'` also includes a separate linear map interval
-# near the (black) zero value.)
+# (`'srgb'` corresponds to the [sRGB](https://en.wikipedia.org/wiki/SRGB) standard
+# and its encoding function includes an additional linear map segment near zero.)
 #
 # For grids with data type `uint8`, the default is `gamma='power2'`
 # (chosen for its tradeoff of accuracy and efficiency).
@@ -3058,12 +3070,12 @@ _DICT_GAMMAS = {
 GAMMAS = list(_DICT_GAMMAS)
 r"""Shortcut names for some predefined gamma-correction schemes:
 
-| name          | `Gamma`             | Decoding function (linear $l$ from encoded $e$) |
-|---------------|---------------------|-------------------|
-| `'identity'`  | `IdentityGamma()`   | $l = e$ |
-| `'power2'`    | `PowerGamma`(2.0)   | $l = e^{2.0}$ |
-| `'power22'`   | `PowerGamma`(2.2)   | $l = e^{2.2}$ |
-| `'srgb'`      | `SrgbGamma()`       | $l = \mathrm{where}(e > 0.0045, ((e + 0.055) / 1.055)^{2.4}, x / 12.92)$ |
+| name | `Gamma` | Decoding function<br/> (linear space from stored value) | Encoding function<br/> (stored value from linear space) |
+|---|---|:---:|:---:|
+| `'identity'` | `IdentityGamma()` | $l = e$ | $e = l$ |
+| `'power2'` | `PowerGamma`(2.0) | $l = e^{2.0}$ | $e = l^{1/2.0}$ |
+| `'power22'` | `PowerGamma`(2.2) | $l = e^{2.2}$ | $e = l^{1/2.2}$ |
+| `'srgb'` | `SrgbGamma()` | $l = \left(\left(e + 0.055\right) / 1.055\right)^{2.4}$ | $e = l^{1/2.4} * 1.055 - 0.055$ |
 
 See the source code for extensibility.
 """
@@ -3579,8 +3591,8 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   Args:
     array: Regular grid of source sample values, as an array object recognized by `ARRAYLIBS`.
       The array must have numeric type.  Its first `len(shape)` dimensions are the domain
-      coordinate dimensions.  Each grid dimension must be at least 1 for a `dual` grid or
-      at least 2 for a `primal` grid.
+      coordinate dimensions.  Each grid dimension must be at least 1 for a `'dual'` grid or
+      at least 2 for a `'primal'` grid.
     shape: The number of grid samples in each coordinate dimension of the output array.  The source
       `array` must have at least as many dimensions as `len(shape)`.
     gridtype: Placement of samples on all dimensions of both the source and output domain grids,
@@ -3602,8 +3614,8 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
       (i.e., minification).  If `None`, it inherits the value of `filter`.
     gamma: Component transfer functions (e.g., gamma correction) applied when reading samples from
       `array` and when creating output grid samples.  It is specified as either a name in `GAMMAS`
-      or a `Gamma` instance.  If both `array.dtype` and `dtype` are `uint`, the default is `power2`.
-      If both are non-`uint`, the default is `identity`.  Otherwise, `gamma` or
+      or a `Gamma` instance.  If both `array.dtype` and `dtype` are `uint`, the default is
+      `'power2'`.  If both are non-`uint`, the default is `'identity'`.  Otherwise, `gamma` or
       `src_gamma`/`dst_gamma` must be set.   Gamma correction assumes that float values are in the
       range [0.0, 1.0].
     src_gamma: Component transfer function used to "decode" `array` samples.
@@ -3625,6 +3637,16 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   Returns:
     An array of the same class as the source `array`, with shape `shape + array.shape[len(shape):]`
       and data type `dtype`.
+
+  <center>
+  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_upsampled.png"/>
+  Example of image upsampling
+  </center>
+
+  <center>
+  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_downsampled.png"/>
+  Example of image downsampling
+  </center>
 
   >>> result = resize([1.0, 4.0, 5.0], shape=(4,))
   >>> assert np.allclose(result, [0.74240461, 2.88088827, 4.68647155, 5.02641199])
@@ -3984,7 +4006,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     array: Regular grid of source sample values, as an array object recognized by `ARRAYLIBS`.
       The array must have numeric type.  The coordinate dimensions appear first, and
       each grid sample may have an arbitrary shape.  Each grid dimension must be at least 1 for
-      a `dual` grid or at least 2 for a `primal` grid.
+      a `'dual'` grid or at least 2 for a `'primal'` grid.
     coords: Grid of points at which to resample `array`.  The point coordinates are in the last
       dimension of `coords`.  The domain associated with the source grid is a unit hypercube,
       i.e. with a range [0, 1] on each coordinate dimension.  The output grid has shape
@@ -4004,7 +4026,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     gamma: Component transfer functions (e.g., gamma correction) applied when reading samples
       from `array` and when creating output grid samples.  It is specified as either a name in
       `GAMMAS` or a `Gamma` instance.  If both `array.dtype` and `dtype` are `uint`, the default
-      is `power2`.  If both are non-`uint`, the default is `identity`.  Otherwise, `gamma` or
+      is `'power2'`.  If both are non-`uint`, the default is `'identity'`.  Otherwise, `gamma` or
       `src_gamma`/`dst_gamma` must be set.   Gamma correction assumes that float values are in the
       range [0.0, 1.0].
     src_gamma: Component transfer function used to "decode" `array` samples.
@@ -4028,6 +4050,11 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     A new sample grid of shape `coords.shape[:-1]`, represented as an array of shape
     `coords.shape[:-1] + array.shape[coords.shape[-1]:]`, of the same array library type as
     the source array.
+
+  <center>
+  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_warp_coords.png"/><br/>
+  Example of resample operation.
+  </center>
 
   For reference, the identity resampling for a scalar-valued grid with the default grid-type
   'dual' is:
@@ -5508,9 +5535,9 @@ if EFFORT >= 2:
 
 # %% [markdown]
 # Conclusions:
-# - For `box`/`trapezoid` downsampling, the numba-jitted special path used in `resize_in_numpy` is
+# - For `'box'`/`'trapezoid'` downsampling, the numba-jitted special path used in `resize_in_numpy` is
 #   the fastest --- even faster than the C++ code in `tf.image.resize`.
-# - For `lanczos3` downsampling, `resize_in_numpy` is slightly faster than `tf.image.resize`.
+# - For `'lanczos3'` downsampling, `resize_in_numpy` is slightly faster than `tf.image.resize`.
 
 # %% tags=[]
 def test_profile_upsampling(shape, new_shape, filter='lanczos3',
@@ -5547,9 +5574,9 @@ if EFFORT >= 2:
 
 # %% [markdown]
 # Conclusions:
-# - For `lanczos3` upsampling, `resize` is faster than `tf.image.resize`.
-# - For the hardcoded `cubic` and `triangle` implementations (invoked only when `antialias=False`),
-#   `tf.image.resize` is faster.
+# - For `'lanczos3'` upsampling, `resize` is faster than `tf.image.resize`.
+# - For the hardcoded `'cubic'` and `'triangle'` implementations (invoked only when
+#   `antialias=False`), `tf.image.resize` is faster.
 
 # %% [markdown]
 # # Applications and experiments
@@ -5673,7 +5700,7 @@ experiment_with_boundary_antialiasing()
 
 # %% [markdown]
 # Conclusion: the middle result is best, with boundary antialiasing enabled,
-# and with filtering in linear space (after conversion from/to `power2` lightness space).
+# and with filtering in linear space (after conversion from/to `'power2'` lightness space).
 
 # %% tags=[]
 def experiment_zoom_image(original_image, num_frames=60) -> None:
@@ -6105,7 +6132,7 @@ def visualize_filters(filters: Mapping[str, Filter]) -> None:
                      ' of the digital filter.')
   if any(isinstance(filter, TrapezoidFilter) and filter.radius == 0.0
          for filter in filters.values()):
-    display_markdown('\u2020 The `trapezoid` radius is adjusted based on the scaling factor.')
+    display_markdown("\u2020 The radius for `trapezoid` is adjusted based on the scaling factor.")
 
 
 # %% tags=[]
@@ -6615,7 +6642,7 @@ experiment_gamma_downsample_image()
 
 # %% [markdown]
 # Conclusion: For downsampling, the best approach is to convert the source image from lightness
-# to linear space (using `power2`), downsample, then convert back to lightness.
+# to linear space (using `'power2'`), downsample, then convert back to lightness.
 
 # %%
 # Export: outside library.
@@ -7709,19 +7736,19 @@ def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
 
   media.set_max_output_height(3000)
 
-  display_markdown('**Grid type: `dual`**')
+  display_markdown("**Grid type: `'dual'`**")
   visualize_gridtype('dual')
   display_markdown("""&emsp; &emsp; Graphics
     [texture sampling](https://www.khronos.org/opengl/wiki/Sampler_Object)
-    supports a `dual` grid with the `box` or `triangle` filter, using the
-    `reflect`, `wrap`, `clamp`, `reflect_clamp`, or `border` boundary.
+    supports a `'dual'` grid with the `'box'` or `'triangle'` filter, using the
+    `'reflect'`, `'wrap'`, `'clamp'`, `'reflect_clamp'`, or `'border'` boundary.
   """)
 
-  display_markdown('<br/>**Grid type: `primal`**')
+  display_markdown("<br/>**Grid type: `'primal'`**")
   visualize_gridtype('primal')
   display_markdown(r"""&emsp; &emsp; ${}^\dagger$To create a continuous periodic
-    reconstruction, the last sample is ignored for the `wrap` boundary rule
-    on a `primal` grid.
+    reconstruction, the last sample is ignored for the `'wrap'` boundary rule
+    on a `'primal'` grid.
   """)
 
   display_markdown('<br/>**For filters_summary figure:**')
@@ -7775,7 +7802,7 @@ def visualize_boundary_rules_in_2d(*, scale=0.6, src_gridtype=('dual', 'primal')
     # Benefit of show_images() over matplotlib.imshow() is no pixel resampling.
     media.show_images(images2, ylabel=filter, html_class='show_images2')
 
-  display_markdown('**Upsampling of a 2D grid (`dual` in $y$ and `primal` in $x$)**')
+  display_markdown("**Upsampling of a 2D grid (`'dual'` in $y$ and `'primal'` in $x$)**")
   for row_index, filter in enumerate('box triangle cubic lanczos3'.split()):
     show_row(show_titles=(row_index == 0))
 
@@ -7817,13 +7844,13 @@ visualize_boundary_rules_in_2d()
 # | Library | `ndim` | Array type | Data type | Grid type | Upsample | Antialiased downsample | Boundary rule | Speed | Native code | Grad &nabla; |
 # |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 # | `resampler.resize` | any | `np`, `tf`, `torch` | any | dual, primal | any filter | any filter | many | fast | none | yes |
-# | `PIL.Image.resize` | 2D | custom | `float32`, `uint8` | dual | up to `lanczos3` | good | `natural` | average | C | no |
-# | `cv.resize` | 2D | custom | `float32` | dual | up to `lanczos4` | `trapezoid` (AREA) | several | fast | C++ | no |
+# | `PIL.Image.resize` | 2D | custom | `float32`, `uint8` | dual | up to `'lanczos3'` | good | `'natural'` | average | C | no |
+# | `cv.resize` | 2D | custom | `float32` | dual | up to `'lanczos4'` | `'trapezoid'` (AREA) | several | fast | C++ | no |
 # | `scipy.ndimage` | any | `np` | any | ~dual, primal | cardinal B-splines | aliased &#9785; | several | slow | C | no |
 # | `skimage.transform` | any | `np` | any | dual, primal | cardinal B-splines | Gaussian &#9785; | several | slow | Cython | no |
-# | `tf.image.resize` | 2D | `tf` | `float32` | dual | up to `lanczos5` | `linear`, `cubic`? | `natural` | average | C++ | yes |
-# | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `trapezoid`, `linear`, `cubic` | `?` | average | C++ | yes |
-# | `torchvision.transforms.`<br/>&nbsp;`functional.resize` | 2D | `tf` | most | dual | up to cubic | `linear`, `cubic` | `?` | average | C++ | yes |
+# | `tf.image.resize` | 2D | `tf` | `float32` | dual | up to `'lanczos5'` | `'linear'`, `'cubic'`? | `'natural'` | average | C++ | yes |
+# | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `'trapezoid'`, `'linear'`, `'cubic'` | `?` | average | C++ | yes |
+# | `torchvision.transforms.`<br/>&nbsp;`functional.resize` | 2D | `tf` | most | dual | up to cubic | `'linear'`, `'cubic'` | `?` | average | C++ | yes |
 #
 # The `resampler` library does not involve any new native code;
 # it instead leverages existing sparse matrix representations and operations.
@@ -7897,7 +7924,7 @@ def experiment_compare_upsampling_with_other_libraries(scale=2.0, shape=(200, 40
     images = {name: image[:100, :200] for name, image in images.items()}
   media.set_max_output_height(2000)
   # with media.set_show_save_dir('/tmp'):
-  show_args = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=3)
+  show_args = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
   media.show_images(images, **show_args)
   # media.show_video([upsampled3, upsampled4], fps=1, height=400, codec='gif')
 
@@ -7909,13 +7936,10 @@ if EFFORT >= 3:
 
 # %% [markdown]
 # Conclusions for upsampling:
-# - `ndimage` has broken boundary rules in `scypi 1.4.1`.
-# - Ignoring the boundaries, the cardinal spline of `order=3` does as well as
-#   `lanczos3`.
-# - `tf.resize` using `lanczos5` and `boundary='natural'` is slightly worse
-#   than `resize` using `lanczos5` and `boundary='reflect'` near the boundary.
-# - `resize` is generally very fast, but is not as fast as OpenCV for
-#   cubic upsampling.
+# - The cardinal spline of `order=3` does as well as `'lanczos3'`.
+# - `tf.resize` using `'lanczos5'` and `boundary='natural'` is slightly worse
+#   than `resize` using `'lanczos5'` and `boundary='reflect'` near the boundary.
+# - `resize` is generally very fast, but is not as fast as OpenCV for cubic upsampling.
 
 # %% [markdown]
 # ## Downsampling comparison
@@ -7962,7 +7986,7 @@ def experiment_compare_downsampling_with_other_libraries(scale=0.1, shape=(100, 
       'torch.nn.interp linear AA': lambda: torch_nn_resize(array, shape, 'triangle', antialias=True),
       # 'torchvision (sharp)cubic': lambda: torchvision_resize(array, shape, 'sharpcubic'),
       # 'torchvision linear': lambda: torchvision_resize(array, shape, 'triangle'),
-      # 'torchvision (sharp)cubic AA': lambda: torchvision_resize(array, shape, 'sharpcubic', antialias=True),
+      'torchvision (sharp)cubic AA': lambda: torchvision_resize(array, shape, 'sharpcubic', antialias=True),
       # 'torchvision linear AA': lambda: torchvision_resize(array, shape, 'triangle', antialias=True),
       # torchvision does not have differentiable box/trapezoid.
       'cv.resize lanczos4': lambda: cv_resize(array, shape, filter='lanczos4'),  # Aliased.
@@ -7983,7 +8007,7 @@ def experiment_compare_downsampling_with_other_libraries(scale=0.1, shape=(100, 
     images = {name: image[:50, :100] for name, image in images.items()}
   media.set_max_output_height(2000)
   # with media.set_show_save_dir('/tmp'):
-  show_args = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=3)
+  show_args = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
   media.show_images(images, **show_args)
 
 if EFFORT >= 1:
@@ -8010,20 +8034,20 @@ test_downsample_timing()
 
 # %% [markdown]
 # Conclusions for downsampling:
-# - The `ndimage`, `torch.nn`, and `torchvision` libraries do not apply
-#   prefiltering when downsampling, and therefore introduce aliasing.
-# - With `ndimage`, it is difficult to create the right transform / coords to
-#   exactly resize a dual grid.  The `zoom()` in the more recent `scipy` has new
-#   `grid_mode='True'` to assist with this.
-# - Using `anti_aliasing=True` in `skimage.transform.resize` introduces a
+# - The `ndimage` library ibraries do not apply prefiltering when downsampling
+#   and therefore introduce aliasing.
+# - With `ndimage`, it is difficult to create the right transform / coords to exactly resize
+#   a 'dual' grid.
+#   The `zoom()` in the more recent `scipy` has new `grid_mode='True'` to assist with this.
+# - The `torch.nn` and `torchvision` require `antialias=True` for prefiltering.
+# - The `skimage.transform.resize` also requires `anti_aliasing=True` and it introduces a
 #   Gaussian prefilter which prevents aliasing but is blurry.
 # - `torchvision.transforms.functional.resize` seems to produce identical results to
 #   `torch.nn.functional.interpolate`, but a little slower and
 #   with slightly less functionality (no antialiased 'area' downsampling).
-# - OpenCV's best downsampling is `AREA`, which is slightly inferior.
+# - OpenCV's best downsampling filter is `AREA`, which is not as sharp as a Lanczos filter.
 # - The `resize` box-filtering (using `numba`) is as fast as the C++
 #   `tf.image.resize` and `OpenCV` implementations.
-# - The `resize` Lanczos prefilter is also the fastest antialiased version.
 
 # %% [markdown]
 # # Export Python

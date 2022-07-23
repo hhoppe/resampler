@@ -15,10 +15,10 @@
 &nbsp;
 [**[PyPI package]**](https://pypi.org/project/resampler/)
 
-The notebook [`resampler_notebook.ipynb`](
-  https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+The notebook
+[<samp>resampler_notebook.ipynb</samp>](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 hosts the source code for the
-[`resampler` library in PyPI](https://pypi.org/project/resampler/),
+[<samp>resampler</samp> library in PyPI](https://pypi.org/project/resampler/),
 interleaved with documentation, usage examples, unit tests, and signal-processing experiments.
 
 # Overview
@@ -32,7 +32,7 @@ It supports:
 
 - any **numeric type** (integer, floating, and complex);
 
-- either `dual` ("half-integer") or `primal` **grid-type** for each dimension;
+- either `'dual'` ("half-integer") or `'primal'` **grid-type** for each dimension;
 
 - many **boundary** rules, specified per dimension, extensible via subclassing;
 
@@ -40,7 +40,7 @@ It supports:
 
 - optional **gamma** transfer functions for correct linear-space filtering;
 
-- prefiltering for accurate **antialiasing** when downsampling;
+- prefiltering for accurate **antialiasing** when `resize` downsampling;
 
 - processing within several **array libraries**
   (`numpy`, `tensorflow`, `torch`, and `jax`);
@@ -48,7 +48,7 @@ It supports:
 - efficient backpropagation of **gradients**
   for `tensorflow`, `torch`, and `jax`;
 
-- easy installation, with **no native code**, yet
+- few dependencies (only `scipy`) and **no native code**, yet
 
 - **faster resizing** than C++ implementations
   in `tf.image`, `torch.nn`, and `torchvision`.
@@ -101,12 +101,6 @@ plt.show()
 batch_size = 4
 batch_of_images = media.moving_circle((16, 16), batch_size)
 upsampled = resampler.resize(batch_of_images, (batch_size, 64, 64))
-spacer = np.ones((64, 16, 3))
-media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
-```
-> <img src="https://github.com/hhoppe/resampler/raw/main/media/example_batch_resize.png"/>
-
-```python
 media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
 ```
 > original
@@ -127,7 +121,7 @@ Most examples above use the default
 - default `precision` and output `dtype`.
 
 
-**Advanced usage:**
+## Advanced usage:
 
 Map an image to a wider grid using custom `scale` and `translate` vectors,
 with horizontal `'reflect'` and vertical `'natural'` boundary rules,
@@ -159,14 +153,8 @@ media.show_images({'image': image, 'resampled': resampled})
 ```
 > <img src="https://github.com/hhoppe/resampler/raw/main/media/example_warp.png"/>
 
-**Limitations:**
+## Limitations:
 
 - Filters are assumed to be [separable](https://en.wikipedia.org/wiki/Separable_filter).
-  For rotation equivariance (e.g., bandlimit the signal uniformly in all directions),
-  it would be nice to support the (non-separable) 2D rotationally symmetric
-  [sombrero function](https://en.wikipedia.org/wiki/Sombrero_function)
-  $f(\textbf{x}) = \text{jinc}(\|\textbf{x}\|)$,
-  where $\text{jinc}(r) = 2J_1(\pi r)/(\pi r)$.
-  (The Fourier transform of a circle
-  [involves the first-order Bessel function of the first kind](
-    https://en.wikipedia.org/wiki/Airy_disk).)
+- Although `resize` implements prefiltering, `resample` does not yet have it (and therefore
+  may have aliased results if downsampling).

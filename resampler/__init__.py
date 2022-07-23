@@ -849,10 +849,10 @@ class Gridtype:
   specified per domain dimension.
 
   Examples:
-    `resize(source, shape, gridtype='primal')`  # Sets both src and dst to be `primal` grids.
+    `resize(source, shape, gridtype='primal')`  # Sets both src and dst to be `'primal'` grids.
 
     `resize(source, shape, src_gridtype=['dual', 'primal'],
-           dst_gridtype='dual')`  # Source is `dual` in dim0 and `primal` in dim1.
+           dst_gridtype='dual')`  # Source is `'dual'` in dim0 and `'primal'` in dim1.
   """
 
   name: str
@@ -955,10 +955,13 @@ _DICT_GRIDTYPES = {
 GRIDTYPES = list(_DICT_GRIDTYPES)
 r"""Shortcut names for the two predefined grid types (specified per dimension):
 
-| name               | `Gridtype`       | position of sample $0 \le i < N$ in domain $[0, 1]$ |
-|--------------------|------------------|:---:|
-| `'dual'` (default) | `DualGridtype`   | $(i + 0.5) / N$ |
-| `'primal'`         | `PrimalGridtype` | $i / (N - 1)$   |
+| `gridtype` | `'dual'`<br/>`DualGridtype()`<br/>(default) | `'primal'`<br/>`PrimalGridtype()`<br/>&nbsp; |
+| --- |:---:|:---:|
+| Sample positions in 2D<br/>and in 1D at different resolutions | ![Dual](https://github.com/hhoppe/resampler/raw/main/media/dual_grid_small.png) | ![Primal](https://github.com/hhoppe/resampler/raw/main/media/primal_grid_small.png) |
+| Nesting of samples across resolutions | The samples positions do *not* nest. | The *even* samples remain at coarser scale. |
+| Number $N_\ell$ of samples (per-dimension) at resolution level $\ell$ | $N_\ell=2^\ell$ | $N_\ell=2^\ell+1$ |
+| Position of sample index $i$ within domain $[0, 1]$ | $\frac{i + 0.5}{N}$ ("half-integer" coordinates) | $\frac{i}{N-1}$ |
+| Image resolutions ($N_\ell\times N_\ell$) for dyadic scales | $1\times1, ~~2\times2, ~~4\times4, ~~8\times8, ~\ldots$ | $2\times2, ~~3\times3, ~~5\times5, ~~9\times9, ~\ldots$ |
 
 See the source code for extensibility.
 """
@@ -1314,19 +1317,29 @@ BOUNDARIES = list(_DICT_BOUNDARIES)
 |------------------------|-------------------|
 | `'reflect'`            | *reflected*, *symm*, *symmetric*, *mirror*, *grid-mirror* |
 | `'wrap'`               | *periodic*, *repeat*, *grid-wrap* |
-| `'tile'`               | like `reflect` within unit domain, then tile discontinuously |
+| `'tile'`               | like `'reflect'` within unit domain, then tile discontinuously |
 | `'clamp'`              | *clamped*, *nearest*, *edge*, *clamp-to-edge*, repeat last sample |
 | `'border'`             | *grid-constant*, use `cval` for samples outside unit domain |
 | `'natural'`            | *renormalize*, ignore samples outside unit domain |
 | `'reflect_clamp'`      | *mirror-clamp-to-edge* |
-| `'constant'`           | like `reflect` but replace by `cval` outside unit domain |
+| `'constant'`           | like `'reflect'` but replace by `cval` outside unit domain |
 | `'linear'`             | extrapolate from 2 last samples |
 | `'quadratic'`          | extrapolate from 3 last samples |
-| `'linear_constant'`    | like `linear` but replace by `cval` outside unit domain |
-| `'quadratic_constant'` | like `quadratic` but replace by `cval` outside unit domain |
+| `'linear_constant'`    | like `'linear'` but replace by `cval` outside unit domain |
+| `'quadratic_constant'` | like `'quadratic'` but replace by `cval` outside unit domain |
 
 These boundary rules may be specified per dimension.  See the source code for extensibility
 using the classes `RemapCoordinates`, `ExtendSamples`, and `OverrideExteriorValue`.
+
+<center>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_1D.png"/><br/>
+Boundary rules illustrated in 1D.
+</center>
+
+<center>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_2D.png"/><br/>
+Boundary rules illustrated in 2D.
+</center>
 """
 
 _OFTUSED_BOUNDARIES = ('reflect wrap tile clamp border natural'
@@ -1810,7 +1823,14 @@ The names expand to:
 | `'mitchell'`   | `MitchellFilter()`            | *mitchellcubic* |
 | `'narrowbox'`  | `NarrowBoxFilter()`           | for visualization of sample positions |
 
-See the source code for extensibility.
+<center>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png"/>
+Some example filter kernels.
+</center>
+
+The
+[notebook](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
+visualizes all filters in 1D and 2D.  See the source code for extensibility.
 """
 
 def _get_filter(filter: Union[str, Filter]) -> Filter:
@@ -1948,12 +1968,12 @@ _DICT_GAMMAS = {
 GAMMAS = list(_DICT_GAMMAS)
 r"""Shortcut names for some predefined gamma-correction schemes:
 
-| name          | `Gamma`             | Decoding function (linear $l$ from encoded $e$) |
-|---------------|---------------------|-------------------|
-| `'identity'`  | `IdentityGamma()`   | $l = e$ |
-| `'power2'`    | `PowerGamma`(2.0)   | $l = e^{2.0}$ |
-| `'power22'`   | `PowerGamma`(2.2)   | $l = e^{2.2}$ |
-| `'srgb'`      | `SrgbGamma()`       | $l = \mathrm{where}(e > 0.0045, ((e + 0.055) / 1.055)^{2.4}, x / 12.92)$ |
+| name | `Gamma` | Decoding function<br/> (linear space from stored value) | Encoding function<br/> (stored value from linear space) |
+|---|---|:---:|:---:|
+| `'identity'` | `IdentityGamma()` | $l = e$ | $e = l$ |
+| `'power2'` | `PowerGamma`(2.0) | $l = e^{2.0}$ | $e = l^{1/2.0}$ |
+| `'power22'` | `PowerGamma`(2.2) | $l = e^{2.2}$ | $e = l^{1/2.2}$ |
+| `'srgb'` | `SrgbGamma()` | $l = \left(\left(e + 0.055\right) / 1.055\right)^{2.4}$ | $e = l^{1/2.4} * 1.055 - 0.055$ |
 
 See the source code for extensibility.
 """
@@ -2270,8 +2290,8 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   Args:
     array: Regular grid of source sample values, as an array object recognized by `ARRAYLIBS`.
       The array must have numeric type.  Its first `len(shape)` dimensions are the domain
-      coordinate dimensions.  Each grid dimension must be at least 1 for a `dual` grid or
-      at least 2 for a `primal` grid.
+      coordinate dimensions.  Each grid dimension must be at least 1 for a `'dual'` grid or
+      at least 2 for a `'primal'` grid.
     shape: The number of grid samples in each coordinate dimension of the output array.  The source
       `array` must have at least as many dimensions as `len(shape)`.
     gridtype: Placement of samples on all dimensions of both the source and output domain grids,
@@ -2293,8 +2313,8 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
       (i.e., minification).  If `None`, it inherits the value of `filter`.
     gamma: Component transfer functions (e.g., gamma correction) applied when reading samples from
       `array` and when creating output grid samples.  It is specified as either a name in `GAMMAS`
-      or a `Gamma` instance.  If both `array.dtype` and `dtype` are `uint`, the default is `power2`.
-      If both are non-`uint`, the default is `identity`.  Otherwise, `gamma` or
+      or a `Gamma` instance.  If both `array.dtype` and `dtype` are `uint`, the default is
+      `'power2'`.  If both are non-`uint`, the default is `'identity'`.  Otherwise, `gamma` or
       `src_gamma`/`dst_gamma` must be set.   Gamma correction assumes that float values are in the
       range [0.0, 1.0].
     src_gamma: Component transfer function used to "decode" `array` samples.
@@ -2316,6 +2336,16 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   Returns:
     An array of the same class as the source `array`, with shape `shape + array.shape[len(shape):]`
       and data type `dtype`.
+
+  <center>
+  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_upsampled.png"/>
+  Example of image upsampling
+  </center>
+
+  <center>
+  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_downsampled.png"/>
+  Example of image downsampling
+  </center>
 
   >>> result = resize([1.0, 4.0, 5.0], shape=(4,))
   >>> assert np.allclose(result, [0.74240461, 2.88088827, 4.68647155, 5.02641199])
@@ -2496,7 +2526,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     array: Regular grid of source sample values, as an array object recognized by `ARRAYLIBS`.
       The array must have numeric type.  The coordinate dimensions appear first, and
       each grid sample may have an arbitrary shape.  Each grid dimension must be at least 1 for
-      a `dual` grid or at least 2 for a `primal` grid.
+      a `'dual'` grid or at least 2 for a `'primal'` grid.
     coords: Grid of points at which to resample `array`.  The point coordinates are in the last
       dimension of `coords`.  The domain associated with the source grid is a unit hypercube,
       i.e. with a range [0, 1] on each coordinate dimension.  The output grid has shape
@@ -2516,7 +2546,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     gamma: Component transfer functions (e.g., gamma correction) applied when reading samples
       from `array` and when creating output grid samples.  It is specified as either a name in
       `GAMMAS` or a `Gamma` instance.  If both `array.dtype` and `dtype` are `uint`, the default
-      is `power2`.  If both are non-`uint`, the default is `identity`.  Otherwise, `gamma` or
+      is `'power2'`.  If both are non-`uint`, the default is `'identity'`.  Otherwise, `gamma` or
       `src_gamma`/`dst_gamma` must be set.   Gamma correction assumes that float values are in the
       range [0.0, 1.0].
     src_gamma: Component transfer function used to "decode" `array` samples.
@@ -2540,6 +2570,11 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     A new sample grid of shape `coords.shape[:-1]`, represented as an array of shape
     `coords.shape[:-1] + array.shape[coords.shape[-1]:]`, of the same array library type as
     the source array.
+
+  <center>
+  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_warp_coords.png"/><br/>
+  Example of resample operation.
+  </center>
 
   For reference, the identity resampling for a scalar-valued grid with the default grid-type
   'dual' is:
