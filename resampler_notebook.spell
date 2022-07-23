@@ -670,3 +670,6 @@ ComplexFloat
 gpu
 resizers
 Gustafsson
+bsplines
+stateful
+takewhile
