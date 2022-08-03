@@ -4,7 +4,7 @@
 """
 
 __docformat__ = 'google'
-__version__ = '0.3.5'
+__version__ = '0.3.6'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 
@@ -16,6 +16,7 @@ import typing
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
+import numpy.typing as npt
 import scipy.interpolate
 import scipy.linalg
 import scipy.ndimage
@@ -28,12 +29,28 @@ except ModuleNotFoundError:
   pass
 
 
-_DType = Any
-_NDArray = Any  # To document np.ndarray[Any, Any] without enforcement.
-_TensorflowTensor = Any  # To document tf.Tensor without enforcement.
-_TorchTensor = Any  # To document torch.Tensor without enforcement.
-_JaxArray = Any  # To document jnp.ndarray without enforcement.
-_Array = Any  # To document any array class supported by _Arraylib.
+if typing.TYPE_CHECKING:
+  import jax.numpy
+  import tensorflow as tf
+  import torch
+  _DType = np.dtype[Any]  # (Requires Python 3.9 or TYPE_CHECKING.)
+  _NDArray = npt.NDArray[Any]
+  _DTypeLike = npt.DTypeLike
+  _ArrayLike = npt.ArrayLike
+  _JaxArray: typing.TypeAlias = jax.numpy.ndarray
+  _TensorflowTensor: typing.TypeAlias = tf.Tensor
+  _TorchTensor: typing.TypeAlias = torch.Tensor
+else:
+  _DType = Any
+  _NDArray = Any
+  _DTypeLike = Any  # Else `pdoc` documents a long Union[...] type.
+  _ArrayLike = Any  # Same.
+  _JaxArray = Any
+  _TensorflowTensor = Any
+  _TorchTensor = Any
+
+_Array = typing.TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
+_AnyArray = Union[_NDArray, _TensorflowTensor, _TorchTensor, _JaxArray]
 
 
 def _check_eq(a: Any, b: Any) -> None:
@@ -43,31 +60,32 @@ def _check_eq(a: Any, b: Any) -> None:
     raise AssertionError(f'{a!r} == {b!r}')
 
 
-def _real_precision(dtype: Any) -> _DType:
+def _real_precision(dtype: _DTypeLike) -> _DType:
   """Return the type of the real part of a complex number."""
   return np.array([], dtype=dtype).real.dtype
 
 
-def _complex_precision(dtype: Any) -> _DType:
+def _complex_precision(dtype: _DTypeLike) -> _DType:
   """Return a complex type to represent a non-complex type."""
   return np.find_common_type([], [dtype, np.complex64])
 
 
-def _get_precision(precision: Any, dtypes: List[_DType], weight_dtypes: List[_DType]) -> _DType:
+def _get_precision(precision: _DTypeLike, dtypes: List[_DType],
+                   weight_dtypes: List[_DType]) -> _DType:
   """Return dtype based on desired precision or on data and weight types."""
-  precision = np.dtype(precision if precision is not None else
-                       np.find_common_type([], [np.float32, *dtypes, *weight_dtypes]))
-  if not np.issubdtype(precision, np.inexact):
-    raise ValueError(f'Precision {precision} is not floating or complex.')
-  check_complex = [precision, *dtypes]
+  precision2 = np.dtype(precision if precision is not None else
+                        np.find_common_type([], [np.float32, *dtypes, *weight_dtypes]))
+  if not np.issubdtype(precision2, np.inexact):
+    raise ValueError(f'Precision {precision2} is not floating or complex.')
+  check_complex = [precision2, *dtypes]
   is_complex = [np.issubdtype(dtype, np.complexfloating) for dtype in check_complex]
   if len(set(is_complex)) != 1:
     raise ValueError(f'Types {",".join(str(dtype) for dtype in check_complex)}'
                      ' must be all real or all complex.')
-  return precision
+  return precision2
 
 
-def _sinc(x: Any) -> _NDArray:
+def _sinc(x: _ArrayLike) -> _NDArray:
   """Return the value `np.sinc(x)` but improved to:
   (1) ignore underflow that occurs at 0.0 for np.float32, and
   (2) output exact zero for integer input values.
@@ -87,7 +105,7 @@ def _sinc(x: Any) -> _NDArray:
     return result.item() if x_is_scalar else result
 
 
-def _is_symmetric(matrix: Any, tol: float = 1e-10) -> bool:
+def _is_symmetric(matrix: _NDArray, tol: float = 1e-10) -> bool:
   """Return True if the sparse matrix is symmetric."""
   norm: float = scipy.sparse.linalg.norm(matrix - matrix.T, np.inf)
   return norm <= tol
@@ -95,17 +113,13 @@ def _is_symmetric(matrix: Any, tol: float = 1e-10) -> bool:
 
 def _cache_sampled_1d_function(
     xmin: float, xmax: float, *, num_samples: int = 3_600, enable: bool = True,
-) -> Callable[[Callable[[Any], _NDArray]], Callable[..., _NDArray]]:
+) -> Callable[[Callable[[_ArrayLike], _NDArray]], Callable[[_ArrayLike], _NDArray]]:
   """Function decorator to linearly interpolate cached function values."""
   # Speed unchanged up to num_samples=12_000, then slow decrease until 100_000.
 
-  def wrap_it(func: Callable[[Any], _NDArray]) -> Callable[..., _NDArray]:
+  def wrap_it(func: Callable[[_ArrayLike], _NDArray]) -> Callable[[_ArrayLike], _NDArray]:
     if not enable:
-      @functools.wraps(func)
-      def original_func(x: Any, *, mode: str = '') -> _NDArray:
-        _check_eq(mode, '')
-        return func(x)
-      return original_func
+      return func
 
     dx = (xmax - xmin) / num_samples
     x = np.linspace(xmin, xmax + dx, num_samples + 2, dtype=np.float32)
@@ -113,17 +127,12 @@ def _cache_sampled_1d_function(
     assert np.all(samples_func[[0, -1, -2]] == 0.0)
 
     @functools.wraps(func)
-    def interpolate_using_cached_samples(x: Any, *, mode: str = 'linear') -> _NDArray:
-      if mode == 'exact':
-        return func(x)
+    def interpolate_using_cached_samples(x: _ArrayLike) -> _NDArray:
+      x = np.asarray(x)
       index_float = np.clip((x - xmin) / dx, 0.0, num_samples)
       index = index_float.astype(np.int64)
-      if mode == 'nearest':
-        return samples_func[index]
-      if mode == 'linear':
-        frac = np.subtract(index_float, index, dtype=np.float32)
-        return (1 - frac) * samples_func[index] + frac * samples_func[index + 1]
-      raise ValueError(f'Mode {mode} is not one of: exact, nearest, linear.')
+      frac = np.subtract(index_float, index, dtype=np.float32)
+      return (1 - frac) * samples_func[index] + frac * samples_func[index + 1]
 
     return interpolate_using_cached_samples
 
@@ -154,27 +163,26 @@ class _DownsampleIn2dUsingBoxFilter:
       new_width = array.shape[1] // block_width
       result = np.empty((new_height, new_width, ch), dtype)
       totals = np.empty(ch, dtype)
-      scale = dtype.type(1.0 / (block_height * block_width))
+      factor = dtype.type(1.0 / (block_height * block_width))
       for y in range(new_height):  # pylint: disable=too-many-nested-blocks
         for x in range(new_width):
-          # y2, x2 = y * block_height, x * block_width ?
+          # Introducing "y2, x2 = y * block_height, x * block_width" is actually slower.
           if ch == 1:  # All the branches involve compile-time constants.
             total = dtype.type(0.0)
             for yy in range(block_height):
               for xx in range(block_width):
                 total += array[y * block_height + yy, x * block_width + xx, 0]
-            result[y, x, 0] = total * scale
+            result[y, x, 0] = total * factor
           elif ch == 3:
             total0 = total1 = total2 = dtype.type(0.0)
             for yy in range(block_height):
               for xx in range(block_width):
-                # pixel = array[y2 + yy, x2 + xx] ?
                 total0 += array[y * block_height + yy, x * block_width + xx, 0]
                 total1 += array[y * block_height + yy, x * block_width + xx, 1]
                 total2 += array[y * block_height + yy, x * block_width + xx, 2]
-            result[y, x, 0] = total0 * scale
-            result[y, x, 1] = total1 * scale
-            result[y, x, 2] = total2 * scale
+            result[y, x, 0] = total0 * factor
+            result[y, x, 1] = total1 * factor
+            result[y, x, 2] = total2 * factor
           elif block_height * block_width >= 9:
             for c in range(ch):
               totals[c] = 0.0
@@ -183,14 +191,14 @@ class _DownsampleIn2dUsingBoxFilter:
                 for c in range(ch):
                   totals[c] += array[y * block_height + yy, x * block_width + xx, c]
             for c in range(ch):
-              result[y, x, c] = totals[c] * scale
+              result[y, x, c] = totals[c] * factor
           else:
             for c in range(ch):
               total = dtype.type(0.0)
               for yy in range(block_height):
                 for xx in range(block_width):
                   total += array[y * block_height + yy, x * block_width + xx, c]
-              result[y, x, c] = total * scale
+              result[y, x, c] = total * factor
       return result
 
     signature = dtype, block_height, block_width, ch
@@ -207,7 +215,7 @@ _downsample_in_2d_using_box_filter = _DownsampleIn2dUsingBoxFilter()
 
 
 @dataclasses.dataclass
-class _Arraylib:
+class _Arraylib(typing.Generic[_Array]):
   """Abstract base class for abstraction of array libraries."""
 
   arraylib: str
@@ -225,7 +233,7 @@ class _Arraylib:
   def dtype(self) -> _DType:
     """Return the equivalent of `self.array.dtype` as a `numpy` `dtype`."""
 
-  def astype(self, dtype: Any) -> _Array:
+  def astype(self, dtype: _DTypeLike) -> _Array:
     """Return the equivalent of `self.array.astype(dtype, copy=False)` with `numpy` `dtype`."""
 
   def reshape(self, shape: Tuple[int, ...]) -> _Array:
@@ -236,7 +244,7 @@ class _Arraylib:
     """Return an array which may be a contiguous copy of `self.array`."""
     return self.array
 
-  def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _Array:
     """Return the equivalent of `self.array.clip(low, high, dtype=dtype)` with `numpy` `dtype`."""
 
   def square(self) -> _Array:
@@ -245,10 +253,9 @@ class _Arraylib:
   def sqrt(self) -> _Array:
     """Return the equivalent of `np.sqrt(self.array)`."""
 
-  def gather(self, table: Any) -> _Array:
-    """Return the equivalent of `table[self.array]`."""
-    indices = self.array
-    return table[indices]
+  def getitem(self, indices: Any) -> _Array:
+    """Return the equivalent of `self.array[indices]` (a "gather" operation)."""
+    return self.array[indices]
 
   def where(self, if_true: Any, if_false: Any) -> _Array:
     """Return the equivalent of `np.where(self.array, if_true, if_false)`."""
@@ -268,16 +275,16 @@ class _Arraylib:
     """Return the equivalent of `np.einsum(subscripts, *operands, optimize=True)`."""
 
   @staticmethod
-  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
-    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
-    return sparse @ dense
-
-  @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
+  def sparse_resize_matrix(shape: Tuple[int, int],
+                           weight: _NDArray, src_index: _NDArray) -> _Array:
     """Return a sparse matrix for 1D resize; see `_make_sparse_resize_matrix`."""
 
+  @staticmethod
+  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
+    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
 
-class _NumpyArraylib(_Arraylib):
+
+class _NumpyArraylib(_Arraylib[_NDArray]):
   """Numpy implementation of the array abstraction."""
 
   def __init__(self, array: _NDArray) -> None:
@@ -291,30 +298,32 @@ class _NumpyArraylib(_Arraylib):
     return self.array
 
   def dtype(self) -> _DType:
-    return self.array.dtype
+    dtype: _DType = self.array.dtype
+    return dtype
 
-  def astype(self, dtype: Any) -> _Array:
+  def astype(self, dtype: _DTypeLike) -> _NDArray:
     return self.array.astype(dtype, copy=False)
 
-  def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _NDArray:
     return self.array.clip(low, high, dtype=dtype)
 
-  def square(self) -> _Array:
+  def square(self) -> _NDArray:
     return np.square(self.array)
 
-  def sqrt(self) -> _Array:
+  def sqrt(self) -> _NDArray:
     return np.sqrt(self.array)
 
-  def where(self, if_true: Any, if_false: Any) -> _Array:
+  def where(self, if_true: Any, if_false: Any) -> _NDArray:
     condition = self.array
     return np.where(condition, if_true, if_false)
 
-  def transpose(self, axes: Sequence[int]) -> _Array:
+  def transpose(self, axes: Sequence[int]) -> _NDArray:
     return np.transpose(self.array, tuple(axes))
 
   def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
     # Our heuristics: (1) a dimension with small scaling (especially minification) gets priority,
     # and (2) timings show preference to resizing dimensions with larger strides first.
+    # (Of course, tensorflow.Tensor lacks strides, so (2) does not apply.)
     # The optimal ordering might be related to the logic in np.einsum_path().  (Unfortunately,
     # np.einsum() does not support the sparse multiplications that we require here.)
     src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
@@ -328,15 +337,16 @@ class _NumpyArraylib(_Arraylib):
     return sorted(range(len(src_shape)), key=priority)
 
   @staticmethod
-  def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
+  def concatenate(arrays: Sequence[_NDArray], axis: int) -> _NDArray:
     return np.concatenate(arrays, axis)
 
   @staticmethod
-  def einsum(subscripts: str, *operands: _Array) -> _Array:
+  def einsum(subscripts: str, *operands: _NDArray) -> _NDArray:
     return np.einsum(subscripts, *operands, optimize=True)
 
   @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
+  def sparse_resize_matrix(shape: Tuple[int, int],
+                           weight: _NDArray, src_index: _NDArray) -> _NDArray:
     dst_size, _ = shape
     data = weight.reshape(-1)
     row_ind = np.arange(dst_size).repeat(src_index.shape[1])
@@ -346,8 +356,16 @@ class _NumpyArraylib(_Arraylib):
     # Note: csr_matrix automatically reorders and merges duplicate indices.
     return scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape=shape)
 
+  @staticmethod
+  def sparse_dense_matmul(sparse: scipy.sparse.csr_matrix, dense: _NDArray) -> _NDArray:
+    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
+    # Calls scipy.sparse._sparsetools.csr_matvecs() in
+    # https://github.com/scipy/scipy/blob/main/scipy/sparse/sparsetools/csr.h
+    # which iteratively calls the LEVEL 1 BLAS function axpy().
+    return sparse @ dense
 
-class _TensorflowArraylib(_Arraylib):
+
+class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
   """Tensorflow implementation of the array abstraction."""
 
   def __init__(self, array: _NDArray) -> None:
@@ -366,47 +384,55 @@ class _TensorflowArraylib(_Arraylib):
   def dtype(self) -> _DType:
     return np.dtype(self.array.dtype.as_numpy_dtype)
 
-  def astype(self, dtype: Any) -> _Array:
+  def astype(self, dtype: _DTypeLike) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.cast(self.array, dtype)
 
-  def reshape(self, shape: Tuple[int, ...]) -> _Array:
+  def reshape(self, shape: Tuple[int, ...]) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.reshape(self.array, shape)
 
-  def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _TensorflowTensor:
     import tensorflow as tf
     array = self.array
     if dtype is not None:
       array = tf.cast(array, dtype)
     return tf.clip_by_value(array, low, high)
 
-  def square(self) -> _Array:
+  def square(self) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.square(self.array)
 
-  def sqrt(self) -> _Array:
+  def sqrt(self) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.sqrt(self.array)
 
-  def gather(self, table: Any) -> _Array:
+  def getitem(self, indices: Any) -> _TensorflowTensor:
     import tensorflow as tf
-    indices = self.array
-    if _arr_dtype(indices) in (np.uint8, np.uint16):
+    if isinstance(indices, tuple):
+      basic = all(isinstance(x, (type(None), type(Ellipsis), int, slice)) for x in indices)
+      if not basic:
+        # We require tf.gather_nd(), which unfortunately requires broadcast expansion of indices.
+        assert all(isinstance(a, np.ndarray) for a in indices)
+        assert all(a.ndim == indices[0].ndim for a in indices)
+        broadcast_indices = np.broadcast_arrays(*indices)  # list of np.ndarray
+        indices_array = np.moveaxis(np.array(broadcast_indices), 0, -1)
+        return tf.gather_nd(self.array, indices_array)
+    elif _arr_dtype(indices).type in (np.uint8, np.uint16):
       indices = tf.cast(indices, np.int32)
-    return tf.gather(table, indices, axis=None)
+    return tf.gather(self.array, indices)
 
-  def where(self, if_true: Any, if_false: Any) -> _Array:
+  def where(self, if_true: Any, if_false: Any) -> _TensorflowTensor:
     import tensorflow as tf
     condition = self.array
     return tf.where(condition, if_true, if_false)
 
-  def transpose(self, axes: Sequence[int]) -> _Array:
+  def transpose(self, axes: Sequence[int]) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.transpose(self.array, tuple(axes))
 
   def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
-    # It seems that strides are unavailable in Tensorflow.
+    # Note that a tensorflow.Tensor does not have strides.
     # Our heuristic is to process dimension 1 first iff dimension 0 is upsampling.  Improve?
     src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
     dims = list(range(len(src_shape)))
@@ -415,24 +441,18 @@ class _TensorflowArraylib(_Arraylib):
     return dims
 
   @staticmethod
-  def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
+  def concatenate(arrays: Sequence[_TensorflowTensor], axis: int) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.concat(arrays, axis)
 
   @staticmethod
-  def einsum(subscripts: str, *operands: _Array) -> _Array:
+  def einsum(subscripts: str, *operands: _TensorflowTensor) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.einsum(subscripts, *operands, optimize='greedy')
 
   @staticmethod
-  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
-    import tensorflow as tf
-    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
-      sparse = sparse.with_values(_arr_astype(sparse.values, _arr_dtype(dense)))
-    return tf.sparse.sparse_dense_matmul(sparse, dense)
-
-  @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
+  def sparse_resize_matrix(shape: Tuple[int, int],
+                           weight: _NDArray, src_index: _NDArray) -> _TensorflowTensor:
     import tensorflow as tf
     _, src_size = shape
     linearized = (src_index + np.indices(src_index.shape)[0] * src_size).reshape(-1)
@@ -451,8 +471,16 @@ class _TensorflowArraylib(_Arraylib):
     merged_indices = np.vstack((unique // src_size, unique % src_size))
     return tf.sparse.SparseTensor(merged_indices.T, merged_values, shape)
 
+  @staticmethod
+  def sparse_dense_matmul(sparse: 'tf.sparse.SparseTensor',
+                          dense: _TensorflowTensor) -> _TensorflowTensor:
+    import tensorflow as tf
+    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
+      sparse = sparse.with_values(_arr_astype(sparse.values, _arr_dtype(dense)))
+    return tf.sparse.sparse_dense_matmul(sparse, dense)
 
-class _TorchArraylib(_Arraylib):
+
+class _TorchArraylib(_Arraylib[_TorchTensor]):
   """Torch implementation of the array abstraction."""
 
   def __init__(self, array: _NDArray) -> None:
@@ -480,7 +508,7 @@ class _TorchArraylib(_Arraylib):
     }[self.array.dtype]
     return np.dtype(numpy_type)
 
-  def astype(self, dtype: Any) -> _Array:
+  def astype(self, dtype: _DTypeLike) -> _TorchTensor:
     import torch
     torch_type = {
         np.float32: torch.float32,
@@ -494,30 +522,31 @@ class _TorchArraylib(_Arraylib):
     }[np.dtype(dtype).type]
     return self.array.type(torch_type)
 
-  def possibly_make_contiguous(self) -> _Array:
+  def possibly_make_contiguous(self) -> _TorchTensor:
     return self.array.contiguous()
 
-  def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _TorchTensor:
     array = self.array
     array = _arr_astype(array, dtype) if dtype is not None else array
     return array.clip(low, high)
 
-  def square(self) -> _Array:
+  def square(self) -> _TorchTensor:
     return self.array.square()
 
-  def sqrt(self) -> _Array:
+  def sqrt(self) -> _TorchTensor:
     return self.array.sqrt()
 
-  def gather(self, table: Any) -> _Array:
+  def getitem(self, indices: Any) -> _TorchTensor:
     import torch
-    indices = self.array
-    return torch.as_tensor(table)[indices.type(torch.int64)]
+    if not isinstance(indices, tuple):
+      indices = indices.type(torch.int64)
+    return self.array[indices]
 
-  def where(self, if_true: Any, if_false: Any) -> _Array:
+  def where(self, if_true: Any, if_false: Any) -> _TorchTensor:
     condition = self.array
     return if_true.where(condition, if_false)
 
-  def transpose(self, axes: Sequence[int]) -> _Array:
+  def transpose(self, axes: Sequence[int]) -> _TorchTensor:
     import torch
     return torch.permute(self.array, tuple(axes))
 
@@ -534,12 +563,12 @@ class _TorchArraylib(_Arraylib):
     return sorted(range(len(src_shape)), key=priority)
 
   @staticmethod
-  def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
+  def concatenate(arrays: Sequence[_TorchTensor], axis: int) -> _TorchTensor:
     import torch
     return torch.cat(tuple(arrays), axis)
 
   @staticmethod
-  def einsum(subscripts: str, *operands: _Array) -> _Array:
+  def einsum(subscripts: str, *operands: _TorchTensor) -> _TorchTensor:
     import torch
     operands = tuple(torch.as_tensor(operand) for operand in operands)
     if any(np.issubdtype(_arr_dtype(array), np.complexfloating) for array in operands):
@@ -548,13 +577,8 @@ class _TorchArraylib(_Arraylib):
     return torch.einsum(subscripts, *operands)
 
   @staticmethod
-  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
-    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
-      sparse = _arr_astype(sparse, _arr_dtype(dense))
-    return sparse @ dense
-
-  @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
+  def sparse_resize_matrix(shape: Tuple[int, int],
+                           weight: _NDArray, src_index: _NDArray) -> _TorchTensor:
     import torch
     dst_size, _ = shape
     indices = np.vstack((np.arange(dst_size).repeat(src_index.shape[1]), src_index.reshape(-1))).T
@@ -562,15 +586,22 @@ class _TorchArraylib(_Arraylib):
     # Remove the zero weights, then coalesce the duplicate indices.
     nonzero = values != 0.0
     indices, values = indices[nonzero], values[nonzero]
-    return torch.sparse_coo_tensor(indices.T, values, shape).coalesce()  # type: ignore[arg-type]
+    return torch.sparse_coo_tensor(
+        torch.as_tensor(indices.T), torch.as_tensor(values), shape).coalesce()
+
+  @staticmethod
+  def sparse_dense_matmul(sparse: Any, dense: _TorchTensor) -> _TorchTensor:
+    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
+      sparse = _arr_astype(sparse, _arr_dtype(dense))
+    return sparse @ dense  # Calls torch.sparse.mm().
 
 
-class _JaxArraylib(_Arraylib):
+class _JaxArraylib(_Arraylib[_JaxArray]):
   """Jax implementation of the array abstraction."""
 
   def __init__(self, array: _NDArray) -> None:
     import jax.numpy as jnp
-    super().__init__(arraylib='jax', array=jnp.asarray(array))  # type: ignore[no-untyped-call]
+    super().__init__(arraylib='jax', array=jnp.asarray(array))
 
   @staticmethod
   def recognize(array: Any) -> bool:
@@ -586,38 +617,40 @@ class _JaxArraylib(_Arraylib):
   def dtype(self) -> _DType:
     return np.dtype(self.array.dtype)
 
-  def astype(self, dtype: Any) -> _Array:
+  def astype(self, dtype: _DTypeLike) -> _JaxArray:
     return self.array.astype(dtype)  # (copy=False is unavailable)
 
-  def possibly_make_contiguous(self) -> _Array:
+  def possibly_make_contiguous(self) -> _JaxArray:
     return self.array.copy()
 
-  def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _JaxArray:
     import jax.numpy as jnp
     array = self.array
     if dtype is not None:
       array = array.astype(dtype)  # (copy=False is unavailable)
     return jnp.clip(array, low, high)
 
-  def square(self) -> _Array:
+  def square(self) -> _JaxArray:
     import jax.numpy as jnp
     return jnp.square(self.array)
 
-  def sqrt(self) -> _Array:
+  def sqrt(self) -> _JaxArray:
     import jax.numpy as jnp
     return jnp.sqrt(self.array)
 
-  def where(self, if_true: Any, if_false: Any) -> _Array:
+  def where(self, if_true: Any, if_false: Any) -> _JaxArray:
     import jax.numpy as jnp
     condition = self.array
-    return jnp.where(condition, if_true, if_false)  # type: ignore[no-untyped-call]
+    return jnp.where(condition, if_true, if_false)
 
-  def transpose(self, axes: Sequence[int]) -> _Array:
+  def transpose(self, axes: Sequence[int]) -> _JaxArray:
     import jax.numpy as jnp
-    return jnp.transpose(self.array, tuple(axes))  # type: ignore[no-untyped-call]
+    return jnp.transpose(self.array, tuple(axes))
 
   def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
-    # It seems that strides are unavailable in Jax.  Heuristic is similar to `_TensorflowArraylib`.
+    # Jax/XLA does not have strides.  Arrays are contiguous, almost always in C order; see
+    # https://github.com/google/jax/discussions/7544#discussioncomment-1197038.
+    # We use a heuristic similar to `_TensorflowArraylib`.
     src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
     dims = list(range(len(src_shape)))
     if len(dims) > 1 and dst_shape[0] / src_shape[0] > 1.0:
@@ -625,17 +658,18 @@ class _JaxArraylib(_Arraylib):
     return dims
 
   @staticmethod
-  def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
+  def concatenate(arrays: Sequence[_JaxArray], axis: int) -> _JaxArray:
     import jax.numpy as jnp
     return jnp.concatenate(arrays, axis)
 
   @staticmethod
-  def einsum(subscripts: str, *operands: _Array) -> _Array:
+  def einsum(subscripts: str, *operands: _JaxArray) -> _JaxArray:
     import jax.numpy as jnp
-    return jnp.einsum(subscripts, *operands, optimize='greedy')  # type: ignore[no-untyped-call]
+    return jnp.einsum(subscripts, *operands, optimize='greedy')
 
   @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
+  def sparse_resize_matrix(shape: Tuple[int, int],
+                           weight: _NDArray, src_index: _NDArray) -> _JaxArray:
     # https://jax.readthedocs.io/en/latest/jax.experimental.sparse.html
     import jax.experimental.sparse
     dst_size, _ = shape
@@ -644,8 +678,13 @@ class _JaxArraylib(_Arraylib):
     # Remove the zero weights, then coalesce the duplicate indices.
     nonzero = data != 0.0
     indices, data = indices[nonzero], data[nonzero]
-    return jax.experimental.sparse.BCOO(  # type: ignore[no-untyped-call]
+    return jax.experimental.sparse.BCOO(
         (data, indices), shape=shape, indices_sorted=False, unique_indices=False)
+
+  @staticmethod
+  def sparse_dense_matmul(sparse: 'jax.experimental.sparse.BCOO', dense: _Array) -> _Array:
+    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
+    return sparse @ dense  # Calls jax.bcoo_multiply_dense().
 
 
 _DICT_ARRAYLIBS = {
@@ -658,11 +697,11 @@ _DICT_ARRAYLIBS = {
 ARRAYLIBS = list(_DICT_ARRAYLIBS)
 """Array libraries supported automatically in the resize and resampling operations."""
 
-def _as_arr(array: _Array) -> _Arraylib:
+def _as_arr(array: _Array) -> _Arraylib[_Array]:
   """Return `array` wrapped as an `_Arraylib` for dispatch of functions."""
   for cls in _DICT_ARRAYLIBS.values():
     if cls.recognize(array):
-      return cls(array)
+      return cls(array)  # type: ignore[arg-type]
   raise AssertionError(
       f'{array} {type(array)} {type(array).__module__} unrecognized by {ARRAYLIBS}.')
 
@@ -679,7 +718,7 @@ def _arr_dtype(array: _Array) -> _DType:
   """Return the equivalent of `array.dtype` as a `numpy` `dtype`."""
   return _as_arr(array).dtype()
 
-def _arr_astype(array: _Array, dtype: Any) -> _Array:
+def _arr_astype(array: _Array, dtype: _DTypeLike) -> _Array:
   """Return the equivalent of `array.astype(dtype)` with `numpy` `dtype`."""
   return _as_arr(array).astype(dtype)
 
@@ -691,7 +730,7 @@ def _arr_possibly_make_contiguous(array: _Array) -> _Array:
   """Return an array which may be a contiguous copy of `array`."""
   return _as_arr(array).possibly_make_contiguous()
 
-def _arr_clip(array: _Array, low: Any, high: Any, dtype: Any = None) -> _Array:
+def _arr_clip(array: _Array, low: _Array, high: _Array, dtype: _DTypeLike = None) -> _Array:
   """Return the equivalent of `array.clip(low, high, dtype)` with `numpy` `dtype`."""
   return _as_arr(array).clip(low, high, dtype)
 
@@ -703,11 +742,11 @@ def _arr_sqrt(array: _Array) -> _Array:
   """Return the equivalent of `np.sqrt(array)`."""
   return _as_arr(array).sqrt()
 
-def _arr_gather(table: Any, indices: Any) -> _Array:
-  """Return the equivalent of `table[indices]`."""
-  return _as_arr(indices).gather(table)
+def _arr_getitem(array: _Array, indices: _Array) -> _Array:
+  """Return the equivalent of `array[indices]`."""
+  return _as_arr(array).getitem(indices)
 
-def _arr_where(condition: Any, if_true: Any, if_false: Any) -> _Array:
+def _arr_where(condition: _Array, if_true: _Array, if_false: _Array) -> _Array:
   """Return the equivalent of `np.where(condition, if_true, if_false)`."""
   return _as_arr(condition).where(if_true, if_false)
 
@@ -719,15 +758,15 @@ def _arr_best_dims_order_for_resize(array: _Array, dst_shape: Tuple[int, ...]) -
   """Return the best order in which to process dims for resizing `array` to `dst_shape`."""
   return _as_arr(array).best_dims_order_for_resize(dst_shape)
 
-def _arr_concatenate(arrays: Sequence[Any], axis: int) -> _Array:
+def _arr_concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
   """Return the equivalent of `np.concatenate(arrays, axis)`."""
   arraylib = _arr_arraylib(arrays[0])
-  return _DICT_ARRAYLIBS[arraylib].concatenate(arrays, axis)
+  return _DICT_ARRAYLIBS[arraylib].concatenate(arrays, axis)  # type: ignore
 
 def _arr_einsum(subscripts: str, *operands: _Array) -> _Array:
   """Return the equivalent of `np.einsum(subscripts, *operands, optimize=True)`."""
   arraylib = _arr_arraylib(operands[0])
-  return _DICT_ARRAYLIBS[arraylib].einsum(subscripts, *operands)
+  return _DICT_ARRAYLIBS[arraylib].einsum(subscripts, *operands)  # type: ignore
 
 def _arr_swapaxes(array: _Array, axis1: int, axis2: int) -> _Array:
   """Return the equivalent of `np.swapaxes(array, axis1, axis2)`."""
@@ -746,11 +785,6 @@ def _arr_moveaxis(array: _Array, source: int, destination: int) -> _Array:
   axes.insert(destination, source)
   return _arr_transpose(array, axes)
 
-def _arr_sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
-  """Return the multiplication of the `sparse` and `dense` matrices."""
-  arraylib = _arr_arraylib(dense)
-  return _DICT_ARRAYLIBS[arraylib].sparse_dense_matmul(sparse, dense)
-
 def _make_sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray,
                                src_index: _NDArray, arraylib: str) -> _Array:
   """Return a sparse matrix for a 1D resize operation, expressing destination samples as linear
@@ -758,11 +792,16 @@ def _make_sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray,
   2D matrices `weight` and `src_index` provide values and positions in each sparse row."""
   dst_size, _ = shape
   _check_eq(src_index.shape[0], dst_size)
-  return _DICT_ARRAYLIBS[arraylib].sparse_resize_matrix(shape, weight, src_index)
+  return _DICT_ARRAYLIBS[arraylib].sparse_resize_matrix(shape, weight, src_index)  # type: ignore
 
-def _make_array(array: _NDArray, arraylib: str) -> _Array:
+def _arr_sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
+  """Return the multiplication of the `sparse` and `dense` matrices."""
+  arraylib = _arr_arraylib(dense)
+  return _DICT_ARRAYLIBS[arraylib].sparse_dense_matmul(sparse, dense)  # type: ignore
+
+def _make_array(array: _ArrayLike, arraylib: str) -> _Array:
   """Return an array from the library `arraylib` initialized with the `numpy` `array`."""
-  return _DICT_ARRAYLIBS[arraylib](array).array
+  return _DICT_ARRAYLIBS[arraylib](np.asarray(array)).array
 
 
 def _block_shape_with_min_size(shape: Tuple[int, ...], min_size: int,
@@ -831,7 +870,7 @@ def _map_function_over_blocks(blocks: Any, func: Callable[[Any], Any]) -> Any:
   return func(blocks)
 
 
-def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> _NDArray:
+def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> _Array:
   """Merge an array from nested lists of array blocks."""
   # More general than np.block() because the blocks can have additional dims.
   if isinstance(blocks, list):
@@ -840,7 +879,7 @@ def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> _NDArray:
   return blocks
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Gridtype:
   """Abstract base class for grid-types such as 'dual' and 'primal'.
 
@@ -864,20 +903,20 @@ class Gridtype:
   def size_in_samples(self, size: int) -> int:
     """Return the size of the domain in units of inter-sample spacing."""
 
-  def point_from_index(self, index: Any, size: int) -> _NDArray:
+  def point_from_index(self, index: _NDArray, size: int) -> _NDArray:
     """Return [0.0, 1.0] coordinates given [0, size - 1] indices."""
 
-  def index_from_point(self, point: Any, size: int) -> _NDArray:
+  def index_from_point(self, point: _NDArray, size: int) -> _NDArray:
     """Return location x given coordinates [0.0, 1.0], where x == 0.0 is the first grid sample
     and x == size - 1.0 is the last grid sample."""
 
-  def reflect(self, index: Any, size: int) -> _NDArray:
+  def reflect(self, index: _NDArray, size: int) -> _NDArray:
     """Map integer sample indices to interior ones using boundary reflection."""
 
-  def wrap(self, index: Any, size: int) -> _NDArray:
+  def wrap(self, index: _NDArray, size: int) -> _NDArray:
     """Map integer sample indices to interior ones using wrapping."""
 
-  def reflect_clamp(self, index: Any, size: int) -> _NDArray:
+  def reflect_clamp(self, index: _NDArray, size: int) -> _NDArray:
     """Map integer sample indices to interior ones using reflect-clamp."""
 
 
@@ -897,20 +936,20 @@ class DualGridtype(Gridtype):
   def size_in_samples(self, size: int) -> int:
     return size
 
-  def point_from_index(self, index: Any, size: int) -> _NDArray:
+  def point_from_index(self, index: _NDArray, size: int) -> _NDArray:
     return (index + 0.5) / size
 
-  def index_from_point(self, point: Any, size: int) -> _NDArray:
+  def index_from_point(self, point: _NDArray, size: int) -> _NDArray:
     return point * size - 0.5
 
-  def reflect(self, index: Any, size: int) -> _NDArray:
+  def reflect(self, index: _NDArray, size: int) -> _NDArray:
     index = np.mod(index, size * 2)
     return np.where(index < size, index, 2 * size - 1 - index)
 
-  def wrap(self, index: Any, size: int) -> _NDArray:
+  def wrap(self, index: _NDArray, size: int) -> _NDArray:
     return np.mod(index, size)
 
-  def reflect_clamp(self, index: Any, size: int) -> _NDArray:
+  def reflect_clamp(self, index: _NDArray, size: int) -> _NDArray:
     return np.minimum(np.where(index < 0, -1 - index, index), size - 1)
 
 
@@ -930,20 +969,20 @@ class PrimalGridtype(Gridtype):
   def size_in_samples(self, size: int) -> int:
     return size - 1
 
-  def point_from_index(self, index: Any, size: int) -> _NDArray:
+  def point_from_index(self, index: _NDArray, size: int) -> _NDArray:
     return index / (size - 1)
 
-  def index_from_point(self, point: Any, size: int) -> _NDArray:
+  def index_from_point(self, point: _NDArray, size: int) -> _NDArray:
     return point * (size - 1)
 
-  def reflect(self, index: Any, size: int) -> _NDArray:
+  def reflect(self, index: _NDArray, size: int) -> _NDArray:
     index = np.mod(index, size * 2 - 2)
     return np.where(index < size, index, 2 * size - 2 - index)
 
-  def wrap(self, index: Any, size: int) -> _NDArray:
+  def wrap(self, index: _NDArray, size: int) -> _NDArray:
     return np.mod(index, size - 1)
 
-  def reflect_clamp(self, index: Any, size: int) -> _NDArray:
+  def reflect_clamp(self, index: _NDArray, size: int) -> _NDArray:
     return np.minimum(np.abs(index), size - 1)
 
 
@@ -965,6 +1004,7 @@ r"""Shortcut names for the two predefined grid types (specified per dimension):
 
 See the source code for extensibility.
 """
+
 
 def _get_gridtype(gridtype: Union[str, Gridtype]) -> Gridtype:
   """Return a `Gridtype`, which can be specified as a name in `GRIDTYPES`."""
@@ -990,6 +1030,7 @@ def _get_gridtypes(
   return src_gridtype2, dst_gridtype2
 
 
+@dataclasses.dataclass(frozen=True)
 class RemapCoordinates:
   """Abstract base class for modifying the specified coordinates prior to evaluating the
   reconstruction kernels."""
@@ -1022,7 +1063,7 @@ class TileRemapCoordinates(RemapCoordinates):
     return np.mod(point, 1.0)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ExtendSamples:
   """Abstract base class for replacing references to grid samples exterior to the unit domain by
   affine combinations of interior sample(s) and possibly the constant value (cval)."""
@@ -1184,7 +1225,7 @@ class QuadraticExtendSamples(ExtendSamples):
     return index, weight
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OverrideExteriorValue:
   """Abstract base class to set the value outside some domain extent to a
   constant value (`cval`)."""
@@ -1248,7 +1289,7 @@ class PlusMinusOneOverrideExteriorValue(OverrideExteriorValue):
     self.override_using_signed_distance(weight, point, signed_distance)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Boundary:
   """Domain boundary rules.  These define the reconstruction over the source domain near and beyond
   the domain boundaries.  The rules may be specified separately for each domain dimension."""
@@ -1266,11 +1307,10 @@ class Boundary:
   override_value: OverrideExteriorValue = NoOverrideExteriorValue()
   """Set the value outside some extent to a constant value (cval)."""
 
-  uses_cval: bool = dataclasses.field(init=False)
-  """True if weights may be non-affine, involving the constant value (cval)."""
-
-  def __post_init__(self) -> None:
-    self.uses_cval = self.extend_samples.uses_cval or self.override_value.uses_cval
+  @property
+  def uses_cval(self) -> bool:
+    """True if weights may be non-affine, involving the constant value (cval)."""
+    return self.extend_samples.uses_cval or self.override_value.uses_cval
 
   def preprocess_coordinates(self, point: _NDArray) -> _NDArray:
     """Modify coordinates prior to evaluating the filter kernels."""
@@ -1332,13 +1372,13 @@ These boundary rules may be specified per dimension.  See the source code for ex
 using the classes `RemapCoordinates`, `ExtendSamples`, and `OverrideExteriorValue`.
 
 <center>
-<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_1D.png"/><br/>
-Boundary rules illustrated in 1D.
+Boundary rules illustrated in 1D:<br/>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_1D.png" width="100%"/>
 </center>
 
 <center>
-<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_2D.png"/><br/>
-Boundary rules illustrated in 2D.
+Boundary rules illustrated in 2D:<br/>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_2D.png" width="100%"/>
 </center>
 """
 
@@ -1346,12 +1386,13 @@ _OFTUSED_BOUNDARIES = ('reflect wrap tile clamp border natural'
                        ' linear_constant quadratic_constant'.split())
 """A useful subset of `BOUNDARIES` for visualization in figures."""
 
+
 def _get_boundary(boundary: Union[str, Boundary]) -> Boundary:
   """Return a `Boundary`, which can be specified as a name in `BOUNDARIES`."""
   return boundary if isinstance(boundary, Boundary) else _DICT_BOUNDARIES[boundary]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Filter:
   """Abstract base class for filter kernel functions.
 
@@ -1360,7 +1401,7 @@ class Filter:
   where N = 2 * radius.)
 
   Portions of this code are adapted from the C++ library in
-  https://github.com/hhoppe/Mesh-processing-library/blob/master/libHh/Filter.cpp
+  https://github.com/hhoppe/Mesh-processing-library/blob/main/libHh/Filter.cpp
 
   See also http://hhoppe.com/proj/filtering/.
   """
@@ -1387,7 +1428,7 @@ class Filter:
   requires_digital_filter: bool = False
   """True if the filter needs a pre/post digital filter for interpolation."""
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     """Return evaluation of filter kernel at locations x."""
 
 
@@ -1397,7 +1438,7 @@ class ImpulseFilter(Filter):
   def __init__(self) -> None:
     super().__init__(name='impulse', radius=1e-20, continuous=False, partition_of_unity=False)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     raise AssertionError('The Impulse is infinitely narrow, so cannot be directly evaluated.')
 
 
@@ -1410,9 +1451,10 @@ class BoxFilter(Filter):
   def __init__(self) -> None:
     super().__init__(name='box', radius=0.5, continuous=False)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     use_asymmetric = True
     if use_asymmetric:
+      x = np.asarray(x)
       return np.where((-0.5 <= x) & (x < 0.5), 1.0, 0.0)
     x = np.abs(x)
     return np.where(x < 0.5, 1.0, np.where(x == 0.5, 0.5, 0.0))
@@ -1440,7 +1482,7 @@ class TrapezoidFilter(Filter):
       raise ValueError(f'Radius {radius} is outside the range (0.5, 1.0].')
     super().__init__(name=f'trapezoid_{radius}', radius=radius)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     assert 0.5 < self.radius <= 1.0
     return ((0.5 + 0.25 / (self.radius - 0.5)) - (0.5 / (self.radius - 0.5)) * x).clip(0.0, 1.0)
@@ -1456,7 +1498,7 @@ class TriangleFilter(Filter):
   def __init__(self) -> None:
     super().__init__(name='triangle', radius=1.0)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     return (1.0 - np.abs(x)).clip(0.0, 1.0)
 
 
@@ -1486,7 +1528,7 @@ class CubicFilter(Filter):
     super().__init__(name=name, radius=2.0, interpolating=(b == 0))
     self.b, self.c = b, c
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     b, c = self.b, self.c
     f3, f2, f0 = 2 - 9/6*b - c, -3 + 2*b + c, 1 - 1/3*b
@@ -1553,7 +1595,7 @@ class LanczosFilter(Filter):
                      unit_integral=False)
 
     @_cache_sampled_1d_function(xmin=-radius, xmax=radius, enable=sampled)
-    def _eval(x: Any) -> _NDArray:
+    def _eval(x: _ArrayLike) -> _NDArray:
       x = np.abs(x)
       # Note that window[n] = sinc(2*n/N - 1), with 0 <= n <= N.
       # But, x = n - N/2, or equivalently, n = x + N/2, with -N/2 <= x <= N/2.
@@ -1562,7 +1604,7 @@ class LanczosFilter(Filter):
 
     self.function = _eval
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     return self.function(x)
 
 
@@ -1574,7 +1616,7 @@ class GeneralizedHammingFilter(Filter):
     a0: Scalar parameter, where 0.0 < a0 < 1.0.  The case of a0=0.5 is the Hann filter.
 
   See https://en.wikipedia.org/wiki/Window_function#Hann_and_Hamming_windows,
-  and hamming() in https://github.com/scipy/scipy/blob/master/scipy/signal/windows/windows.py.
+  and hamming() in https://github.com/scipy/scipy/blob/main/scipy/signal/windows/_windows.py.
 
   Note that 'hamming3' is `(radius=3, a0=25/46)`, which close to but different from `a0=0.54`.
 
@@ -1591,7 +1633,7 @@ class GeneralizedHammingFilter(Filter):
     assert 0.0 < a0 < 1.0
     self.a0 = a0
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     # Note that window[n] = a0 - (1 - a0) * cos(2 * pi * n / N), 0 <= n <= N.
     # With n = x + N/2, we get the zero-phase function w_0(x):
@@ -1606,7 +1648,7 @@ class KaiserFilter(Filter):
   [Karras et al. 20201.  Alias-free generative adversarial networks.
   https://arxiv.org/pdf/2106.12423.pdf].
 
-  Use np.kaiser()?
+  See also np.kaiser().
 
   Args:
     radius: Value L/2 in the definition.  It may be fractional for a (digital) resizing filter
@@ -1622,14 +1664,14 @@ class KaiserFilter(Filter):
                      unit_integral=False)
 
     @_cache_sampled_1d_function(xmin=-math.ceil(radius), xmax=math.ceil(radius), enable=sampled)
-    def _eval(x: Any) -> _NDArray:
+    def _eval(x: _ArrayLike) -> _NDArray:
       x = np.abs(x)
       window = np.i0(beta * np.sqrt((1.0 - np.square(x / radius)).clip(0.0, 1.0))) / np.i0(beta)
       return np.where(x <= radius + 1e-6, _sinc(x) * window, 0.0)
 
     self.function = _eval
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     return self.function(x)
 
 
@@ -1654,7 +1696,7 @@ class BsplineFilter(Filter):
     t = list(range(degree + 2))
     self.bspline = scipy.interpolate.BSpline.basis_element(t)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     return np.where(x < self.radius, self.bspline(x + self.radius), 0.0)
 
@@ -1682,13 +1724,13 @@ class CardinalBsplineFilter(Filter):
     bspline = scipy.interpolate.BSpline.basis_element(t)
 
     @_cache_sampled_1d_function(xmin=-radius, xmax=radius, enable=sampled)
-    def _eval(x: Any) -> _NDArray:
+    def _eval(x: _ArrayLike) -> _NDArray:
       x = np.abs(x)
       return np.where(x < radius, bspline(x + radius), 0.0)
 
     self.function = _eval
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     return self.function(x)
 
 
@@ -1709,7 +1751,7 @@ class OmomsFilter(Filter):
     super().__init__(name=f'omoms{degree}', radius=(degree + 1) / 2, requires_digital_filter=True)
     self.degree = degree
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     if self.degree == 3:
       v01 = ((0.5 * x - 1.0) * x + 3/42) * x + 26/42
@@ -1746,7 +1788,7 @@ class GaussianFilter(Filter):
                      partition_of_unity=False)
     self.standard_deviation = standard_deviation
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     sdv = self.standard_deviation
     v0r = np.exp(np.square(x / sdv) / -2.0) / (np.sqrt(math.tau) * sdv)
@@ -1765,11 +1807,14 @@ class NarrowBoxFilter(Filter):
     super().__init__(name='narrowbox', radius=radius, continuous=False, unit_integral=False,
                      partition_of_unity=False)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     radius = self.radius
     magnitude = 1.0
+    x = np.asarray(x)
     return np.where((-radius <= x) & (x < radius), magnitude, 0.0)
 
+
+_DEFAULT_FILTER = 'lanczos3'
 
 _DICT_FILTERS = {
     'impulse': ImpulseFilter(),
@@ -1812,10 +1857,10 @@ The names expand to:
 | `'lanczos3'`   | `LanczosFilter`(radius=3)     | support window [-3, 3] |
 | `'lanczos5'`   | `LanczosFilter`(radius=5)     | [-5, 5] |
 | `'lanczos10'`  | `LanczosFilter`(radius=10)    | [-10, 10] |
-| `'cardinal3'`  | `CardinalBsplineFilter`(degree=3) | *spline interpolation*, `order=3` |
-| `'cardinal5'`  | `CardinalBsplineFilter`(degree=5) | *spline interpolation*, `order=5` |
-| `'omoms3'`     | `OmomsFilter`(degree=3)       | non-$C^1$, [-3, 3] |
-| `'omoms5'`     | `OmomsFilter`(degree=5)       | non-$C^1$, [-5, 5] |
+| `'cardinal3'`  | `CardinalBsplineFilter`(degree=3) | *spline interpolation*, `order=3`, *GF* |
+| `'cardinal5'`  | `CardinalBsplineFilter`(degree=5) | *spline interpolation*, `order=5`, *GF* |
+| `'omoms3'`     | `OmomsFilter`(degree=3)       | non-$C^1$, [-3, 3], *GF* |
+| `'omoms5'`     | `OmomsFilter`(degree=5)       | non-$C^1$, [-5, 5], *GF* |
 | `'hamming3'`   | `GeneralizedHammingFilter`(...) | (radius=3, a0=25/46) |
 | `'kaiser3'`    | `KaiserFilter`(radius=3.0, beta=7.12) | |
 | `'gaussian'`   | `GaussianFilter()`            | non-interpolating, default $\sigma=1.25/3$ |
@@ -1823,9 +1868,12 @@ The names expand to:
 | `'mitchell'`   | `MitchellFilter()`            | *mitchellcubic* |
 | `'narrowbox'`  | `NarrowBoxFilter()`           | for visualization of sample positions |
 
+The comment label *GF* denotes generalized filters, formed as the composition of
+a finitely supported kernel and a discrete inverse convolution.
+
 <center>
-<img src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png"/>
-Some example filter kernels.
+Some example filter kernels:<br/>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png" width="100%"/>
 </center>
 
 The
@@ -1833,25 +1881,27 @@ The
 visualizes all filters in 1D and 2D.  See the source code for extensibility.
 """
 
+
 def _get_filter(filter: Union[str, Filter]) -> Filter:
   """Return a `Filter`, which can be specified as a name string key in `FILTERS`."""
   return filter if isinstance(filter, Filter) else _DICT_FILTERS[filter]
 
 
-def _to_float_01(array: _Array, dtype: Any) -> _Array:
+def _to_float_01(array: _Array, dtype: _DTypeLike) -> _Array:
   """Scale uint to the range [0.0, 1.0], and clip float to [0.0, 1.0]."""
   array_dtype = _arr_dtype(array)
   dtype = np.dtype(dtype)
   assert np.issubdtype(dtype, np.floating)
-  if array_dtype in (np.uint8, np.uint16, np.uint32):
+  if array_dtype.type in (np.uint8, np.uint16, np.uint32):
     if _arr_arraylib(array) == 'numpy':
+      assert isinstance(array, np.ndarray)  # Help mypy.
       return np.multiply(array, 1 / np.iinfo(array_dtype).max, dtype=dtype)
     return _arr_astype(array, dtype) / np.iinfo(array_dtype).max
   assert np.issubdtype(array_dtype, np.floating)
   return _arr_clip(array, 0.0, 1.0, dtype=dtype)
 
 
-def _from_float(array: _Array, dtype: Any) -> _Array:
+def _from_float(array: _Array, dtype: _DTypeLike) -> _Array:
   """Convert a float in range [0.0, 1.0] to uint or float type."""
   assert np.issubdtype(_arr_dtype(array), np.floating)
   dtype = np.dtype(dtype)
@@ -1863,7 +1913,7 @@ def _from_float(array: _Array, dtype: Any) -> _Array:
   return _arr_astype(array, dtype)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Gamma:
   """Abstract base class for transfer functions on sample values.
 
@@ -1876,13 +1926,13 @@ class Gamma:
   name: str
   """Name of component transfer function."""
 
-  def decode(self, array: _Array, dtype: Any = np.float32) -> _Array:
+  def decode(self, array: _Array, dtype: _DTypeLike = np.float32) -> _Array:
     """Decode source sample values into floating-point, possibly nonlinearly.
 
     Uint source values are mapped to the range [0.0, 1.0].
     """
 
-  def encode(self, array: _Array, dtype: Any) -> _Array:
+  def encode(self, array: _Array, dtype: _DTypeLike) -> _Array:
     """Encode float signal into destination samples, possibly nonlinearly.
 
     Uint destination values are mapped from the range [0.0, 1.0].
@@ -1895,14 +1945,14 @@ class IdentityGamma(Gamma):
   def __init__(self) -> None:
     super().__init__('identity')
 
-  def decode(self, array: _Array, dtype: Any = np.float32) -> _Array:
+  def decode(self, array: _Array, dtype: _DTypeLike = np.float32) -> _Array:
     dtype = np.dtype(dtype)
     assert np.issubdtype(dtype, np.inexact)
     if np.issubdtype(_arr_dtype(array), np.unsignedinteger):
       return _to_float_01(array, dtype)
     return _arr_astype(array, dtype)
 
-  def encode(self, array: _Array, dtype: Any) -> _Array:
+  def encode(self, array: _Array, dtype: _DTypeLike) -> _Array:
     dtype = np.dtype(dtype)
     assert np.issubdtype(dtype, np.number)
     if np.issubdtype(dtype, np.unsignedinteger):
@@ -1919,17 +1969,18 @@ class PowerGamma(Gamma):
     super().__init__(name=f'power_{power}')
     self.power = power
 
-  def decode(self, array: _Array, dtype: Any = np.float32) -> _Array:
+  def decode(self, array: _Array, dtype: _DTypeLike = np.float32) -> _Array:
     dtype = np.dtype(dtype)
     assert np.issubdtype(dtype, np.floating)
     if _arr_dtype(array) == np.uint8 and self.power != 2:
-      decode_table = self.decode(np.arange(256, dtype=dtype) / 255)
-      return _arr_gather(decode_table, array)
+      arraylib = _arr_arraylib(array)
+      decode_table = _make_array(self.decode(np.arange(256, dtype=dtype) / 255), arraylib)
+      return _arr_getitem(decode_table, array)
 
     array = _to_float_01(array, dtype)
     return _arr_square(array) if self.power == 2 else array**self.power
 
-  def encode(self, array: _Array, dtype: Any) -> _Array:
+  def encode(self, array: _Array, dtype: _DTypeLike) -> _Array:
     array = _arr_clip(array, 0.0, 1.0)
     array = _arr_sqrt(array) if self.power == 2 else array**(1.0 / self.power)
     return _from_float(array, dtype)
@@ -1941,17 +1992,18 @@ class SrgbGamma(Gamma):
   def __init__(self) -> None:
     super().__init__(name='srgb')
 
-  def decode(self, array: _Array, dtype: Any = np.float32) -> _Array:
+  def decode(self, array: _Array, dtype: _DTypeLike = np.float32) -> _Array:
     dtype = np.dtype(dtype)
     assert np.issubdtype(dtype, np.floating)
     if _arr_dtype(array) == np.uint8:
-      decode_table = self.decode(np.arange(256, dtype=dtype) / 255)
-      return _arr_gather(decode_table, array)
+      arraylib = _arr_arraylib(array)
+      decode_table = _make_array(self.decode(np.arange(256, dtype=dtype) / 255), arraylib)
+      return _arr_getitem(decode_table, array)
 
     x = _to_float_01(array, dtype)
     return _arr_where(x > 0.04045, ((x + 0.055) / 1.055)**2.4, x / 12.92)
 
-  def encode(self, array: _Array, dtype: Any) -> _Array:
+  def encode(self, array: _Array, dtype: _DTypeLike) -> _Array:
     x = _arr_clip(array, 0.0, 1.0)
     # Unfortunately, exponentiation is slow, and np.digitize() is even slower.
     x = _arr_where(x > 0.0031308, x**(1.0 / 2.4) * 1.055 - (0.055 - 1e-17), x * 12.92)
@@ -1977,6 +2029,7 @@ r"""Shortcut names for some predefined gamma-correction schemes:
 
 See the source code for extensibility.
 """
+
 
 def _get_gamma(gamma: Union[str, Gamma]) -> Gamma:
   """Return a `Gamma`, which can be specified as a name in `GAMMAS`."""
@@ -2009,7 +2062,7 @@ def _get_src_dst_gamma(gamma: Union[None, str, Gamma],
   return src_gamma, dst_gamma
 
 
-def _create_resize_matrix(      # pylint: disable=too-many-statements
+def _create_resize_matrix(  # pylint: disable=too-many-statements
     src_size: int,
     dst_size: int,
     src_gridtype: Gridtype,
@@ -2019,8 +2072,8 @@ def _create_resize_matrix(      # pylint: disable=too-many-statements
     prefilter: Optional[Filter] = None,
     scale: float = 1.0,
     translate: float = 0.0,
-    dtype: Any = np.float64,
-    arraylib: str = 'numpy') -> Tuple[Any, Any]:
+    dtype: _DTypeLike = np.float64,
+    arraylib: str = 'numpy') -> Tuple[_Array, _Array]:
   """Compute affine weights for 1D resampling from `src_size` to `dst_size`.
 
   Compute a sparse matrix in which each row expresses a destination sample value as a combination
@@ -2105,36 +2158,34 @@ def _create_resize_matrix(      # pylint: disable=too-many-statements
   return resize_matrix, cval_weight
 
 
-# pylint: disable-next=too-many-statements disable-next=too-many-branches
 def _apply_digital_filter_1d(
-    array: _Array, gridtype: Gridtype, boundary: Boundary, cval: Any, filter: Filter,
-    axis: int = 0, compute_backward: bool = False) -> _Array:
+    array: _Array, gridtype: Gridtype, boundary: Boundary, cval: _ArrayLike, filter: Filter,
+    axis: int = 0) -> _Array:
   """Apply inverse convolution to the specified dimension of the array.
 
   Find the array coefficients such that convolution with the (continuous) filter (given
   gridtype and boundary) interpolates the original array values.
   """
   assert filter.requires_digital_filter
-  # First convert to generic wrapper, then move to _Arraylib??
   arraylib = _arr_arraylib(array)
 
   if arraylib == 'tensorflow':
     import tensorflow as tf
 
     def forward(x: _NDArray) -> _NDArray:
-      return _apply_digital_filter_1d(x, gridtype, boundary, cval, filter, axis)
+      return _apply_digital_filter_1d_numpy(x, gridtype, boundary, cval, filter, axis, False)
 
     def backward(grad_output: _NDArray) -> _NDArray:
-      return _apply_digital_filter_1d(
-          grad_output, gridtype, boundary, cval, filter, axis, compute_backward=True)
+      return _apply_digital_filter_1d_numpy(
+          grad_output, gridtype, boundary, cval, filter, axis, True)
 
     @tf.custom_gradient
-    def tensorflow_inverse_convolution(x: Any) -> _TensorflowTensor:
+    def tensorflow_inverse_convolution(x: _TensorflowTensor) -> _TensorflowTensor:
       # Although `forward` accesses parameters gridtype, boundary, etc., it is not stateful
       # because the function is redefined on each invocation of _apply_digital_filter_1d.
       y = tf.numpy_function(forward, [x], x.dtype, stateful=False)
 
-      def grad(grad_output: Any) -> _TensorflowTensor:
+      def grad(grad_output: _TensorflowTensor) -> _TensorflowTensor:
         return tf.numpy_function(backward, [grad_output], x.dtype, stateful=False)
 
       return y, grad
@@ -2152,49 +2203,67 @@ def _apply_digital_filter_1d(
         del ctx
         assert not kwargs
         x, = args
-        return torch.as_tensor(_apply_digital_filter_1d(
-            x.detach().numpy(), gridtype, boundary, cval, filter, axis))
+        return torch.as_tensor(_apply_digital_filter_1d_numpy(
+            x.detach().numpy(), gridtype, boundary, cval, filter, axis, False))
 
       @staticmethod
       def backward(ctx: Any, *grad_outputs: _TorchTensor) -> _TorchTensor:
         del ctx
         grad_output, = grad_outputs
-        return torch.as_tensor(_apply_digital_filter_1d(
-            grad_output.detach().numpy(), gridtype, boundary, cval, filter,
-            axis, compute_backward=True))
+        return torch.as_tensor(_apply_digital_filter_1d_numpy(
+            grad_output.detach().numpy(), gridtype, boundary, cval, filter, axis, True))
 
     return InverseConvolution.apply(array)
 
   if arraylib == 'jax':
     import jax
     import jax.numpy as jnp
+    # It seems rather difficult to implement this digital filter (inverse convolution) in Jax.
+    # https://jax.readthedocs.io/en/latest/jax.scipy.html sadly omits scipy.signal.filtfilt().
+    # To include a (non-traceable) numpy function in Jax requires jax.experimental.host_callback
+    # and/or defining a new jax.core.Primitive (which allows differentiability).  See
+    # https://github.com/google/jax/issues/1142#issuecomment-544286585
+    # https://github.com/google/jax/blob/main/docs/notebooks/How_JAX_primitives_work.ipynb  :-(
+    # https://github.com/google/jax/issues/5934
 
     @jax.custom_gradient
     def jax_inverse_convolution(x: _JaxArray) -> _JaxArray:
-      y = jnp.asarray(_apply_digital_filter_1d(  # type: ignore[no-untyped-call]
-          x.to_py(), gridtype, boundary, cval, filter, axis))
+      # This function is not jax-traceable due to the presence of to_py(), so jit and grad fail.
+      y = jnp.asarray(_apply_digital_filter_1d_numpy(
+          x.to_py(), gridtype, boundary, cval, filter, axis, False))
 
       def grad(grad_output: _JaxArray) -> _JaxArray:
-        return jnp.asarray(_apply_digital_filter_1d(  # type: ignore[no-untyped-call]
-            grad_output.to_py(), gridtype, boundary, cval, filter, axis, compute_backward=True))
+        return jnp.asarray(_apply_digital_filter_1d_numpy(
+            grad_output.to_py(), gridtype, boundary, cval, filter, axis, True))
 
       return y, grad
 
     return jax_inverse_convolution(array)
 
+  assert arraylib == 'numpy'
+  assert isinstance(array, np.ndarray)  # Help mypy.
+  return _apply_digital_filter_1d_numpy(array, gridtype, boundary, cval, filter, axis, False)
+
+
+def _apply_digital_filter_1d_numpy(
+    array: _NDArray, gridtype: Gridtype, boundary: Boundary, cval: _ArrayLike, filter: Filter,
+    axis: int, compute_backward: bool) -> _NDArray:
+  """Version of _apply_digital_filter_1d` specialized to numpy array."""
   assert np.issubdtype(array.dtype, np.inexact)
   cval = np.asarray(cval).astype(array.dtype, copy=False)
 
-  # Use fast spline_filter1d() if compatible gridtype, boundary, and filter:
+  # Use fast spline_filter1d() if we have a compatible gridtype, boundary, and filter:
   mode = {
       ('reflect', 'dual'): 'reflect',
       ('reflect', 'primal'): 'mirror',
       ('wrap', 'dual'): 'grid-wrap',
       ('wrap', 'primal'): 'wrap',
   }.get((boundary.name, gridtype.name))
-  use_split_filter1d = isinstance(filter, CardinalBsplineFilter) and filter.degree >= 2 and mode
+  filter_is_compatible = isinstance(filter, CardinalBsplineFilter)
+  use_split_filter1d = filter_is_compatible and mode
   if use_split_filter1d:
     assert isinstance(filter, CardinalBsplineFilter)  # Help mypy.
+    assert filter.degree >= 2
     # compute_backward=True is same: matrix is symmetric and cval is unused.
     return scipy.ndimage.spline_filter1d(
         array, axis=axis, order=filter.degree, mode=mode, output=array.dtype)
@@ -2249,7 +2318,7 @@ def _apply_digital_filter_1d(
   return np.moveaxis(array_dim, 0, axis)
 
 
-def resize(                     # pylint: disable=too-many-branches disable=too-many-statements
+def resize(  # pylint: disable=too-many-branches disable=too-many-statements
     array: _Array,
     shape: Iterable[int],
     *,
@@ -2257,16 +2326,16 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
     src_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
     dst_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
     boundary: Union[str, Boundary, Iterable[Union[str, Boundary]]] = 'auto',
-    cval: Any = 0,
-    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = 'lanczos3',
+    cval: _ArrayLike = 0,
+    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
     prefilter: Union[None, str, Filter, Iterable[Union[str, Filter]]] = None,
     gamma: Union[None, str, Gamma] = None,
     src_gamma: Union[None, str, Gamma] = None,
     dst_gamma: Union[None, str, Gamma] = None,
     scale: Union[float, Iterable[float]] = 1.0,
     translate: Union[float, Iterable[float]] = 0.0,
-    precision: Any = None,
-    dtype: Any = None,
+    precision: _DTypeLike = None,
+    dtype: _DTypeLike = None,
     dim_order: Optional[Iterable[int]] = None,
 ) -> _Array:
   """Resample `array` (a grid of sample values) onto a grid with resolution `shape`.
@@ -2275,7 +2344,7 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   with `len(shape)` domain coordinate dimensions, where each grid sample value has shape
   `array.shape[len(shape):]`.
 
-  For example:
+  Some examples:
 
   - A grayscale image has `array.shape = height, width` and resizing it with `len(shape) == 2`
     produces a new image of scalar values.
@@ -2338,13 +2407,13 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
       and data type `dtype`.
 
   <center>
+  Example of image upsampling:
   <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_upsampled.png"/>
-  Example of image upsampling
   </center>
 
   <center>
+  Example of image downsampling:
   <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_downsampled.png"/>
-  Example of image downsampling
   </center>
 
   >>> result = resize([1.0, 4.0, 5.0], shape=(4,))
@@ -2372,8 +2441,8 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   src_gamma2, dst_gamma2 = _get_src_dst_gamma(gamma, src_gamma, dst_gamma, array_dtype, dtype)
   scale2 = np.broadcast_to(np.array(scale), len(shape))
   translate2 = np.broadcast_to(np.array(translate), len(shape))
-  del src_gridtype, dst_gridtype, boundary, filter, prefilter
-  del src_gamma, dst_gamma, scale, translate
+  del (src_gridtype, dst_gridtype, boundary, filter, prefilter,
+       src_gamma, dst_gamma, scale, translate)
   precision = _get_precision(precision, [array_dtype, dtype], [])
   weight_precision = _real_precision(precision)
   if dim_order is None:
@@ -2394,9 +2463,17 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
       all(f.name in ('box', 'trapezoid') for f in prefilter2) and
       np.all(scale2 == 1.0) and np.all(translate2 == 0.0))
   if can_use_fast_box_downsampling:
+    assert isinstance(array, np.ndarray)  # Help mypy.
     array = _downsample_in_2d_using_box_filter(array, typing.cast(Tuple[int, int], shape))
     array = dst_gamma2.encode(array, dtype=dtype)
     return array
+
+  # Multidimensional resize can be expressed using einsum() with multiple per-dim resize matrices,
+  # e.g., as in jax.image.resize().  A benefit is to seek the optimal order of multiplications.
+  # However, efficiency often requires sparse resize matrices, which are unsupported in einsum().
+  # Sparse tensors requested for tf.einsum: https://github.com/tensorflow/tensorflow/issues/43497
+  # https://github.com/tensor-compiler/taco: C++ library that computes tensor algebra expressions
+  # on sparse and dense tensors; however it does not interoperate with tensorflow, torch, or jax.
 
   for dim in dim_order:
     skip_resize_on_this_dim = (shape[dim] == array.shape[dim] and scale2[dim] == 1.0 and
@@ -2423,7 +2500,7 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
         dtype=weight_precision,
         arraylib=arraylib)
 
-    array_dim = _arr_moveaxis(array, dim, 0)
+    array_dim: _Array = _arr_moveaxis(array, dim, 0)
     array_flat = _arr_reshape(array_dim, (array_dim.shape[0], -1))
     array_flat = _arr_possibly_make_contiguous(array_flat)
     if not is_minification and filter2[dim].requires_digital_filter:
@@ -2440,7 +2517,8 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
     if is_minification and filter2[dim].requires_digital_filter:  # use prefilter2[dim]?
       array_flat = _apply_digital_filter_1d(
           array_flat, dst_gridtype2[dim], boundary_dim, cval, filter2[dim])
-    array_dim = _arr_reshape(array_flat, (array_flat.shape[0], *array_dim.shape[1:]))
+    array_dim = _arr_reshape(array_flat, (array_flat.shape[0],
+                                          *array_dim.shape[1:]))  # type: ignore[attr-defined]
     array = _arr_moveaxis(array_dim, 0, dim)
 
   array = dst_gamma2.encode(array, dtype=dtype)
@@ -2464,34 +2542,61 @@ resize_in_jax = functools.partial(resize_in_arraylib, arraylib='jax')
 
 
 def resize_possibly_in_arraylib(array: _Array, *args: Any,
-                                arraylib: str, **kwargs: Any) -> _Array:
+                                arraylib: str, **kwargs: Any) -> _AnyArray:
   """If `array` is from numpy, evaluate `resize()` using the specified `arraylib`."""
   if _arr_arraylib(array) == 'numpy':
-    return _arr_numpy(_original_resize(_make_array(array, arraylib=arraylib), *args, **kwargs))
+    return _arr_numpy(_original_resize(
+        _make_array(typing.cast(_ArrayLike, array), arraylib=arraylib), *args, **kwargs))
   return _original_resize(array, *args, **kwargs)
+
+
+def _immediately_jaxjit_resize(resize_fn: Callable[..., _Array]) -> Callable[..., _Array]:
+  """Return `jax.jit(resize_fn)` with appropriate static arguments from `resize`."""
+  import jax
+  # The keyword 'cval' could be omitted from the static list, but it is likely constant anyways.
+  jitted = jax.jit(resize_fn, static_argnums=(1,),
+                   static_argnames=list(_original_resize.__kwdefaults__))
+  return typing.cast(Callable[..., _Array], jitted)
+
+
+def _lazily_jaxjit_resize(resize_fn: Callable[..., _Array]) -> Callable[..., _Array]:
+  """Lazily invoke `jax.jit` on `resize_fn`."""
+  jitted: Optional[Callable[..., _Array]] = None
+
+  @functools.wraps(resize_fn)
+  def jit_and_call(*args: Any, **kwargs: Any) -> _Array:
+    nonlocal jitted
+    if not jitted:
+      jitted = _immediately_jaxjit_resize(resize_fn)
+    return jitted(*args, **kwargs)
+
+  return jit_and_call
+
+
+jaxjit_resize = _lazily_jaxjit_resize(resize)
 
 
 _MAX_BLOCK_SIZE_RECURSING = -999  # Special value to indicate re-invocation on partitioned blocks.
 
 
-def resample(                   # pylint: disable=too-many-branches disable=too-many-statements
+def resample(  # pylint: disable=too-many-branches disable=too-many-statements
     array: _Array,
-    coords: Any,
+    coords: _ArrayLike,
     *,
     gridtype: Union[str, Gridtype, Iterable[Union[str, Gridtype]]] = 'dual',
     boundary: Union[str, Boundary, Iterable[Union[str, Boundary]]] = 'auto',
-    cval: Any = 0,
-    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = 'lanczos3',
+    cval: _ArrayLike = 0,
+    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
     prefilter: Union[None, str, Filter, Iterable[Union[str, Filter]]] = None,
     gamma: Union[None, str, Gamma] = None,
     src_gamma: Union[None, str, Gamma] = None,
     dst_gamma: Union[None, str, Gamma] = None,
-    jacobian: Any = None,
-    precision: Any = None,
-    dtype: Any = None,
+    jacobian: Optional[_ArrayLike] = None,
+    precision: _DTypeLike = None,
+    dtype: _DTypeLike = None,
     max_block_size: int = 40_000,
     debug: bool = False,
-) -> _NDArray:
+) -> _Array:
   """Interpolate `array` (a grid of samples) at specified unit-domain coordinates `coords`.
 
   The last dimension of `coords` contains unit-domain coordinates at which to interpolate the
@@ -2572,8 +2677,8 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     the source array.
 
   <center>
-  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_warp_coords.png"/><br/>
-  Example of resample operation.
+  Example of resample operation:<br/>
+  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_warp_coords.png"/>
   </center>
 
   For reference, the identity resampling for a scalar-valued grid with the default grid-type
@@ -2650,7 +2755,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
       print(f'(resample: splitting coords into blocks {block_shape}).')
     coord_blocks = _split_array_into_blocks(coords, block_shape)
 
-    def process_block(coord_block: _NDArray) -> _NDArray:
+    def process_block(coord_block: _NDArray) -> _Array:
       return resample(
           array, coord_block, gridtype=gridtype2, boundary=boundary2, cval=cval,
           filter=filter2, prefilter=prefilter2, src_gamma='identity', dst_gamma=dst_gamma2,
@@ -2717,33 +2822,18 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
 
   # Gather the samples.
 
-  if arraylib == 'tensorflow':
-    import tensorflow as tf
-    # Recall that src_index = [shape(8, 9, 4), shape(8, 9, 6)].
-    gather_shape = resampled_shape + tuple(a.shape[-1] for a in src_index)  # (8, 9, 4, 6)
-    src_index_expanded = []
-    for dim in range(grid_ndim):
-      src_index_dim = np.moveaxis(
-          src_index[dim].reshape(src_index[dim].shape + (1,) * (grid_ndim - 1)),
-          resampled_ndim, resampled_ndim + dim)
-      src_index_expanded.append(np.broadcast_to(src_index_dim, gather_shape))
-    # Unfortunately, broadcast expansion seems unavoidable for tf.gather_nd().
-    indices = np.moveaxis(np.array(src_index_expanded), 0, -1)  # (8, 9, 4, 6, 2)
-    samples = tf.gather_nd(array, indices)  # (8, 9, 4, 6, 3)
+  # Recall that src_index = [shape(8, 9, 4), shape(8, 9, 6)].
+  src_index_expanded = []
+  for dim in range(grid_ndim):
+    src_index_dim = np.moveaxis(
+        src_index[dim].reshape(src_index[dim].shape + (1,) * (grid_ndim - 1)),
+        resampled_ndim, resampled_ndim + dim)
+    src_index_expanded.append(src_index_dim)
+  indices = tuple(src_index_expanded)  # (shape(8, 9, 4, 1), shape(8, 9, 1, 6))
+  samples = _arr_getitem(array, indices)  # (8, 9, 4, 6, 3)
 
-  else:  # 'numpy', 'torch', 'jax'.
-    # Recall that src_index = [shape(8, 9, 4), shape(8, 9, 6)].
-    src_index_expanded = []  # [(8, 9, 4, 1), (8, 9, 1, 6)]
-    for dim in range(grid_ndim):
-      src_index_expanded.append(np.moveaxis(
-          src_index[dim].reshape(src_index[dim].shape + (1,) * (grid_ndim - 1)),
-          resampled_ndim, resampled_ndim + dim))
-    # Unfortunately, gathering 'samples' is the memory bottleneck.  It would be ideal if we could
-    # defer the array reads until inside the np.einsum() call.
-    # For large outputs, splitting the evaluation over output tiles helps a bit.
-    samples = array[tuple(src_index_expanded)]  # (8, 9, 4, 6, 3)
-
-  samples_ndim = len(samples.shape)
+  # Indirectly derive samples.ndim (which is unavailable during Tensorflow grad computation).
+  samples_ndim = resampled_ndim + grid_ndim + len(sample_shape)
 
   # Compute an Einstein summation over the samples and each of the per-dimension weights.
 
@@ -2751,6 +2841,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     return ''.join(chr(ord('a') + i) for i in dims)
 
   operands = [samples]  # (8, 9, 4, 6, 3)
+  assert samples_ndim < 26  # Letters 'a' through 'z'.
   labels = [label(range(samples_ndim))]  # ['abcde']
   for dim in range(grid_ndim):
     operands.append(weight[dim])  # (8, 9, 4), then (8, 9, 6)
@@ -2758,8 +2849,12 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
   output_label = label(list(range(resampled_ndim)) +
                        list(range(resampled_ndim + grid_ndim, samples_ndim)))  # 'abe'
   subscripts = ','.join(labels) + '->' + output_label  # 'abcde,abc,abd->abe'
-
   array = _arr_einsum(subscripts, *operands)  # (8, 9, 3)
+
+  # Gathering `samples` is the memory bottleneck.  It would be ideal if the gather() and einsum()
+  # computations could be fused.  In Jax, https://github.com/google/jax/issues/3206 suggests
+  # that this may become possible.  In any case, for large outputs it helps to partition the
+  # evaluation over output tiles (using max_block_size).
 
   if uses_cval:
     cval_weight = 1.0 - np.multiply.reduce(
@@ -2768,24 +2863,23 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     array += _make_array((cval_weight_reshaped * cval).astype(precision, copy=False), arraylib)
 
   array = dst_gamma2.encode(array, dtype=dtype)
-
   return array
 
 
 def resample_affine(
     array: _Array,
     shape: Iterable[int],
-    matrix: Any,
+    matrix: _ArrayLike,
     *,
     gridtype: Union[None, str, Gridtype] = None,
     src_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
     dst_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
-    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = 'lanczos3',
+    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
     prefilter: Union[None, str, Filter, Iterable[Union[str, Filter]]] = None,
-    precision: Any = None,
-    dtype: Any = None,
+    precision: _DTypeLike = None,
+    dtype: _DTypeLike = None,
     **kwargs: Any,
-) -> _NDArray:
+) -> _Array:
   """Resample a source array using an affinely transformed grid of given shape.
 
   The `matrix` transformation can be linear:
@@ -2874,10 +2968,11 @@ def resample_affine(
                   precision=precision, dtype=dtype, **kwargs)
 
 
-def resize_using_resample(array: _Array, shape: Iterable[int], *,
-                          scale: Any = 1.0, translate: Any = 0.0,
-                          filter: Union[str, Filter, Iterable[Union[str, Filter]]] = 'lanczos3',
-                          fallback: bool = False, **kwargs: Any) -> _Array:
+def resize_using_resample(
+    array: _Array, shape: Iterable[int], *,
+    scale: _ArrayLike = 1.0, translate: _ArrayLike = 0.0,
+    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
+    fallback: bool = False, **kwargs: Any) -> _Array:
   """Use the more general `resample` operation for `resize`, as a debug tool."""
   if isinstance(array, (tuple, list)):
     array = np.asarray(array)
@@ -2895,9 +2990,9 @@ def resize_using_resample(array: _Array, shape: Iterable[int], *,
   return resample_affine(array, shape, matrix, filter=filter, **kwargs)
 
 
-def rotation_about_center_in_2d(src_shape: Any,
+def rotation_about_center_in_2d(src_shape: _ArrayLike,
                                 angle: float,
-                                dst_shape: Any = None,
+                                dst_shape: Optional[_ArrayLike] = None,
                                 scale: float = 1.0) -> _NDArray:
   """Return the 3x3 matrix mapping destination into a source unit domain.
 
@@ -2911,12 +3006,12 @@ def rotation_about_center_in_2d(src_shape: Any,
     scale: Scaling factor applied when mapping the source domain onto the destination domain.
   """
 
-  def translation_matrix(vector: Any) -> _NDArray:
+  def translation_matrix(vector: _NDArray) -> _NDArray:
     matrix = np.eye(len(vector) + 1)
     matrix[:-1, -1] = vector
     return matrix
 
-  def scaling_matrix(scale: Any) -> _NDArray:
+  def scaling_matrix(scale: _NDArray) -> _NDArray:
     return np.diag(tuple(scale) + (1.0,))
 
   def rotation_matrix_2d(angle: float) -> _NDArray:
@@ -2939,7 +3034,7 @@ def rotation_about_center_in_2d(src_shape: Any,
 
 def rotate_image_about_center(image: _NDArray,
                               angle: float,
-                              new_shape: Any = None,
+                              new_shape: Optional[_ArrayLike] = None,
                               scale: float = 1.0,
                               num_rotations: int = 1,
                               **kwargs: Any) -> _NDArray:
@@ -2962,7 +3057,7 @@ def rotate_image_about_center(image: _NDArray,
   return image
 
 
-def pil_image_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
+def pil_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _NDArray:
   """Invoke `PIL.Image.resize` using the same parameters as `resize`."""
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
@@ -2991,7 +3086,7 @@ def pil_image_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
        for channel in np.moveaxis(array, -1, 0)])
 
 
-def cv_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
+def cv_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _NDArray:
   """Invoke `cv.resize` using the same parameters as `resize`."""
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
@@ -3001,8 +3096,8 @@ def cv_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
     return cv_resize(array[None], (1, *shape), filter=filter)[0]
   import cv2 as cv
   interpolation = {
-      'impulse': cv.INTER_NEAREST,  # Consider cv.INTER_NEAREST_EXACT?
-      'triangle': cv.INTER_LINEAR_EXACT,  # Or just cv.INTER_LINEAR?
+      'impulse': cv.INTER_NEAREST,  # Or consider cv.INTER_NEAREST_EXACT.
+      'triangle': cv.INTER_LINEAR_EXACT,  # Or just cv.INTER_LINEAR.
       'trapezoid': cv.INTER_AREA,
       'sharpcubic': cv.INTER_CUBIC,
       'lanczos4': cv.INTER_LANCZOS4,
@@ -3021,20 +3116,22 @@ _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
     # GaussianFilter(0.5): 'gaussian',  # radius_4 > desired_radius_3.
 }
 
-def tf_image_resize(array: Any, shape: Sequence[int], filter: str = 'lanczos3',
+
+def tf_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str = _DEFAULT_FILTER,
                     antialias: bool = True) -> _TensorflowTensor:
   """Invoke `tf.image.resize` using the same parameters as `resize`."""
   import tensorflow as tf
-  array = tf.convert_to_tensor(array)
-  assert 1 <= array.ndim <= 3
+  array2 = tf.convert_to_tensor(array)
+  del array
+  assert 1 <= array2.ndim <= 3
   shape = tuple(shape)
-  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
-  if array.ndim == 1:
-    return tf_image_resize(array[None], (1, *shape), filter=filter, antialias=antialias)[0]
-  if array.ndim == 2:
-    return tf_image_resize(array[..., None], shape, filter=filter, antialias=antialias)[..., 0]
+  _check_eq(len(shape), 2 if array2.ndim >= 2 else 1)
+  if array2.ndim == 1:
+    return tf_image_resize(array2[None], (1, *shape), filter=filter, antialias=antialias)[0]
+  if array2.ndim == 2:
+    return tf_image_resize(array2[..., None], shape, filter=filter, antialias=antialias)[..., 0]
   method = _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER[filter]
-  return tf.image.resize(array, shape, method=method, antialias=antialias)
+  return tf.image.resize(array2, shape, method=method, antialias=antialias)
 
 
 _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
@@ -3044,63 +3141,56 @@ _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
     'sharpcubic': 'bicubic',
 }
 
-def torch_nn_resize(array: Any, shape: Sequence[int], filter: str,
+
+def torch_nn_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
                     antialias: bool = False) -> _TorchTensor:
   """Invoke `torch.nn.functional.interpolate` using the same parameters as `resize`."""
   import torch
-  array = torch.as_tensor(array)
-  assert 1 <= array.ndim <= 3
+  a = torch.as_tensor(array)
+  del array
+  assert 1 <= a.ndim <= 3
   shape = tuple(shape)
-  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if a.ndim >= 2 else 1)
   mode = _TORCH_INTERPOLATE_MODE_FROM_FILTER[filter]
 
-  def local_resize(array: _TorchTensor) -> _TorchTensor:
+  def local_resize(a: _TorchTensor) -> _TorchTensor:
     # For upsampling, BILINEAR antialias is same PSNR and slower,
     #  and BICUBIC antialias is worse PSNR and faster.
     # For downsampling, antialias improves PSNR for both BILINEAR and BICUBIC.
-    align_corners = False if filter in ['linear', 'cubic'] else None
+    align_corners = False if filter in ['triangle', 'sharpcubic'] else None
     return torch.nn.functional.interpolate(
-        array, shape, mode=mode, align_corners=align_corners, antialias=antialias)
+        a, shape, mode=mode, align_corners=align_corners, antialias=antialias)
 
-  if array.ndim == 1:
+  if a.ndim == 1:
     shape = (1, *shape)
-    return local_resize(array[None, None, None])[0, 0, 0]
-  if array.ndim == 2:
-    return local_resize(array[None, None])[0, 0]
-  return local_resize(array.moveaxis(2, 0)[None])[0].moveaxis(0, 2)
+    return local_resize(a[None, None, None])[0, 0, 0]
+  if a.ndim == 2:
+    return local_resize(a[None, None])[0, 0]
+  return local_resize(a.moveaxis(2, 0)[None])[0].moveaxis(0, 2)
 
 
-def torchvision_resize(array: Any, shape: Sequence[int], filter: str,
-                       antialias: Optional[bool] = None) -> _TorchTensor:
-  """Invoke `torchvision.transforms.functional.resize` using the same parameters as `resize`."""
-  # The results appear to be identical to `torch.nn.functional.interpolate` and slightly slower.
-  import torch
-  import torchvision
-  array = torch.as_tensor(array)
+def jax_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
+                     scale: Union[float, Iterable[float]] = 1.0,
+                     translate: Union[float, Iterable[float]] = 0.0) -> _JaxArray:
+  """Invoke `jax.image.scale_and_translate` using the same parameters as `resize`."""
+  assert filter in 'triangle cubic lanczos3 lanczos5'.split(), filter
+  import jax.image
+  import jax.numpy as jnp
+  array2 = jnp.asarray(array)
+  del array
   shape = tuple(shape)
-  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
-  torchvision_interpolation_from_filter = {
-      'impulse': torchvision.transforms.InterpolationMode.NEAREST,
-      'triangle': torchvision.transforms.InterpolationMode.BILINEAR,
-      'sharpcubic': torchvision.transforms.InterpolationMode.BICUBIC,
-      # Only the 3 modes above are supported when `array` is a torch.Tensor.
-      # 'box': torchvision.transforms.InterpolationMode.BOX,
-  }
-  interpolation = torchvision_interpolation_from_filter[filter]
-
-  def local_resize(array: _TorchTensor) -> _TorchTensor:
-    return torchvision.transforms.functional.resize(
-        array, shape, interpolation=interpolation, antialias=antialias)
-
-  if array.ndim == 1:
-    shape = (1, *shape)
-    return local_resize(array[None, None])[0, 0]
-  if array.ndim == 2:
-    return local_resize(array[None])[0]
-  return local_resize(array.moveaxis(2, 0)).moveaxis(0, 2)
+  assert len(shape) <= array2.ndim
+  completed_shape = shape + (1,) * (array2.ndim - len(shape))
+  spatial_dims = list(range(len(shape)))
+  scale2 = np.broadcast_to(np.array(scale), len(shape))
+  scale2 = scale2 / np.array(array2.shape[:len(shape)]) * np.array(shape)
+  translate2 = np.broadcast_to(np.array(translate), len(shape))
+  translate2 = translate2 * np.array(shape)
+  return jax.image.scale_and_translate(
+      array2, completed_shape, spatial_dims, scale2, translate2, filter)
 
 
 # For Emacs:
-# Local Variables: *
-# fill-column: 100 *
-# End: *
+# Local Variables:
+# fill-column: 100
+# End:

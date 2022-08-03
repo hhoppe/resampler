@@ -18,8 +18,8 @@
 The notebook
 [<samp>resampler_notebook.ipynb</samp>](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 hosts the source code for the
-[<samp>resampler</samp> library in PyPI](https://pypi.org/project/resampler/),
-interleaved with documentation, usage examples, unit tests, and signal-processing experiments.
+[<samp>resampler</samp> library](https://pypi.org/project/resampler/),
+interleaved with docs, usage examples, unit tests, and experiments.
 
 # Overview
 
