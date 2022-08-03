@@ -1,3 +1,5 @@
+"""Setup for pip package."""
+
 import pathlib
 import setuptools
 
@@ -14,13 +16,10 @@ def get_version(package=None):
   raise RuntimeError(f'Unable to find version string in {path}.')
 
 
-def get_long_description():
-  return pathlib.Path('README.md').read_text()
-
-
 def get_requirements():
   path = pathlib.Path(NAME) / 'requirements.txt'
-  return [line.strip() for line in path.read_text().splitlines()]
+  return [line.strip() for line in path.read_text().splitlines()
+          if not (line.isspace() or line.startswith('#'))]
 
 
 setuptools.setup(
@@ -29,7 +28,7 @@ setuptools.setup(
   author='Hugues Hoppe',
   author_email='hhoppe@gmail.com',
   description='Fast differentiable resizing and warping of arbitrary grids',
-  long_description=get_long_description(),
+  long_description=pathlib.Path('README.md').read_text(),
   long_description_content_type='text/markdown',
   url=f'https://github.com/hhoppe/{NAME}.git',
   packages=setuptools.find_packages(),
@@ -37,10 +36,14 @@ setuptools.setup(
     package: ['py.typed', 'requirements.txt'] for package in setuptools.find_packages()
   },
   classifiers=[
-    'Programming Language :: Python :: 3',
+    'Intended Audience :: Developers',
+    'Intended Audience :: Education',
+    'Intended Audience :: Science/Research',
     'License :: OSI Approved :: MIT License',
     'Operating System :: OS Independent',
+    'Programming Language :: Python :: 3',
     'Topic :: Scientific/Engineering :: Image Processing',
+    'Topic :: Software Development :: Libraries :: Python Modules',
   ],
   python_requires='>=3.7',
   install_requires=get_requirements(),

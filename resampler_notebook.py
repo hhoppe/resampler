@@ -1,18 +1,3 @@
-# ---
-# jupyter:
-#   jupytext:
-#     formats: ipynb,py:percent
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.13.8
-#   kernelspec:
-#     display_name: Python 3 (ipykernel)
-#     language: python
-#     name: python3
-# ---
-
 # %% [markdown]
 # # <a name="Resampler"></a>Resampler
 #
@@ -34,9 +19,9 @@
 # [**[PyPI package]**](https://pypi.org/project/resampler/)
 
 # %% [markdown]
-# This Python notebook hosts the source code for the
-# [resampler library in PyPI](https://pypi.org/project/resampler/),
-# interleaved with documentation, usage examples, unit tests, and signal-processing experiments.
+# This notebook hosts the source code for the
+# [resampler library](https://pypi.org/project/resampler/),
+# interleaved with docs, usage examples, unit tests, and experiments.
 
 # %% [markdown]
 # # <a name="Overview"></a>Overview
@@ -79,7 +64,7 @@
 # - few dependencies (only `scipy`) and **no native code**, yet
 #
 # - [**faster resizing**](#Test-other-libraries) than C++ implementations
-#   in `tf.image`, `torch.nn`, and `torchvision`.
+#   in `tf.image` and `torch.nn`.
 #
 # A key strategy is to leverage existing sparse matrix representations and operations.
 
@@ -116,6 +101,7 @@
 # array = [3.0, 5.0, 8.0, 7.0]  # 4 source samples in 1D.
 # new_dual = resampler.resize(array, (32,))  # (default gridtype='dual') 8x resolution.
 # new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
+#
 # _, axs = plt.subplots(1, 2, figsize=(7, 1.5))
 # axs[0].set_title('gridtype dual')
 # axs[0].plot((np.arange(len(array)) + 0.5) / len(array), array, 'o')
@@ -282,9 +268,8 @@
 #   2. For downsampling (minification), the reconstruction filter
 #      can be replaced by a trivial *impulse* function because the
 #      reconstructed field is subsequently bandlimited by the sampling prefilter.
-
-# %% [markdown]
-# <!-- ?
+#
+# <!--
 #   However, the *intermediate function* is impractical to represent on a computer.
 #   Most computations involve discretized representations.
 #
@@ -315,22 +300,22 @@
 # %% [markdown]
 # # <a name="Library-header"></a>Library header
 
-# %% tags=[]
+# %%
 """resampler: fast differentiable resizing and warping of arbitrary grids.
 
 .. include:: ../README.md
 """
 
 __docformat__ = 'google'
-__version__ = '0.3.5'
+__version__ = '0.3.6'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 # %%
-# Export: outside library.
 # !pip install -qU pip
+# ('numba' is optional; it is on the same line as it may constrain the numpy version.)
 # !pip install -q 'numba>=0.55.1' numpy scipy
 
-# %% tags=[]
+# %%
 import dataclasses
 import functools
 import itertools
@@ -339,24 +324,41 @@ import typing
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
+import numpy.typing as npt
 import scipy.interpolate
 import scipy.linalg
 import scipy.ndimage
 import scipy.sparse.linalg
 
-# %% tags=[]
+# %%
 try:
   import numba
 except ModuleNotFoundError:
   pass
 
 # %%
-_DType = Any
-_NDArray = Any  # To document np.ndarray[Any, Any] without enforcement.
-_TensorflowTensor = Any  # To document tf.Tensor without enforcement.
-_TorchTensor = Any  # To document torch.Tensor without enforcement.
-_JaxArray = Any  # To document jnp.ndarray without enforcement.
-_Array = Any  # To document any array class supported by _Arraylib.
+if typing.TYPE_CHECKING:
+  import jax.numpy
+  import tensorflow as tf
+  import torch
+  _DType = np.dtype[Any]  # (Requires Python 3.9 or TYPE_CHECKING.)
+  _NDArray = npt.NDArray[Any]
+  _DTypeLike = npt.DTypeLike
+  _ArrayLike = npt.ArrayLike
+  _JaxArray: typing.TypeAlias = jax.numpy.ndarray
+  _TensorflowTensor: typing.TypeAlias = tf.Tensor
+  _TorchTensor: typing.TypeAlias = torch.Tensor
+else:
+  _DType = Any
+  _NDArray = Any
+  _DTypeLike = Any  # Else `pdoc` documents a long Union[...] type.
+  _ArrayLike = Any  # Same.
+  _JaxArray = Any
+  _TensorflowTensor = Any
+  _TorchTensor = Any
+
+_Array = typing.TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
+_AnyArray = Union[_NDArray, _TensorflowTensor, _TorchTensor, _JaxArray]
 
 
 # %%
@@ -370,8 +372,8 @@ def _check_eq(a: Any, b: Any) -> None:
 # %% [markdown]
 # # Notebook header
 
-# %% tags=[]
-# Export: begin notebook header.
+# %%
+# Export library: pause.
 
 # %%
 # !command -v ffmpeg >/dev/null || (apt update && apt install -y ffmpeg)
@@ -379,15 +381,15 @@ def _check_eq(a: Any, b: Any) -> None:
 # %%
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
-# %% tags=[]
-# !pip install -q autopep8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy Pillow pylint scikit-image tensorflow-cpu torch torchvision
+# %%
+# !pip install -q autopep8 flake8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy Pillow pylint scikit-image tensorflow-cpu torch
 
-# %% tags=[]
+# %%
 import copy
 import collections
 import os
 import pathlib
-from typing import Mapping
+from typing import Iterator, Mapping
 import warnings
 
 import hhoppe_tools as hh  # https://github.com/hhoppe/hhoppe-tools/blob/main/hhoppe_tools/__init__.py
@@ -399,7 +401,6 @@ import re
 import scipy.signal
 import skimage.metrics
 import skimage.transform
-from typing import Iterator
 
 
 # %%
@@ -407,7 +408,7 @@ def running_in_notebook() -> bool:
   return IPython.get_ipython() is not None
 
 
-# %% tags=[]
+# %%
 EFFORT = 1
 """Controls the breadth and precision of the notebook experiments; 0 <= value <= 3."""
 if not running_in_notebook():
@@ -422,7 +423,7 @@ hh.start_timing_notebook_cells()
 # Silence "This TensorFlow binary is optimized with oneAPI.."; https://stackoverflow.com/a/42121886
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
-# %% tags=[]
+# %%
 # Silence tf warning: "TqdmWarning: IProgress not found. Please update jupyter and ipywidgets."
 warnings.filterwarnings('ignore', message='IProgress not found')  # category=tqdm.TqdmWarning
 
@@ -430,16 +431,16 @@ warnings.filterwarnings('ignore', message='IProgress not found')  # category=tqd
 if 0:  # Silence "WARNING:absl:No GPU/TPU found, falling back to CPU".
   os.environ['JAX_PLATFORM_NAME'] = 'cpu'
 
-# %% tags=[]
+# %%
 # Silence "RuntimeWarning: More than 20 figures have been opened." when run as script.
 matplotlib.rcParams['figure.max_open_warning'] = 0
 
 
-# %% tags=[]
+# %%
 def enable_jax_float64() -> None:
   """Enable use of double-precision float in Jax; this only works at startup."""
   import jax.config
-  jax.config.update('jax_enable_x64', True)  # type: ignore[no-untyped-call]
+  jax.config.update('jax_enable_x64', True)
 
 enable_jax_float64()
 
@@ -479,15 +480,15 @@ def display_html(text: str) -> None:
   IPython.display.display(IPython.display.HTML(text))
 
 
-# %% tags=[]
+# %%
 # Set Markdown width in Jupyterlab to the value used by Colab; https://stackoverflow.com/a/66278615.
 display_html('<style>.jp-Cell.jp-MarkdownCell { max-width: 1016px!important; }</style>')
 
 
 # %%
-def must_be_int(x: Any) -> _NDArray:
+def must_be_int(x: _ArrayLike) -> _NDArray:
   """Return float cast as int, asserting that there was no fractional part."""
-  result: _NDArray = np.array(x).astype(int, copy=False)
+  result = np.asarray(x).astype(int, copy=False)
   _check_eq(result, x)
   return result
 
@@ -495,17 +496,18 @@ _check_eq(must_be_int(6 / 2), 3)
 
 
 # %%
-def get_rms(a: Any, b: Any) -> float:
+def get_rms(a: _ArrayLike, b: _ArrayLike) -> float:
   """Return the root-mean-square difference between two arrays."""
-  a, b = media.to_float01(a), media.to_float01(b)
-  rms: float = np.sqrt(np.mean(np.square(a - b))).item()
+  a2: _NDArray = media.to_float01(a)
+  b2: _NDArray = media.to_float01(b)
+  rms: float = np.sqrt(np.mean(np.square(a2 - b2))).item()
   return rms
 
 assert math.isclose(get_rms(0.2, 0.3), 0.1)
 
 
 # %%
-def get_psnr(a: Any, b: Any) -> float:
+def get_psnr(a: _ArrayLike, b: _ArrayLike) -> float:
   """Return the Peak-Signal-to-Noise-Ratio (dB) between [0.0, 1.0] values."""
   rms = get_rms(a, b)
   psnr: float = 20 * np.log10(1.0 / (rms + 1e-10)).item()
@@ -548,7 +550,7 @@ if EFFORT >= 1:
 
 
 # %%
-def crop_array(array: Any, width: Any, cval: Any = 0) -> _NDArray:
+def crop_array(array: _ArrayLike, width: _ArrayLike, cval: _ArrayLike = 0) -> _NDArray:
   """Return array cropped (or padded) along each dimension.
 
   Args:
@@ -602,7 +604,7 @@ def show_grid_values(array, figsize=(14, 4), cmap='gray', **kwargs) -> None:
   plt.show()
 
 
-# %% tags=[]
+# %%
 def test_show_grid_values() -> None:
   rng = np.random.default_rng(0)
   show_grid_values(rng.integers(0, 256, size=(4, 16)), figsize=(14, 2), vmin=0, vmax=255)
@@ -613,7 +615,8 @@ if EFFORT >= 1:
 
 
 # %%
-def create_checkerboard(output_shape, block_shape=(1, 1), dtype=np.float32) -> _NDArray:
+def create_checkerboard(output_shape: Tuple[int, ...],
+                        block_shape=(1, 1), dtype=np.float32) -> _NDArray:
   """Return a grid of alternating blocks of 0 and 1 values.
 
   >>> array = create_checkerboard((5, 7))
@@ -646,7 +649,7 @@ def create_checkerboard(output_shape, block_shape=(1, 1), dtype=np.float32) -> _
 # https://legacy.imagemagick.org/Usage/filter/
 
 # %%
-# Export: end notebook header.
+# Export library: resume.
 
 # %% [markdown]
 # # Library
@@ -655,30 +658,31 @@ def create_checkerboard(output_shape, block_shape=(1, 1), dtype=np.float32) -> _
 # ## Helper functions
 
 # %%
-def _real_precision(dtype: Any) -> _DType:
+def _real_precision(dtype: _DTypeLike) -> _DType:
   """Return the type of the real part of a complex number."""
   return np.array([], dtype=dtype).real.dtype
 
 
 # %%
-def _complex_precision(dtype: Any) -> _DType:
+def _complex_precision(dtype: _DTypeLike) -> _DType:
   """Return a complex type to represent a non-complex type."""
   return np.find_common_type([], [dtype, np.complex64])
 
 
 # %%
-def _get_precision(precision: Any, dtypes: List[_DType], weight_dtypes: List[_DType]) -> _DType:
+def _get_precision(precision: _DTypeLike, dtypes: List[_DType],
+                   weight_dtypes: List[_DType]) -> _DType:
   """Return dtype based on desired precision or on data and weight types."""
-  precision = np.dtype(precision if precision is not None else
-                       np.find_common_type([], [np.float32, *dtypes, *weight_dtypes]))
-  if not np.issubdtype(precision, np.inexact):
-    raise ValueError(f'Precision {precision} is not floating or complex.')
-  check_complex = [precision, *dtypes]
+  precision2 = np.dtype(precision if precision is not None else
+                        np.find_common_type([], [np.float32, *dtypes, *weight_dtypes]))
+  if not np.issubdtype(precision2, np.inexact):
+    raise ValueError(f'Precision {precision2} is not floating or complex.')
+  check_complex = [precision2, *dtypes]
   is_complex = [np.issubdtype(dtype, np.complexfloating) for dtype in check_complex]
   if len(set(is_complex)) != 1:
     raise ValueError(f'Types {",".join(str(dtype) for dtype in check_complex)}'
                      ' must be all real or all complex.')
-  return precision
+  return precision2
 
 
 # %%
@@ -693,8 +697,8 @@ def test_precision() -> None:
 test_precision()
 
 
-# %% tags=[]
-def _sinc(x: Any) -> _NDArray:
+# %%
+def _sinc(x: _ArrayLike) -> _NDArray:
   """Return the value `np.sinc(x)` but improved to:
   (1) ignore underflow that occurs at 0.0 for np.float32, and
   (2) output exact zero for integer input values.
@@ -715,7 +719,7 @@ def _sinc(x: Any) -> _NDArray:
 
 
 # %%
-def _is_symmetric(matrix: Any, tol: float = 1e-10) -> bool:
+def _is_symmetric(matrix: _NDArray, tol: float = 1e-10) -> bool:
   """Return True if the sparse matrix is symmetric."""
   norm: float = scipy.sparse.linalg.norm(matrix - matrix.T, np.inf)
   return norm <= tol
@@ -724,17 +728,13 @@ def _is_symmetric(matrix: Any, tol: float = 1e-10) -> bool:
 # %%
 def _cache_sampled_1d_function(
     xmin: float, xmax: float, *, num_samples: int = 3_600, enable: bool = True,
-) -> Callable[[Callable[[Any], _NDArray]], Callable[..., _NDArray]]:
+) -> Callable[[Callable[[_ArrayLike], _NDArray]], Callable[[_ArrayLike], _NDArray]]:
   """Function decorator to linearly interpolate cached function values."""
   # Speed unchanged up to num_samples=12_000, then slow decrease until 100_000.
 
-  def wrap_it(func: Callable[[Any], _NDArray]) -> Callable[..., _NDArray]:
+  def wrap_it(func: Callable[[_ArrayLike], _NDArray]) -> Callable[[_ArrayLike], _NDArray]:
     if not enable:
-      @functools.wraps(func)
-      def original_func(x: Any, *, mode: str = '') -> _NDArray:
-        _check_eq(mode, '')
-        return func(x)
-      return original_func
+      return func
 
     dx = (xmax - xmin) / num_samples
     x = np.linspace(xmin, xmax + dx, num_samples + 2, dtype=np.float32)
@@ -742,32 +742,27 @@ def _cache_sampled_1d_function(
     assert np.all(samples_func[[0, -1, -2]] == 0.0)
 
     @functools.wraps(func)
-    def interpolate_using_cached_samples(x: Any, *, mode: str = 'linear') -> _NDArray:
-      if mode == 'exact':
-        return func(x)
+    def interpolate_using_cached_samples(x: _ArrayLike) -> _NDArray:
+      x = np.asarray(x)
       index_float = np.clip((x - xmin) / dx, 0.0, num_samples)
       index = index_float.astype(np.int64)
-      if mode == 'nearest':
-        return samples_func[index]
-      if mode == 'linear':
-        frac = np.subtract(index_float, index, dtype=np.float32)
-        return (1 - frac) * samples_func[index] + frac * samples_func[index + 1]
-      raise ValueError(f'Mode {mode} is not one of: exact, nearest, linear.')
+      frac = np.subtract(index_float, index, dtype=np.float32)
+      return (1 - frac) * samples_func[index] + frac * samples_func[index + 1]
 
     return interpolate_using_cached_samples
 
   return wrap_it
 
 
-# %% tags=[]
+# %%
 def test_cached_sampling_of_1d_function(radius=2.0) -> None:
 
-  def func(x: Any) -> _NDArray:  # Lanczos kernel
+  def func(x: _ArrayLike) -> _NDArray:  # Lanczos kernel
     x = np.abs(x)
     return np.where(x < radius, _sinc(x) * _sinc(x / radius), 0.0)
 
   @_cache_sampled_1d_function(xmin=-radius, xmax=radius)
-  def func2(x: Any) -> _NDArray:
+  def func2(x: _ArrayLike) -> _NDArray:
     return func(x)
 
   def create_scipy_interpolant(func, xmin, xmax,
@@ -775,7 +770,7 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
     samples_x = np.linspace(xmin, xmax, num_samples + 1, dtype=np.float32)
     samples_func = func(samples_x)
     assert np.all(samples_func[[0, -1]] == 0.0)
-    interpolator: Callable[[Any], Any] = scipy.interpolate.interp1d(
+    interpolator: Callable[[_NDArray], _NDArray] = scipy.interpolate.interp1d(
         samples_x, samples_func, kind='linear', bounds_error=False, fill_value=0)
     return interpolator
 
@@ -784,33 +779,25 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
   shape = 2, 8_000
   rng = np.random.default_rng(0)
   array = rng.random(shape, dtype=np.float32) * 2 * radius - radius
-  result = {'expected': func(array), 'scipy': scipy_interp(array)}
-  for mode in 'exact linear nearest'.split():
-    result[mode] = func2(array, mode=mode)
+  result = {'expected': func(array), 'scipy': scipy_interp(array), 'obtained': func2(array)}
 
   assert all(a.dtype == np.float32 for a in result.values())
   assert all(a.shape == shape for a in result.values())
-  assert np.allclose(result['exact'], result['expected'], rtol=0, atol=0)
-  assert np.allclose(result['linear'], result['expected'], rtol=0, atol=1e-6)
-  assert np.allclose(result['nearest'], result['expected'], rtol=0, atol=1e-2)
   assert np.allclose(result['scipy'], result['expected'], rtol=0, atol=1e-6)
+  assert np.allclose(result['obtained'], result['expected'], rtol=0, atol=1e-6)
 
   if 0:
-    shape = 1000, 1000
+    shape = 2000, 2000
     array = rng.random(shape) * 8.0 - 4.0
     hh.print_time(lambda: func(array))
-    hh.print_time(lambda: func2(array, mode='exact'))
-    hh.print_time(lambda: func2(array, mode='linear'))
-    hh.print_time(lambda: func2(array, mode='nearest'))
-    # 32.5 ms
-    # 32.6 ms
-    # 4.92 ms
-    # 2.26 ms
+    hh.print_time(lambda: func2(array))
+    # 154 ms
+    # 28.6 ms
     hh.prun(lambda: func2(array), top=4)  # The bottleneck is the array lookup.
-    # Prun: tottime    0.006 overall_cumtime
-    #         0.005    0.006 interpolate_using_cached_samples (/tmp/ipykernel:20)
-    #         0.001    0.001 _clip_dep_invoke_with_casting (numpy/core/_methods.py:106)
-    #         0.001    0.001 numpy.ndarray.astype
+    # Prun: tottime    0.038 overall_cumtime
+    #         0.030    0.038 interpolate_using_cached_samples (/tmp/ipykernel:16)
+    #         0.006    0.006 _clip_dep_invoke_with_casting (numpy/core/_methods.py:106)
+    #         0.003    0.003 numpy.ndarray.astype
     #         0.000    0.000 _clip_dep_is_scalar_nan (numpy/core/_methods.py:91)
 
 test_cached_sampling_of_1d_function()
@@ -841,27 +828,26 @@ class _DownsampleIn2dUsingBoxFilter:
       new_width = array.shape[1] // block_width
       result = np.empty((new_height, new_width, ch), dtype)
       totals = np.empty(ch, dtype)
-      scale = dtype.type(1.0 / (block_height * block_width))
+      factor = dtype.type(1.0 / (block_height * block_width))
       for y in range(new_height):  # pylint: disable=too-many-nested-blocks
         for x in range(new_width):
-          # y2, x2 = y * block_height, x * block_width ?
+          # Introducing "y2, x2 = y * block_height, x * block_width" is actually slower.
           if ch == 1:  # All the branches involve compile-time constants.
             total = dtype.type(0.0)
             for yy in range(block_height):
               for xx in range(block_width):
                 total += array[y * block_height + yy, x * block_width + xx, 0]
-            result[y, x, 0] = total * scale
+            result[y, x, 0] = total * factor
           elif ch == 3:
             total0 = total1 = total2 = dtype.type(0.0)
             for yy in range(block_height):
               for xx in range(block_width):
-                # pixel = array[y2 + yy, x2 + xx] ?
                 total0 += array[y * block_height + yy, x * block_width + xx, 0]
                 total1 += array[y * block_height + yy, x * block_width + xx, 1]
                 total2 += array[y * block_height + yy, x * block_width + xx, 2]
-            result[y, x, 0] = total0 * scale
-            result[y, x, 1] = total1 * scale
-            result[y, x, 2] = total2 * scale
+            result[y, x, 0] = total0 * factor
+            result[y, x, 1] = total1 * factor
+            result[y, x, 2] = total2 * factor
           elif block_height * block_width >= 9:
             for c in range(ch):
               totals[c] = 0.0
@@ -870,14 +856,14 @@ class _DownsampleIn2dUsingBoxFilter:
                 for c in range(ch):
                   totals[c] += array[y * block_height + yy, x * block_width + xx, c]
             for c in range(ch):
-              result[y, x, c] = totals[c] * scale
+              result[y, x, c] = totals[c] * factor
           else:
             for c in range(ch):
               total = dtype.type(0.0)
               for yy in range(block_height):
                 for xx in range(block_width):
                   total += array[y * block_height + yy, x * block_width + xx, c]
-              result[y, x, c] = total * scale
+              result[y, x, c] = total * factor
       return result
 
     signature = dtype, block_height, block_width, ch
@@ -890,6 +876,7 @@ class _DownsampleIn2dUsingBoxFilter:
     return result[..., 0] if array.ndim == 2 else result
 
 
+# %%
 _downsample_in_2d_using_box_filter = _DownsampleIn2dUsingBoxFilter()
 
 
@@ -912,11 +899,12 @@ if EFFORT >= 1:
 
 
 # %%
-def test_profile_downsample_in_2d_using_box_filter() -> None:
-  pass  # hh.print_time(..), hh.prun() ?
+def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
+  array = np.ones((4096, 4096))
+  hh.print_time(lambda: _downsample_in_2d_using_box_filter(array, shape), max_time=0.4)
 
 test_profile_downsample_in_2d_using_box_filter()
-
+# 8.9 ms
 
 # %% [markdown]
 # ## <a name="Array-libraries"></a>Array libraries
@@ -937,6 +925,16 @@ test_profile_downsample_in_2d_using_box_filter()
 # but less specialized library.)
 
 # %%
+# Desiderata to allow using eagerpy:
+# - let ep.astensor() automatically use NumPyTensor for tuple and list (using np.asarray()).
+# - support for einsum(), using str subscripts argument.
+# - extensibility (subclassing?), for sparse_resize_matrix and sparse_dense_matmul.
+# - support for _make_array(array, arraylib) and arr_arraylib(array); use ep.get_dummy(str)?
+# - let dtype and astype() standardize on np.dtype.
+# - signature for full(shape, value) should indicate value to be scalar or tensor.
+# - implement moveaxis() and swapaxes() in base class Tensor using transpose().
+
+# %%
 # Because np.ndarray supports strides, np.moveaxis() and np.permute() are constant-time.
 # However, ndarray.reshape() often creates a copy of the array if the data is non-contiguous,
 # e.g. dim=1 in an RGB image.
@@ -944,13 +942,9 @@ test_profile_downsample_in_2d_using_box_filter()
 # In contrast, tf.Tensor does not support strides, so tf.transpose() returns a new permuted
 # tensor.  However, tf.reshape() is always efficient.
 
-# In numpy, `sparse @ dense` calls scipy.sparse._sparsetools.csr_matvecs() in
-# https://github.com/scipy/scipy/blob/master/scipy/sparse/sparsetools/csr.h
-# which iteratively calls the LEVEL 1 BLAS function axpy().
-
-# %% tags=[]
+# %%
 @dataclasses.dataclass
-class _Arraylib:
+class _Arraylib(typing.Generic[_Array]):
   """Abstract base class for abstraction of array libraries."""
 
   arraylib: str
@@ -968,7 +962,7 @@ class _Arraylib:
   def dtype(self) -> _DType:
     """Return the equivalent of `self.array.dtype` as a `numpy` `dtype`."""
 
-  def astype(self, dtype: Any) -> _Array:
+  def astype(self, dtype: _DTypeLike) -> _Array:
     """Return the equivalent of `self.array.astype(dtype, copy=False)` with `numpy` `dtype`."""
 
   def reshape(self, shape: Tuple[int, ...]) -> _Array:
@@ -979,7 +973,7 @@ class _Arraylib:
     """Return an array which may be a contiguous copy of `self.array`."""
     return self.array
 
-  def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _Array:
     """Return the equivalent of `self.array.clip(low, high, dtype=dtype)` with `numpy` `dtype`."""
 
   def square(self) -> _Array:
@@ -988,10 +982,9 @@ class _Arraylib:
   def sqrt(self) -> _Array:
     """Return the equivalent of `np.sqrt(self.array)`."""
 
-  def gather(self, table: Any) -> _Array:
-    """Return the equivalent of `table[self.array]`."""
-    indices = self.array
-    return table[indices]
+  def getitem(self, indices: Any) -> _Array:
+    """Return the equivalent of `self.array[indices]` (a "gather" operation)."""
+    return self.array[indices]
 
   def where(self, if_true: Any, if_false: Any) -> _Array:
     """Return the equivalent of `np.where(self.array, if_true, if_false)`."""
@@ -1011,17 +1004,17 @@ class _Arraylib:
     """Return the equivalent of `np.einsum(subscripts, *operands, optimize=True)`."""
 
   @staticmethod
-  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
-    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
-    return sparse @ dense
-
-  @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
+  def sparse_resize_matrix(shape: Tuple[int, int],
+                           weight: _NDArray, src_index: _NDArray) -> _Array:
     """Return a sparse matrix for 1D resize; see `_make_sparse_resize_matrix`."""
 
+  @staticmethod
+  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
+    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
 
-# %% tags=[]
-class _NumpyArraylib(_Arraylib):
+
+# %%
+class _NumpyArraylib(_Arraylib[_NDArray]):
   """Numpy implementation of the array abstraction."""
 
   def __init__(self, array: _NDArray) -> None:
@@ -1035,30 +1028,32 @@ class _NumpyArraylib(_Arraylib):
     return self.array
 
   def dtype(self) -> _DType:
-    return self.array.dtype
+    dtype: _DType = self.array.dtype
+    return dtype
 
-  def astype(self, dtype: Any) -> _Array:
+  def astype(self, dtype: _DTypeLike) -> _NDArray:
     return self.array.astype(dtype, copy=False)
 
-  def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _NDArray:
     return self.array.clip(low, high, dtype=dtype)
 
-  def square(self) -> _Array:
+  def square(self) -> _NDArray:
     return np.square(self.array)
 
-  def sqrt(self) -> _Array:
+  def sqrt(self) -> _NDArray:
     return np.sqrt(self.array)
 
-  def where(self, if_true: Any, if_false: Any) -> _Array:
+  def where(self, if_true: Any, if_false: Any) -> _NDArray:
     condition = self.array
     return np.where(condition, if_true, if_false)
 
-  def transpose(self, axes: Sequence[int]) -> _Array:
+  def transpose(self, axes: Sequence[int]) -> _NDArray:
     return np.transpose(self.array, tuple(axes))
 
   def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
     # Our heuristics: (1) a dimension with small scaling (especially minification) gets priority,
     # and (2) timings show preference to resizing dimensions with larger strides first.
+    # (Of course, tensorflow.Tensor lacks strides, so (2) does not apply.)
     # The optimal ordering might be related to the logic in np.einsum_path().  (Unfortunately,
     # np.einsum() does not support the sparse multiplications that we require here.)
     src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
@@ -1072,15 +1067,16 @@ class _NumpyArraylib(_Arraylib):
     return sorted(range(len(src_shape)), key=priority)
 
   @staticmethod
-  def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
+  def concatenate(arrays: Sequence[_NDArray], axis: int) -> _NDArray:
     return np.concatenate(arrays, axis)
 
   @staticmethod
-  def einsum(subscripts: str, *operands: _Array) -> _Array:
+  def einsum(subscripts: str, *operands: _NDArray) -> _NDArray:
     return np.einsum(subscripts, *operands, optimize=True)
 
   @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
+  def sparse_resize_matrix(shape: Tuple[int, int],
+                           weight: _NDArray, src_index: _NDArray) -> _NDArray:
     dst_size, _ = shape
     data = weight.reshape(-1)
     row_ind = np.arange(dst_size).repeat(src_index.shape[1])
@@ -1090,9 +1086,17 @@ class _NumpyArraylib(_Arraylib):
     # Note: csr_matrix automatically reorders and merges duplicate indices.
     return scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape=shape)
 
+  @staticmethod
+  def sparse_dense_matmul(sparse: scipy.sparse.csr_matrix, dense: _NDArray) -> _NDArray:
+    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
+    # Calls scipy.sparse._sparsetools.csr_matvecs() in
+    # https://github.com/scipy/scipy/blob/main/scipy/sparse/sparsetools/csr.h
+    # which iteratively calls the LEVEL 1 BLAS function axpy().
+    return sparse @ dense
 
-# %% tags=[]
-class _TensorflowArraylib(_Arraylib):
+
+# %%
+class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
   """Tensorflow implementation of the array abstraction."""
 
   def __init__(self, array: _NDArray) -> None:
@@ -1111,47 +1115,55 @@ class _TensorflowArraylib(_Arraylib):
   def dtype(self) -> _DType:
     return np.dtype(self.array.dtype.as_numpy_dtype)
 
-  def astype(self, dtype: Any) -> _Array:
+  def astype(self, dtype: _DTypeLike) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.cast(self.array, dtype)
 
-  def reshape(self, shape: Tuple[int, ...]) -> _Array:
+  def reshape(self, shape: Tuple[int, ...]) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.reshape(self.array, shape)
 
-  def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _TensorflowTensor:
     import tensorflow as tf
     array = self.array
     if dtype is not None:
       array = tf.cast(array, dtype)
     return tf.clip_by_value(array, low, high)
 
-  def square(self) -> _Array:
+  def square(self) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.square(self.array)
 
-  def sqrt(self) -> _Array:
+  def sqrt(self) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.sqrt(self.array)
 
-  def gather(self, table: Any) -> _Array:
+  def getitem(self, indices: Any) -> _TensorflowTensor:
     import tensorflow as tf
-    indices = self.array
-    if _arr_dtype(indices) in (np.uint8, np.uint16):
+    if isinstance(indices, tuple):
+      basic = all(isinstance(x, (type(None), type(Ellipsis), int, slice)) for x in indices)
+      if not basic:
+        # We require tf.gather_nd(), which unfortunately requires broadcast expansion of indices.
+        assert all(isinstance(a, np.ndarray) for a in indices)
+        assert all(a.ndim == indices[0].ndim for a in indices)
+        broadcast_indices = np.broadcast_arrays(*indices)  # list of np.ndarray
+        indices_array = np.moveaxis(np.array(broadcast_indices), 0, -1)
+        return tf.gather_nd(self.array, indices_array)
+    elif _arr_dtype(indices).type in (np.uint8, np.uint16):
       indices = tf.cast(indices, np.int32)
-    return tf.gather(table, indices, axis=None)
+    return tf.gather(self.array, indices)
 
-  def where(self, if_true: Any, if_false: Any) -> _Array:
+  def where(self, if_true: Any, if_false: Any) -> _TensorflowTensor:
     import tensorflow as tf
     condition = self.array
     return tf.where(condition, if_true, if_false)
 
-  def transpose(self, axes: Sequence[int]) -> _Array:
+  def transpose(self, axes: Sequence[int]) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.transpose(self.array, tuple(axes))
 
   def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
-    # It seems that strides are unavailable in Tensorflow.
+    # Note that a tensorflow.Tensor does not have strides.
     # Our heuristic is to process dimension 1 first iff dimension 0 is upsampling.  Improve?
     src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
     dims = list(range(len(src_shape)))
@@ -1160,24 +1172,18 @@ class _TensorflowArraylib(_Arraylib):
     return dims
 
   @staticmethod
-  def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
+  def concatenate(arrays: Sequence[_TensorflowTensor], axis: int) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.concat(arrays, axis)
 
   @staticmethod
-  def einsum(subscripts: str, *operands: _Array) -> _Array:
+  def einsum(subscripts: str, *operands: _TensorflowTensor) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.einsum(subscripts, *operands, optimize='greedy')
 
   @staticmethod
-  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
-    import tensorflow as tf
-    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
-      sparse = sparse.with_values(_arr_astype(sparse.values, _arr_dtype(dense)))
-    return tf.sparse.sparse_dense_matmul(sparse, dense)
-
-  @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
+  def sparse_resize_matrix(shape: Tuple[int, int],
+                           weight: _NDArray, src_index: _NDArray) -> _TensorflowTensor:
     import tensorflow as tf
     _, src_size = shape
     linearized = (src_index + np.indices(src_index.shape)[0] * src_size).reshape(-1)
@@ -1196,9 +1202,17 @@ class _TensorflowArraylib(_Arraylib):
     merged_indices = np.vstack((unique // src_size, unique % src_size))
     return tf.sparse.SparseTensor(merged_indices.T, merged_values, shape)
 
+  @staticmethod
+  def sparse_dense_matmul(sparse: 'tf.sparse.SparseTensor',
+                          dense: _TensorflowTensor) -> _TensorflowTensor:
+    import tensorflow as tf
+    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
+      sparse = sparse.with_values(_arr_astype(sparse.values, _arr_dtype(dense)))
+    return tf.sparse.sparse_dense_matmul(sparse, dense)
 
-# %% tags=[]
-class _TorchArraylib(_Arraylib):
+
+# %%
+class _TorchArraylib(_Arraylib[_TorchTensor]):
   """Torch implementation of the array abstraction."""
 
   def __init__(self, array: _NDArray) -> None:
@@ -1226,7 +1240,7 @@ class _TorchArraylib(_Arraylib):
     }[self.array.dtype]
     return np.dtype(numpy_type)
 
-  def astype(self, dtype: Any) -> _Array:
+  def astype(self, dtype: _DTypeLike) -> _TorchTensor:
     import torch
     torch_type = {
         np.float32: torch.float32,
@@ -1240,30 +1254,31 @@ class _TorchArraylib(_Arraylib):
     }[np.dtype(dtype).type]
     return self.array.type(torch_type)
 
-  def possibly_make_contiguous(self) -> _Array:
+  def possibly_make_contiguous(self) -> _TorchTensor:
     return self.array.contiguous()
 
-  def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _TorchTensor:
     array = self.array
     array = _arr_astype(array, dtype) if dtype is not None else array
     return array.clip(low, high)
 
-  def square(self) -> _Array:
+  def square(self) -> _TorchTensor:
     return self.array.square()
 
-  def sqrt(self) -> _Array:
+  def sqrt(self) -> _TorchTensor:
     return self.array.sqrt()
 
-  def gather(self, table: Any) -> _Array:
+  def getitem(self, indices: Any) -> _TorchTensor:
     import torch
-    indices = self.array
-    return torch.as_tensor(table)[indices.type(torch.int64)]
+    if not isinstance(indices, tuple):
+      indices = indices.type(torch.int64)
+    return self.array[indices]
 
-  def where(self, if_true: Any, if_false: Any) -> _Array:
+  def where(self, if_true: Any, if_false: Any) -> _TorchTensor:
     condition = self.array
     return if_true.where(condition, if_false)
 
-  def transpose(self, axes: Sequence[int]) -> _Array:
+  def transpose(self, axes: Sequence[int]) -> _TorchTensor:
     import torch
     return torch.permute(self.array, tuple(axes))
 
@@ -1280,12 +1295,12 @@ class _TorchArraylib(_Arraylib):
     return sorted(range(len(src_shape)), key=priority)
 
   @staticmethod
-  def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
+  def concatenate(arrays: Sequence[_TorchTensor], axis: int) -> _TorchTensor:
     import torch
     return torch.cat(tuple(arrays), axis)
 
   @staticmethod
-  def einsum(subscripts: str, *operands: _Array) -> _Array:
+  def einsum(subscripts: str, *operands: _TorchTensor) -> _TorchTensor:
     import torch
     operands = tuple(torch.as_tensor(operand) for operand in operands)
     if any(np.issubdtype(_arr_dtype(array), np.complexfloating) for array in operands):
@@ -1294,13 +1309,8 @@ class _TorchArraylib(_Arraylib):
     return torch.einsum(subscripts, *operands)
 
   @staticmethod
-  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
-    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
-      sparse = _arr_astype(sparse, _arr_dtype(dense))
-    return sparse @ dense
-
-  @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
+  def sparse_resize_matrix(shape: Tuple[int, int],
+                           weight: _NDArray, src_index: _NDArray) -> _TorchTensor:
     import torch
     dst_size, _ = shape
     indices = np.vstack((np.arange(dst_size).repeat(src_index.shape[1]), src_index.reshape(-1))).T
@@ -1308,16 +1318,23 @@ class _TorchArraylib(_Arraylib):
     # Remove the zero weights, then coalesce the duplicate indices.
     nonzero = values != 0.0
     indices, values = indices[nonzero], values[nonzero]
-    return torch.sparse_coo_tensor(indices.T, values, shape).coalesce()  # type: ignore[arg-type]
+    return torch.sparse_coo_tensor(
+        torch.as_tensor(indices.T), torch.as_tensor(values), shape).coalesce()
+
+  @staticmethod
+  def sparse_dense_matmul(sparse: Any, dense: _TorchTensor) -> _TorchTensor:
+    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
+      sparse = _arr_astype(sparse, _arr_dtype(dense))
+    return sparse @ dense  # Calls torch.sparse.mm().
 
 
-# %% tags=[]
-class _JaxArraylib(_Arraylib):
+# %%
+class _JaxArraylib(_Arraylib[_JaxArray]):
   """Jax implementation of the array abstraction."""
 
   def __init__(self, array: _NDArray) -> None:
     import jax.numpy as jnp
-    super().__init__(arraylib='jax', array=jnp.asarray(array))  # type: ignore[no-untyped-call]
+    super().__init__(arraylib='jax', array=jnp.asarray(array))
 
   @staticmethod
   def recognize(array: Any) -> bool:
@@ -1333,38 +1350,40 @@ class _JaxArraylib(_Arraylib):
   def dtype(self) -> _DType:
     return np.dtype(self.array.dtype)
 
-  def astype(self, dtype: Any) -> _Array:
+  def astype(self, dtype: _DTypeLike) -> _JaxArray:
     return self.array.astype(dtype)  # (copy=False is unavailable)
 
-  def possibly_make_contiguous(self) -> _Array:
+  def possibly_make_contiguous(self) -> _JaxArray:
     return self.array.copy()
 
-  def clip(self, low: Any, high: Any, dtype: Any = None) -> _Array:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _JaxArray:
     import jax.numpy as jnp
     array = self.array
     if dtype is not None:
       array = array.astype(dtype)  # (copy=False is unavailable)
     return jnp.clip(array, low, high)
 
-  def square(self) -> _Array:
+  def square(self) -> _JaxArray:
     import jax.numpy as jnp
     return jnp.square(self.array)
 
-  def sqrt(self) -> _Array:
+  def sqrt(self) -> _JaxArray:
     import jax.numpy as jnp
     return jnp.sqrt(self.array)
 
-  def where(self, if_true: Any, if_false: Any) -> _Array:
+  def where(self, if_true: Any, if_false: Any) -> _JaxArray:
     import jax.numpy as jnp
     condition = self.array
-    return jnp.where(condition, if_true, if_false)  # type: ignore[no-untyped-call]
+    return jnp.where(condition, if_true, if_false)
 
-  def transpose(self, axes: Sequence[int]) -> _Array:
+  def transpose(self, axes: Sequence[int]) -> _JaxArray:
     import jax.numpy as jnp
-    return jnp.transpose(self.array, tuple(axes))  # type: ignore[no-untyped-call]
+    return jnp.transpose(self.array, tuple(axes))
 
   def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
-    # It seems that strides are unavailable in Jax.  Heuristic is similar to `_TensorflowArraylib`.
+    # Jax/XLA does not have strides.  Arrays are contiguous, almost always in C order; see
+    # https://github.com/google/jax/discussions/7544#discussioncomment-1197038.
+    # We use a heuristic similar to `_TensorflowArraylib`.
     src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
     dims = list(range(len(src_shape)))
     if len(dims) > 1 and dst_shape[0] / src_shape[0] > 1.0:
@@ -1372,17 +1391,18 @@ class _JaxArraylib(_Arraylib):
     return dims
 
   @staticmethod
-  def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
+  def concatenate(arrays: Sequence[_JaxArray], axis: int) -> _JaxArray:
     import jax.numpy as jnp
     return jnp.concatenate(arrays, axis)
 
   @staticmethod
-  def einsum(subscripts: str, *operands: _Array) -> _Array:
+  def einsum(subscripts: str, *operands: _JaxArray) -> _JaxArray:
     import jax.numpy as jnp
-    return jnp.einsum(subscripts, *operands, optimize='greedy')  # type: ignore[no-untyped-call]
+    return jnp.einsum(subscripts, *operands, optimize='greedy')
 
   @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray, src_index: _NDArray) -> _Array:
+  def sparse_resize_matrix(shape: Tuple[int, int],
+                           weight: _NDArray, src_index: _NDArray) -> _JaxArray:
     # https://jax.readthedocs.io/en/latest/jax.experimental.sparse.html
     import jax.experimental.sparse
     dst_size, _ = shape
@@ -1391,11 +1411,20 @@ class _JaxArraylib(_Arraylib):
     # Remove the zero weights, then coalesce the duplicate indices.
     nonzero = data != 0.0
     indices, data = indices[nonzero], data[nonzero]
-    return jax.experimental.sparse.BCOO(  # type: ignore[no-untyped-call]
+    return jax.experimental.sparse.BCOO(
         (data, indices), shape=shape, indices_sorted=False, unique_indices=False)
 
+  @staticmethod
+  def sparse_dense_matmul(sparse: 'jax.experimental.sparse.BCOO', dense: _Array) -> _Array:
+    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
+    return sparse @ dense  # Calls jax.bcoo_multiply_dense().
 
-# %% tags=[]
+
+# %%
+# Additional candidates for array libraries might be:
+# - cupy (cupy.ndarray and cupyx.scipy.sparse.csr_matrix).
+
+# %%
 _DICT_ARRAYLIBS = {
     'numpy': _NumpyArraylib,
     'tensorflow': _TensorflowArraylib,
@@ -1406,16 +1435,16 @@ _DICT_ARRAYLIBS = {
 ARRAYLIBS = list(_DICT_ARRAYLIBS)
 """Array libraries supported automatically in the resize and resampling operations."""
 
-def _as_arr(array: _Array) -> _Arraylib:
+def _as_arr(array: _Array) -> _Arraylib[_Array]:
   """Return `array` wrapped as an `_Arraylib` for dispatch of functions."""
   for cls in _DICT_ARRAYLIBS.values():
     if cls.recognize(array):
-      return cls(array)
+      return cls(array)  # type: ignore[arg-type]
   raise AssertionError(
       f'{array} {type(array)} {type(array).__module__} unrecognized by {ARRAYLIBS}.')
 
 
-# %% tags=[]
+# %%
 def _arr_arraylib(array: _Array) -> str:
   """Return the name of the `Arraylib` representing `array`."""
   return _as_arr(array).arraylib
@@ -1428,7 +1457,7 @@ def _arr_dtype(array: _Array) -> _DType:
   """Return the equivalent of `array.dtype` as a `numpy` `dtype`."""
   return _as_arr(array).dtype()
 
-def _arr_astype(array: _Array, dtype: Any) -> _Array:
+def _arr_astype(array: _Array, dtype: _DTypeLike) -> _Array:
   """Return the equivalent of `array.astype(dtype)` with `numpy` `dtype`."""
   return _as_arr(array).astype(dtype)
 
@@ -1440,7 +1469,7 @@ def _arr_possibly_make_contiguous(array: _Array) -> _Array:
   """Return an array which may be a contiguous copy of `array`."""
   return _as_arr(array).possibly_make_contiguous()
 
-def _arr_clip(array: _Array, low: Any, high: Any, dtype: Any = None) -> _Array:
+def _arr_clip(array: _Array, low: _Array, high: _Array, dtype: _DTypeLike = None) -> _Array:
   """Return the equivalent of `array.clip(low, high, dtype)` with `numpy` `dtype`."""
   return _as_arr(array).clip(low, high, dtype)
 
@@ -1452,11 +1481,11 @@ def _arr_sqrt(array: _Array) -> _Array:
   """Return the equivalent of `np.sqrt(array)`."""
   return _as_arr(array).sqrt()
 
-def _arr_gather(table: Any, indices: Any) -> _Array:
-  """Return the equivalent of `table[indices]`."""
-  return _as_arr(indices).gather(table)
+def _arr_getitem(array: _Array, indices: _Array) -> _Array:
+  """Return the equivalent of `array[indices]`."""
+  return _as_arr(array).getitem(indices)
 
-def _arr_where(condition: Any, if_true: Any, if_false: Any) -> _Array:
+def _arr_where(condition: _Array, if_true: _Array, if_false: _Array) -> _Array:
   """Return the equivalent of `np.where(condition, if_true, if_false)`."""
   return _as_arr(condition).where(if_true, if_false)
 
@@ -1468,15 +1497,15 @@ def _arr_best_dims_order_for_resize(array: _Array, dst_shape: Tuple[int, ...]) -
   """Return the best order in which to process dims for resizing `array` to `dst_shape`."""
   return _as_arr(array).best_dims_order_for_resize(dst_shape)
 
-def _arr_concatenate(arrays: Sequence[Any], axis: int) -> _Array:
+def _arr_concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
   """Return the equivalent of `np.concatenate(arrays, axis)`."""
   arraylib = _arr_arraylib(arrays[0])
-  return _DICT_ARRAYLIBS[arraylib].concatenate(arrays, axis)
+  return _DICT_ARRAYLIBS[arraylib].concatenate(arrays, axis)  # type: ignore
 
 def _arr_einsum(subscripts: str, *operands: _Array) -> _Array:
   """Return the equivalent of `np.einsum(subscripts, *operands, optimize=True)`."""
   arraylib = _arr_arraylib(operands[0])
-  return _DICT_ARRAYLIBS[arraylib].einsum(subscripts, *operands)
+  return _DICT_ARRAYLIBS[arraylib].einsum(subscripts, *operands)  # type: ignore
 
 def _arr_swapaxes(array: _Array, axis1: int, axis2: int) -> _Array:
   """Return the equivalent of `np.swapaxes(array, axis1, axis2)`."""
@@ -1495,11 +1524,6 @@ def _arr_moveaxis(array: _Array, source: int, destination: int) -> _Array:
   axes.insert(destination, source)
   return _arr_transpose(array, axes)
 
-def _arr_sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
-  """Return the multiplication of the `sparse` and `dense` matrices."""
-  arraylib = _arr_arraylib(dense)
-  return _DICT_ARRAYLIBS[arraylib].sparse_dense_matmul(sparse, dense)
-
 def _make_sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray,
                                src_index: _NDArray, arraylib: str) -> _Array:
   """Return a sparse matrix for a 1D resize operation, expressing destination samples as linear
@@ -1507,14 +1531,19 @@ def _make_sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray,
   2D matrices `weight` and `src_index` provide values and positions in each sparse row."""
   dst_size, _ = shape
   _check_eq(src_index.shape[0], dst_size)
-  return _DICT_ARRAYLIBS[arraylib].sparse_resize_matrix(shape, weight, src_index)
+  return _DICT_ARRAYLIBS[arraylib].sparse_resize_matrix(shape, weight, src_index)  # type: ignore
 
-def _make_array(array: _NDArray, arraylib: str) -> _Array:
+def _arr_sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
+  """Return the multiplication of the `sparse` and `dense` matrices."""
+  arraylib = _arr_arraylib(dense)
+  return _DICT_ARRAYLIBS[arraylib].sparse_dense_matmul(sparse, dense)  # type: ignore
+
+def _make_array(array: _ArrayLike, arraylib: str) -> _Array:
   """Return an array from the library `arraylib` initialized with the `numpy` `array`."""
-  return _DICT_ARRAYLIBS[arraylib](array).array
+  return _DICT_ARRAYLIBS[arraylib](np.asarray(array)).array
 
 
-# %% tags=[]
+# %%
 def experiment_preload_arraylibs_for_accurate_timings() -> None:
   for arraylib in ARRAYLIBS:
     _make_array(np.ones(1), arraylib=arraylib)
@@ -1528,7 +1557,7 @@ if EFFORT >= 1:
 # %% [markdown]
 # **Array partitioning**
 
-# %% tags=[]
+# %%
 def _block_shape_with_min_size(shape: Tuple[int, ...], min_size: int,
                                compact: bool = True) -> Tuple[int, ...]:
   """Return shape of block (of size at least `min_size`) to subdivide shape."""
@@ -1551,7 +1580,7 @@ def _block_shape_with_min_size(shape: Tuple[int, ...], min_size: int,
   return tuple(block_shape)
 
 
-# %% tags=[]
+# %%
 def test_block_shape_with_min_size(debug=False, **kwargs) -> None:
   shape = 2, 3, 4
   for min_size in range(1, np.prod(shape) + 1):
@@ -1566,7 +1595,7 @@ test_block_shape_with_min_size(compact=True)
 test_block_shape_with_min_size(compact=False)
 
 
-# %% tags=[]
+# %%
 def _array_split(array: _Array, axis: int, num_sections: int) -> List[Any]:
   """Split `array` into `num_sections` along `axis`."""
   assert 0 <= axis < array.ndim
@@ -1611,7 +1640,7 @@ def _map_function_over_blocks(blocks: Any, func: Callable[[Any], Any]) -> Any:
   return func(blocks)
 
 
-def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> _NDArray:
+def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> _Array:
   """Merge an array from nested lists of array blocks."""
   # More general than np.block() because the blocks can have additional dims.
   if isinstance(blocks, list):
@@ -1620,7 +1649,7 @@ def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> _NDArray:
   return blocks
 
 
-# %% tags=[]
+# %%
 def test_split_2d() -> None:
   numpy_array = np.random.default_rng(0).choice([1, 2, 3, 4], (5, 8))
   for arraylib in ARRAYLIBS:
@@ -1636,7 +1665,7 @@ if EFFORT >= 1:
   test_split_2d()
 
 
-# %% tags=[]
+# %%
 def test_split_3d() -> None:
   shape = 4, 3, 2
   numpy_array = np.random.default_rng(0).choice([1, 2, 3, 4], shape)
@@ -1661,7 +1690,7 @@ if EFFORT >= 1:
   test_split_3d()
 
 
-# %% tags=[]
+# %%
 def test_split_prefix_dims() -> None:
   shape = 2, 3, 2
   array = np.arange(np.prod(shape)).reshape(shape)
@@ -1715,7 +1744,7 @@ test_split_prefix_dims()
 # to the unit domain $[0, 1]^d$ rather than the sample lattice $\mathbb{Z}^d$.
 
 # %%
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Gridtype:
   """Abstract base class for grid-types such as 'dual' and 'primal'.
 
@@ -1739,20 +1768,20 @@ class Gridtype:
   def size_in_samples(self, size: int) -> int:
     """Return the size of the domain in units of inter-sample spacing."""
 
-  def point_from_index(self, index: Any, size: int) -> _NDArray:
+  def point_from_index(self, index: _NDArray, size: int) -> _NDArray:
     """Return [0.0, 1.0] coordinates given [0, size - 1] indices."""
 
-  def index_from_point(self, point: Any, size: int) -> _NDArray:
+  def index_from_point(self, point: _NDArray, size: int) -> _NDArray:
     """Return location x given coordinates [0.0, 1.0], where x == 0.0 is the first grid sample
     and x == size - 1.0 is the last grid sample."""
 
-  def reflect(self, index: Any, size: int) -> _NDArray:
+  def reflect(self, index: _NDArray, size: int) -> _NDArray:
     """Map integer sample indices to interior ones using boundary reflection."""
 
-  def wrap(self, index: Any, size: int) -> _NDArray:
+  def wrap(self, index: _NDArray, size: int) -> _NDArray:
     """Map integer sample indices to interior ones using wrapping."""
 
-  def reflect_clamp(self, index: Any, size: int) -> _NDArray:
+  def reflect_clamp(self, index: _NDArray, size: int) -> _NDArray:
     """Map integer sample indices to interior ones using reflect-clamp."""
 
 
@@ -1773,20 +1802,20 @@ class DualGridtype(Gridtype):
   def size_in_samples(self, size: int) -> int:
     return size
 
-  def point_from_index(self, index: Any, size: int) -> _NDArray:
+  def point_from_index(self, index: _NDArray, size: int) -> _NDArray:
     return (index + 0.5) / size
 
-  def index_from_point(self, point: Any, size: int) -> _NDArray:
+  def index_from_point(self, point: _NDArray, size: int) -> _NDArray:
     return point * size - 0.5
 
-  def reflect(self, index: Any, size: int) -> _NDArray:
+  def reflect(self, index: _NDArray, size: int) -> _NDArray:
     index = np.mod(index, size * 2)
     return np.where(index < size, index, 2 * size - 1 - index)
 
-  def wrap(self, index: Any, size: int) -> _NDArray:
+  def wrap(self, index: _NDArray, size: int) -> _NDArray:
     return np.mod(index, size)
 
-  def reflect_clamp(self, index: Any, size: int) -> _NDArray:
+  def reflect_clamp(self, index: _NDArray, size: int) -> _NDArray:
     return np.minimum(np.where(index < 0, -1 - index, index), size - 1)
 
 
@@ -1807,20 +1836,20 @@ class PrimalGridtype(Gridtype):
   def size_in_samples(self, size: int) -> int:
     return size - 1
 
-  def point_from_index(self, index: Any, size: int) -> _NDArray:
+  def point_from_index(self, index: _NDArray, size: int) -> _NDArray:
     return index / (size - 1)
 
-  def index_from_point(self, point: Any, size: int) -> _NDArray:
+  def index_from_point(self, point: _NDArray, size: int) -> _NDArray:
     return point * (size - 1)
 
-  def reflect(self, index: Any, size: int) -> _NDArray:
+  def reflect(self, index: _NDArray, size: int) -> _NDArray:
     index = np.mod(index, size * 2 - 2)
     return np.where(index < size, index, 2 * size - 2 - index)
 
-  def wrap(self, index: Any, size: int) -> _NDArray:
+  def wrap(self, index: _NDArray, size: int) -> _NDArray:
     return np.mod(index, size - 1)
 
-  def reflect_clamp(self, index: Any, size: int) -> _NDArray:
+  def reflect_clamp(self, index: _NDArray, size: int) -> _NDArray:
     return np.minimum(np.abs(index), size - 1)
 
 
@@ -1843,6 +1872,7 @@ r"""Shortcut names for the two predefined grid types (specified per dimension):
 
 See the source code for extensibility.
 """
+
 
 def _get_gridtype(gridtype: Union[str, Gridtype]) -> Gridtype:
   """Return a `Gridtype`, which can be specified as a name in `GRIDTYPES`."""
@@ -1910,28 +1940,22 @@ def _get_gridtypes(
 # %% [markdown]
 # Here are some [predefined `boundary` settings](#Predefined-boundary-rules),
 # visualized in 1D on dual and primal grid-types:
-
-# %% [markdown]
 # <center>
 # <img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_1D.png"/>
-# Figure ?: Boundary rules illustrated in 1D.
 # </center>
-# <br/>
 
 # %% [markdown]
 # Here is a visualization of the same boundary rules applied in 2D,
 # using different grid types for each dimension (`'dual'` in $y$ and `'primal'` in $x$):
-
-# %% [markdown]
 # <center>
 # <img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_2D.png"/>
-# Figure ?: Boundary rules illustrated in 2D.
 # </center>
 
 # %% [markdown]
 # Component `RemapCoordinates` of `Boundary`:
 
 # %%
+@dataclasses.dataclass(frozen=True)
 class RemapCoordinates:
   """Abstract base class for modifying the specified coordinates prior to evaluating the
   reconstruction kernels."""
@@ -1968,7 +1992,7 @@ class TileRemapCoordinates(RemapCoordinates):
 # Component `ExtendSamples` of `Boundary`:
 
 # %%
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ExtendSamples:
   """Abstract base class for replacing references to grid samples exterior to the unit domain by
   affine combinations of interior sample(s) and possibly the constant value (cval)."""
@@ -2139,28 +2163,28 @@ def test_linear_boundary() -> None:
   assert np.allclose(
       weight,
       [
-       [0, 4, -3, 0, 0],
-       [0, 3, -2, 0, 0],
-       [0, 2, -1, 0, 0],
-       [1, 0, 0, 0, 0],
-       [1, 0, 0, 0, 0],
-       [0, 0, 0, -1, 2],
-       [0, 0, 0, -2, 3],
-       [0, 0, 0, 0, 0],
-       [0, 0, 0, 0, 0],
+          [0, 4, -3, 0, 0],
+          [0, 3, -2, 0, 0],
+          [0, 2, -1, 0, 0],
+          [1, 0, 0, 0, 0],
+          [1, 0, 0, 0, 0],
+          [0, 0, 0, -1, 2],
+          [0, 0, 0, -2, 3],
+          [0, 0, 0, 0, 0],
+          [0, 0, 0, 0, 0],
       ])
   assert np.all(
       index ==
       [
-       [0, 0, 1, 0, 0],
-       [0, 0, 1, 0, 0],
-       [0, 0, 1, 0, 0],
-       [0, 0, 0, 0, 0],
-       [1, 1, 1, 1, 1],
-       [1, 1, 1, 0, 1],
-       [1, 1, 1, 0, 1],
-       [1, 1, 1, 1, 1],
-       [1, 1, 1, 1, 1],
+          [0, 0, 1, 0, 0],
+          [0, 0, 1, 0, 0],
+          [0, 0, 1, 0, 0],
+          [0, 0, 0, 0, 0],
+          [1, 1, 1, 1, 1],
+          [1, 1, 1, 0, 1],
+          [1, 1, 1, 0, 1],
+          [1, 1, 1, 1, 1],
+          [1, 1, 1, 1, 1],
       ])
 
 test_linear_boundary()
@@ -2170,7 +2194,7 @@ test_linear_boundary()
 # Component `OverrideExteriorValue` of `Boundary`:
 
 # %%
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OverrideExteriorValue:
   """Abstract base class to set the value outside some domain extent to a
   constant value (`cval`)."""
@@ -2235,7 +2259,7 @@ class PlusMinusOneOverrideExteriorValue(OverrideExteriorValue):
 
 
 # %%
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Boundary:
   """Domain boundary rules.  These define the reconstruction over the source domain near and beyond
   the domain boundaries.  The rules may be specified separately for each domain dimension."""
@@ -2253,11 +2277,10 @@ class Boundary:
   override_value: OverrideExteriorValue = NoOverrideExteriorValue()
   """Set the value outside some extent to a constant value (cval)."""
 
-  uses_cval: bool = dataclasses.field(init=False)
-  """True if weights may be non-affine, involving the constant value (cval)."""
-
-  def __post_init__(self) -> None:
-    self.uses_cval = self.extend_samples.uses_cval or self.override_value.uses_cval
+  @property
+  def uses_cval(self) -> bool:
+    """True if weights may be non-affine, involving the constant value (cval)."""
+    return self.extend_samples.uses_cval or self.override_value.uses_cval
 
   def preprocess_coordinates(self, point: _NDArray) -> _NDArray:
     """Modify coordinates prior to evaluating the filter kernels."""
@@ -2323,19 +2346,20 @@ These boundary rules may be specified per dimension.  See the source code for ex
 using the classes `RemapCoordinates`, `ExtendSamples`, and `OverrideExteriorValue`.
 
 <center>
-<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_1D.png"/><br/>
-Boundary rules illustrated in 1D.
+Boundary rules illustrated in 1D:<br/>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_1D.png" width="100%"/>
 </center>
 
 <center>
-<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_2D.png"/><br/>
-Boundary rules illustrated in 2D.
+Boundary rules illustrated in 2D:<br/>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_2D.png" width="100%"/>
 </center>
 """
 
 _OFTUSED_BOUNDARIES = ('reflect wrap tile clamp border natural'
                        ' linear_constant quadratic_constant'.split())
 """A useful subset of `BOUNDARIES` for visualization in figures."""
+
 
 def _get_boundary(boundary: Union[str, Boundary]) -> Boundary:
   """Return a `Boundary`, which can be specified as a name in `BOUNDARIES`."""
@@ -2352,7 +2376,7 @@ def _get_boundary(boundary: Union[str, Boundary]) -> Boundary:
 # [*filter kernel*](https://en.wikipedia.org/wiki/Kernel_(statistics))
 # $\phi$.
 # <!-- (A kernel is a # [window function](https://en.wikipedia.org/wiki/Window_function),
-# i.e., it has value zero outside of some some radius.)? -->
+# i.e., it has value zero outside of some some radius.) -->
 #
 # The [Nyquist-Shannon sampling
 # theorem](https://en.wikipedia.org/wiki/Nyquist%E2%80%93Shannon_sampling_theorem)
@@ -2388,7 +2412,7 @@ def _get_boundary(boundary: Union[str, Boundary]) -> Boundary:
 # [*ringing*](https://en.wikipedia.org/wiki/Ringing_artifacts) artifacts.
 
 # %%
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Filter:
   """Abstract base class for filter kernel functions.
 
@@ -2397,7 +2421,7 @@ class Filter:
   where N = 2 * radius.)
 
   Portions of this code are adapted from the C++ library in
-  https://github.com/hhoppe/Mesh-processing-library/blob/master/libHh/Filter.cpp
+  https://github.com/hhoppe/Mesh-processing-library/blob/main/libHh/Filter.cpp
 
   See also http://hhoppe.com/proj/filtering/.
   """
@@ -2424,7 +2448,7 @@ class Filter:
   requires_digital_filter: bool = False
   """True if the filter needs a pre/post digital filter for interpolation."""
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     """Return evaluation of filter kernel at locations x."""
 
 
@@ -2435,11 +2459,11 @@ class ImpulseFilter(Filter):
   def __init__(self) -> None:
     super().__init__(name='impulse', radius=1e-20, continuous=False, partition_of_unity=False)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     raise AssertionError('The Impulse is infinitely narrow, so cannot be directly evaluated.')
 
 
-# %% tags=[]
+# %%
 class BoxFilter(Filter):
   """See https://en.wikipedia.org/wiki/Box_function.
 
@@ -2449,9 +2473,10 @@ class BoxFilter(Filter):
   def __init__(self) -> None:
     super().__init__(name='box', radius=0.5, continuous=False)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     use_asymmetric = True
     if use_asymmetric:
+      x = np.asarray(x)
       return np.where((-0.5 <= x) & (x < 0.5), 1.0, 0.0)
     x = np.abs(x)
     return np.where(x < 0.5, 1.0, np.where(x == 0.5, 0.5, 0.0))
@@ -2480,7 +2505,7 @@ class TrapezoidFilter(Filter):
       raise ValueError(f'Radius {radius} is outside the range (0.5, 1.0].')
     super().__init__(name=f'trapezoid_{radius}', radius=radius)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     assert 0.5 < self.radius <= 1.0
     return ((0.5 + 0.25 / (self.radius - 0.5)) - (0.5 / (self.radius - 0.5)) * x).clip(0.0, 1.0)
@@ -2497,7 +2522,7 @@ class TriangleFilter(Filter):
   def __init__(self) -> None:
     super().__init__(name='triangle', radius=1.0)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     return (1.0 - np.abs(x)).clip(0.0, 1.0)
 
 
@@ -2528,7 +2553,7 @@ class CubicFilter(Filter):
     super().__init__(name=name, radius=2.0, interpolating=(b == 0))
     self.b, self.c = b, c
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     b, c = self.b, self.c
     f3, f2, f0 = 2 - 9/6*b - c, -3 + 2*b + c, 1 - 1/3*b
@@ -2599,7 +2624,7 @@ class LanczosFilter(Filter):
                      unit_integral=False)
 
     @_cache_sampled_1d_function(xmin=-radius, xmax=radius, enable=sampled)
-    def _eval(x: Any) -> _NDArray:
+    def _eval(x: _ArrayLike) -> _NDArray:
       x = np.abs(x)
       # Note that window[n] = sinc(2*n/N - 1), with 0 <= n <= N.
       # But, x = n - N/2, or equivalently, n = x + N/2, with -N/2 <= x <= N/2.
@@ -2608,7 +2633,7 @@ class LanczosFilter(Filter):
 
     self.function = _eval
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     return self.function(x)
 
 
@@ -2621,7 +2646,7 @@ class GeneralizedHammingFilter(Filter):
     a0: Scalar parameter, where 0.0 < a0 < 1.0.  The case of a0=0.5 is the Hann filter.
 
   See https://en.wikipedia.org/wiki/Window_function#Hann_and_Hamming_windows,
-  and hamming() in https://github.com/scipy/scipy/blob/master/scipy/signal/windows/windows.py.
+  and hamming() in https://github.com/scipy/scipy/blob/main/scipy/signal/windows/_windows.py.
 
   Note that 'hamming3' is `(radius=3, a0=25/46)`, which close to but different from `a0=0.54`.
 
@@ -2638,7 +2663,7 @@ class GeneralizedHammingFilter(Filter):
     assert 0.0 < a0 < 1.0
     self.a0 = a0
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     # Note that window[n] = a0 - (1 - a0) * cos(2 * pi * n / N), 0 <= n <= N.
     # With n = x + N/2, we get the zero-phase function w_0(x):
@@ -2654,7 +2679,7 @@ class KaiserFilter(Filter):
   [Karras et al. 20201.  Alias-free generative adversarial networks.
   https://arxiv.org/pdf/2106.12423.pdf].
 
-  Use np.kaiser()?
+  See also np.kaiser().
 
   Args:
     radius: Value L/2 in the definition.  It may be fractional for a (digital) resizing filter
@@ -2670,14 +2695,14 @@ class KaiserFilter(Filter):
                      unit_integral=False)
 
     @_cache_sampled_1d_function(xmin=-math.ceil(radius), xmax=math.ceil(radius), enable=sampled)
-    def _eval(x: Any) -> _NDArray:
+    def _eval(x: _ArrayLike) -> _NDArray:
       x = np.abs(x)
       window = np.i0(beta * np.sqrt((1.0 - np.square(x / radius)).clip(0.0, 1.0))) / np.i0(beta)
       return np.where(x <= radius + 1e-6, _sinc(x) * window, 0.0)
 
     self.function = _eval
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     return self.function(x)
 
 
@@ -2703,12 +2728,12 @@ class BsplineFilter(Filter):
     t = list(range(degree + 2))
     self.bspline = scipy.interpolate.BSpline.basis_element(t)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     return np.where(x < self.radius, self.bspline(x + self.radius), 0.0)
 
 
-# %% tags=[]
+# %%
 class CardinalBsplineFilter(Filter):
   """Interpolating B-spline, achieved with aid of digital pre or post filter.
 
@@ -2732,17 +2757,17 @@ class CardinalBsplineFilter(Filter):
     bspline = scipy.interpolate.BSpline.basis_element(t)
 
     @_cache_sampled_1d_function(xmin=-radius, xmax=radius, enable=sampled)
-    def _eval(x: Any) -> _NDArray:
+    def _eval(x: _ArrayLike) -> _NDArray:
       x = np.abs(x)
       return np.where(x < radius, bspline(x + radius), 0.0)
 
     self.function = _eval
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     return self.function(x)
 
 
-# %% tags=[]
+# %%
 class OmomsFilter(Filter):
   """OMOMS interpolating filter, with aid of digital pre or post filter.
 
@@ -2760,7 +2785,7 @@ class OmomsFilter(Filter):
     super().__init__(name=f'omoms{degree}', radius=(degree + 1) / 2, requires_digital_filter=True)
     self.degree = degree
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     if self.degree == 3:
       v01 = ((0.5 * x - 1.0) * x + 3/42) * x + 26/42
@@ -2774,7 +2799,7 @@ class OmomsFilter(Filter):
     raise AssertionError
 
 
-# %% tags=[]
+# %%
 class GaussianFilter(Filter):
   r"""See https://en.wikipedia.org/wiki/Gaussian_function.
 
@@ -2798,14 +2823,14 @@ class GaussianFilter(Filter):
                      partition_of_unity=False)
     self.standard_deviation = standard_deviation
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     x = np.abs(x)
     sdv = self.standard_deviation
     v0r = np.exp(np.square(x / sdv) / -2.0) / (np.sqrt(math.tau) * sdv)
     return np.where(x < self.radius, v0r, 0.0)
 
 
-# %% tags=[]
+# %%
 class NarrowBoxFilter(Filter):
   """Compact footprint, used for visualization of grid sample location.
 
@@ -2818,9 +2843,10 @@ class NarrowBoxFilter(Filter):
     super().__init__(name='narrowbox', radius=radius, continuous=False, unit_integral=False,
                      partition_of_unity=False)
 
-  def __call__(self, x: Any) -> _NDArray:
+  def __call__(self, x: _ArrayLike) -> _NDArray:
     radius = self.radius
     magnitude = 1.0
+    x = np.asarray(x)
     return np.where((-radius <= x) & (x < radius), magnitude, 0.0)
 
 
@@ -2834,7 +2860,9 @@ class NarrowBoxFilter(Filter):
 # (The Fourier transform of a circle
 # [involves the first-order Bessel function of the first kind](https://en.wikipedia.org/wiki/Airy_disk).)
 
-# %% tags=[]
+# %%
+_DEFAULT_FILTER = 'lanczos3'
+
 _DICT_FILTERS = {
     'impulse': ImpulseFilter(),
     'box': BoxFilter(),
@@ -2876,10 +2904,10 @@ The names expand to:
 | `'lanczos3'`   | `LanczosFilter`(radius=3)     | support window [-3, 3] |
 | `'lanczos5'`   | `LanczosFilter`(radius=5)     | [-5, 5] |
 | `'lanczos10'`  | `LanczosFilter`(radius=10)    | [-10, 10] |
-| `'cardinal3'`  | `CardinalBsplineFilter`(degree=3) | *spline interpolation*, `order=3` |
-| `'cardinal5'`  | `CardinalBsplineFilter`(degree=5) | *spline interpolation*, `order=5` |
-| `'omoms3'`     | `OmomsFilter`(degree=3)       | non-$C^1$, [-3, 3] |
-| `'omoms5'`     | `OmomsFilter`(degree=5)       | non-$C^1$, [-5, 5] |
+| `'cardinal3'`  | `CardinalBsplineFilter`(degree=3) | *spline interpolation*, `order=3`, *GF* |
+| `'cardinal5'`  | `CardinalBsplineFilter`(degree=5) | *spline interpolation*, `order=5`, *GF* |
+| `'omoms3'`     | `OmomsFilter`(degree=3)       | non-$C^1$, [-3, 3], *GF* |
+| `'omoms5'`     | `OmomsFilter`(degree=5)       | non-$C^1$, [-5, 5], *GF* |
 | `'hamming3'`   | `GeneralizedHammingFilter`(...) | (radius=3, a0=25/46) |
 | `'kaiser3'`    | `KaiserFilter`(radius=3.0, beta=7.12) | |
 | `'gaussian'`   | `GaussianFilter()`            | non-interpolating, default $\sigma=1.25/3$ |
@@ -2887,15 +2915,19 @@ The names expand to:
 | `'mitchell'`   | `MitchellFilter()`            | *mitchellcubic* |
 | `'narrowbox'`  | `NarrowBoxFilter()`           | for visualization of sample positions |
 
+The comment label *GF* denotes generalized filters, formed as the composition of
+a finitely supported kernel and a discrete inverse convolution.
+
 <center>
-<img src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png"/>
-Some example filter kernels.
+Some example filter kernels:<br/>
+<img src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png" width="100%"/>
 </center>
 
 The
 [notebook](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 visualizes all filters in 1D and 2D.  See the source code for extensibility.
 """
+
 
 def _get_filter(filter: Union[str, Filter]) -> Filter:
   """Return a `Filter`, which can be specified as a name string key in `FILTERS`."""
@@ -2933,14 +2965,15 @@ def _get_filter(filter: Union[str, Filter]) -> Filter:
 #
 # For other data types, the default transfer function is `gamma='identity'`.
 
-# %% tags=[]
-def _to_float_01(array: _Array, dtype: Any) -> _Array:
+# %%
+def _to_float_01(array: _Array, dtype: _DTypeLike) -> _Array:
   """Scale uint to the range [0.0, 1.0], and clip float to [0.0, 1.0]."""
   array_dtype = _arr_dtype(array)
   dtype = np.dtype(dtype)
   assert np.issubdtype(dtype, np.floating)
-  if array_dtype in (np.uint8, np.uint16, np.uint32):
+  if array_dtype.type in (np.uint8, np.uint16, np.uint32):
     if _arr_arraylib(array) == 'numpy':
+      assert isinstance(array, np.ndarray)  # Help mypy.
       return np.multiply(array, 1 / np.iinfo(array_dtype).max, dtype=dtype)
     return _arr_astype(array, dtype) / np.iinfo(array_dtype).max
   assert np.issubdtype(array_dtype, np.floating)
@@ -2948,7 +2981,7 @@ def _to_float_01(array: _Array, dtype: Any) -> _Array:
 
 
 # %%
-def _from_float(array: _Array, dtype: Any) -> _Array:
+def _from_float(array: _Array, dtype: _DTypeLike) -> _Array:
   """Convert a float in range [0.0, 1.0] to uint or float type."""
   assert np.issubdtype(_arr_dtype(array), np.floating)
   dtype = np.dtype(dtype)
@@ -2961,7 +2994,7 @@ def _from_float(array: _Array, dtype: Any) -> _Array:
 
 
 # %%
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Gamma:
   """Abstract base class for transfer functions on sample values.
 
@@ -2974,13 +3007,13 @@ class Gamma:
   name: str
   """Name of component transfer function."""
 
-  def decode(self, array: _Array, dtype: Any = np.float32) -> _Array:
+  def decode(self, array: _Array, dtype: _DTypeLike = np.float32) -> _Array:
     """Decode source sample values into floating-point, possibly nonlinearly.
 
     Uint source values are mapped to the range [0.0, 1.0].
     """
 
-  def encode(self, array: _Array, dtype: Any) -> _Array:
+  def encode(self, array: _Array, dtype: _DTypeLike) -> _Array:
     """Encode float signal into destination samples, possibly nonlinearly.
 
     Uint destination values are mapped from the range [0.0, 1.0].
@@ -2994,14 +3027,14 @@ class IdentityGamma(Gamma):
   def __init__(self) -> None:
     super().__init__('identity')
 
-  def decode(self, array: _Array, dtype: Any = np.float32) -> _Array:
+  def decode(self, array: _Array, dtype: _DTypeLike = np.float32) -> _Array:
     dtype = np.dtype(dtype)
     assert np.issubdtype(dtype, np.inexact)
     if np.issubdtype(_arr_dtype(array), np.unsignedinteger):
       return _to_float_01(array, dtype)
     return _arr_astype(array, dtype)
 
-  def encode(self, array: _Array, dtype: Any) -> _Array:
+  def encode(self, array: _Array, dtype: _DTypeLike) -> _Array:
     dtype = np.dtype(dtype)
     assert np.issubdtype(dtype, np.number)
     if np.issubdtype(dtype, np.unsignedinteger):
@@ -3019,17 +3052,18 @@ class PowerGamma(Gamma):
     super().__init__(name=f'power_{power}')
     self.power = power
 
-  def decode(self, array: _Array, dtype: Any = np.float32) -> _Array:
+  def decode(self, array: _Array, dtype: _DTypeLike = np.float32) -> _Array:
     dtype = np.dtype(dtype)
     assert np.issubdtype(dtype, np.floating)
     if _arr_dtype(array) == np.uint8 and self.power != 2:
-      decode_table = self.decode(np.arange(256, dtype=dtype) / 255)
-      return _arr_gather(decode_table, array)
+      arraylib = _arr_arraylib(array)
+      decode_table = _make_array(self.decode(np.arange(256, dtype=dtype) / 255), arraylib)
+      return _arr_getitem(decode_table, array)
 
     array = _to_float_01(array, dtype)
     return _arr_square(array) if self.power == 2 else array**self.power
 
-  def encode(self, array: _Array, dtype: Any) -> _Array:
+  def encode(self, array: _Array, dtype: _DTypeLike) -> _Array:
     array = _arr_clip(array, 0.0, 1.0)
     array = _arr_sqrt(array) if self.power == 2 else array**(1.0 / self.power)
     return _from_float(array, dtype)
@@ -3042,17 +3076,18 @@ class SrgbGamma(Gamma):
   def __init__(self) -> None:
     super().__init__(name='srgb')
 
-  def decode(self, array: _Array, dtype: Any = np.float32) -> _Array:
+  def decode(self, array: _Array, dtype: _DTypeLike = np.float32) -> _Array:
     dtype = np.dtype(dtype)
     assert np.issubdtype(dtype, np.floating)
     if _arr_dtype(array) == np.uint8:
-      decode_table = self.decode(np.arange(256, dtype=dtype) / 255)
-      return _arr_gather(decode_table, array)
+      arraylib = _arr_arraylib(array)
+      decode_table = _make_array(self.decode(np.arange(256, dtype=dtype) / 255), arraylib)
+      return _arr_getitem(decode_table, array)
 
     x = _to_float_01(array, dtype)
     return _arr_where(x > 0.04045, ((x + 0.055) / 1.055)**2.4, x / 12.92)
 
-  def encode(self, array: _Array, dtype: Any) -> _Array:
+  def encode(self, array: _Array, dtype: _DTypeLike) -> _Array:
     x = _arr_clip(array, 0.0, 1.0)
     # Unfortunately, exponentiation is slow, and np.digitize() is even slower.
     x = _arr_where(x > 0.0031308, x**(1.0 / 2.4) * 1.055 - (0.055 - 1e-17), x * 12.92)
@@ -3080,12 +3115,13 @@ r"""Shortcut names for some predefined gamma-correction schemes:
 See the source code for extensibility.
 """
 
+
 def _get_gamma(gamma: Union[str, Gamma]) -> Gamma:
   """Return a `Gamma`, which can be specified as a name in `GAMMAS`."""
   return gamma if isinstance(gamma, Gamma) else _DICT_GAMMAS[gamma]
 
 
-# %% tags=[]
+# %%
 def test_gamma() -> None:
   dtypes = 'uint8 uint16 uint32'.split()
   for config1 in itertools.product(ARRAYLIBS, GAMMAS, dtypes):
@@ -3124,7 +3160,7 @@ if EFFORT >= 1:
   test_gamma()
 
 
-# %% tags=[]
+# %%
 def test_gamma_conversion_from_and_to_uint8_timings() -> None:
   dtypes = 'float32 float64'.split()
   for config in itertools.product(dtypes, GAMMAS, ARRAYLIBS):
@@ -3177,8 +3213,8 @@ def _get_src_dst_gamma(gamma: Union[None, str, Gamma],
 # The order of these 1D resize operations does not affect the final result
 # (up to machine precision), but it affects total execution time.
 
-# %% tags=[]
-def _create_resize_matrix(      # pylint: disable=too-many-statements
+# %%
+def _create_resize_matrix(  # pylint: disable=too-many-statements
     src_size: int,
     dst_size: int,
     src_gridtype: Gridtype,
@@ -3188,8 +3224,8 @@ def _create_resize_matrix(      # pylint: disable=too-many-statements
     prefilter: Optional[Filter] = None,
     scale: float = 1.0,
     translate: float = 0.0,
-    dtype: Any = np.float64,
-    arraylib: str = 'numpy') -> Tuple[Any, Any]:
+    dtype: _DTypeLike = np.float64,
+    arraylib: str = 'numpy') -> Tuple[_Array, _Array]:
   """Compute affine weights for 1D resampling from `src_size` to `dst_size`.
 
   Compute a sparse matrix in which each row expresses a destination sample value as a combination
@@ -3305,7 +3341,7 @@ if 1:
   test_create_resize_matrix_for_trapezoid_filter(src_size=3, dst_size=16)
 
 
-# %% tags=[]
+# %%
 def test_that_resize_matrices_are_equal_across_arraylib() -> None:
   import tensorflow as tf
 
@@ -3332,7 +3368,7 @@ if EFFORT >= 1:
   test_that_resize_matrices_are_equal_across_arraylib()
 
 
-# %% tags=[]
+# %%
 def test_that_resize_combinations_are_affine() -> None:
   dst_sizes = 1, 2, 3, 4, 9, 20, 21, 22, 31
   for config in itertools.product(BOUNDARIES, dst_sizes):
@@ -3344,7 +3380,6 @@ def test_that_resize_combinations_are_affine() -> None:
       row_sum = np.asarray(resize_matrix.sum(axis=1)).reshape(-1)
       assert np.allclose(row_sum, 1.0, rtol=0, atol=1e-6), (
           config, resize_matrix.todense(), row_sum)
-
 
 test_that_resize_combinations_are_affine()
 
@@ -3374,37 +3409,35 @@ def test_sparse_csr_matrix_duplicate_entries_are_summed() -> None:
 test_sparse_csr_matrix_duplicate_entries_are_summed()
 
 
-# %% tags=[]
-# pylint: disable-next=too-many-statements disable-next=too-many-branches
+# %%
 def _apply_digital_filter_1d(
-    array: _Array, gridtype: Gridtype, boundary: Boundary, cval: Any, filter: Filter,
-    axis: int = 0, compute_backward: bool = False) -> _Array:
+    array: _Array, gridtype: Gridtype, boundary: Boundary, cval: _ArrayLike, filter: Filter,
+    axis: int = 0) -> _Array:
   """Apply inverse convolution to the specified dimension of the array.
 
   Find the array coefficients such that convolution with the (continuous) filter (given
   gridtype and boundary) interpolates the original array values.
   """
   assert filter.requires_digital_filter
-  # First convert to generic wrapper, then move to _Arraylib??
   arraylib = _arr_arraylib(array)
 
   if arraylib == 'tensorflow':
     import tensorflow as tf
 
     def forward(x: _NDArray) -> _NDArray:
-      return _apply_digital_filter_1d(x, gridtype, boundary, cval, filter, axis)
+      return _apply_digital_filter_1d_numpy(x, gridtype, boundary, cval, filter, axis, False)
 
     def backward(grad_output: _NDArray) -> _NDArray:
-      return _apply_digital_filter_1d(
-          grad_output, gridtype, boundary, cval, filter, axis, compute_backward=True)
+      return _apply_digital_filter_1d_numpy(
+          grad_output, gridtype, boundary, cval, filter, axis, True)
 
     @tf.custom_gradient
-    def tensorflow_inverse_convolution(x: Any) -> _TensorflowTensor:
+    def tensorflow_inverse_convolution(x: _TensorflowTensor) -> _TensorflowTensor:
       # Although `forward` accesses parameters gridtype, boundary, etc., it is not stateful
       # because the function is redefined on each invocation of _apply_digital_filter_1d.
       y = tf.numpy_function(forward, [x], x.dtype, stateful=False)
 
-      def grad(grad_output: Any) -> _TensorflowTensor:
+      def grad(grad_output: _TensorflowTensor) -> _TensorflowTensor:
         return tf.numpy_function(backward, [grad_output], x.dtype, stateful=False)
 
       return y, grad
@@ -3422,49 +3455,67 @@ def _apply_digital_filter_1d(
         del ctx
         assert not kwargs
         x, = args
-        return torch.as_tensor(_apply_digital_filter_1d(
-            x.detach().numpy(), gridtype, boundary, cval, filter, axis))
+        return torch.as_tensor(_apply_digital_filter_1d_numpy(
+            x.detach().numpy(), gridtype, boundary, cval, filter, axis, False))
 
       @staticmethod
       def backward(ctx: Any, *grad_outputs: _TorchTensor) -> _TorchTensor:
         del ctx
         grad_output, = grad_outputs
-        return torch.as_tensor(_apply_digital_filter_1d(
-            grad_output.detach().numpy(), gridtype, boundary, cval, filter,
-            axis, compute_backward=True))
+        return torch.as_tensor(_apply_digital_filter_1d_numpy(
+            grad_output.detach().numpy(), gridtype, boundary, cval, filter, axis, True))
 
     return InverseConvolution.apply(array)
 
   if arraylib == 'jax':
     import jax
     import jax.numpy as jnp
+    # It seems rather difficult to implement this digital filter (inverse convolution) in Jax.
+    # https://jax.readthedocs.io/en/latest/jax.scipy.html sadly omits scipy.signal.filtfilt().
+    # To include a (non-traceable) numpy function in Jax requires jax.experimental.host_callback
+    # and/or defining a new jax.core.Primitive (which allows differentiability).  See
+    # https://github.com/google/jax/issues/1142#issuecomment-544286585
+    # https://github.com/google/jax/blob/main/docs/notebooks/How_JAX_primitives_work.ipynb  :-(
+    # https://github.com/google/jax/issues/5934
 
     @jax.custom_gradient
     def jax_inverse_convolution(x: _JaxArray) -> _JaxArray:
-      y = jnp.asarray(_apply_digital_filter_1d(  # type: ignore[no-untyped-call]
-          x.to_py(), gridtype, boundary, cval, filter, axis))
+      # This function is not jax-traceable due to the presence of to_py(), so jit and grad fail.
+      y = jnp.asarray(_apply_digital_filter_1d_numpy(
+          x.to_py(), gridtype, boundary, cval, filter, axis, False))
 
       def grad(grad_output: _JaxArray) -> _JaxArray:
-        return jnp.asarray(_apply_digital_filter_1d(  # type: ignore[no-untyped-call]
-            grad_output.to_py(), gridtype, boundary, cval, filter, axis, compute_backward=True))
+        return jnp.asarray(_apply_digital_filter_1d_numpy(
+            grad_output.to_py(), gridtype, boundary, cval, filter, axis, True))
 
       return y, grad
 
     return jax_inverse_convolution(array)
 
+  assert arraylib == 'numpy'
+  assert isinstance(array, np.ndarray)  # Help mypy.
+  return _apply_digital_filter_1d_numpy(array, gridtype, boundary, cval, filter, axis, False)
+
+
+def _apply_digital_filter_1d_numpy(
+    array: _NDArray, gridtype: Gridtype, boundary: Boundary, cval: _ArrayLike, filter: Filter,
+    axis: int, compute_backward: bool) -> _NDArray:
+  """Version of _apply_digital_filter_1d` specialized to numpy array."""
   assert np.issubdtype(array.dtype, np.inexact)
   cval = np.asarray(cval).astype(array.dtype, copy=False)
 
-  # Use fast spline_filter1d() if compatible gridtype, boundary, and filter:
+  # Use fast spline_filter1d() if we have a compatible gridtype, boundary, and filter:
   mode = {
       ('reflect', 'dual'): 'reflect',
       ('reflect', 'primal'): 'mirror',
       ('wrap', 'dual'): 'grid-wrap',
       ('wrap', 'primal'): 'wrap',
   }.get((boundary.name, gridtype.name))
-  use_split_filter1d = isinstance(filter, CardinalBsplineFilter) and filter.degree >= 2 and mode
+  filter_is_compatible = isinstance(filter, CardinalBsplineFilter)
+  use_split_filter1d = filter_is_compatible and mode
   if use_split_filter1d:
     assert isinstance(filter, CardinalBsplineFilter)  # Help mypy.
+    assert filter.degree >= 2
     # compute_backward=True is same: matrix is symmetric and cval is unused.
     return scipy.ndimage.spline_filter1d(
         array, axis=axis, order=filter.degree, mode=mode, output=array.dtype)
@@ -3519,8 +3570,23 @@ def _apply_digital_filter_1d(
   return np.moveaxis(array_dim, 0, axis)
 
 
-# %% tags=[]
+# %%
+def test_jax_jit_digital_filter() -> None:
+  import jax
+  import jax.numpy as jnp
+  jitted = jax.jit(_apply_digital_filter_1d, static_argnums=(1, 2, 3, 4, 5, 6))
+  array = jnp.ones((5,))
+  result = jitted(array, _get_gridtype('dual'), _get_boundary('reflect'),
+                  0.0, _get_filter('cardinal3'))
+  del result
+
+if 0:  # Fails because _apply_digital_filter_1d() is not jax-traceable.
+  test_jax_jit_digital_filter()
+
+
+# %%
 def test_apply_digital_filter_1d_quick() -> None:
+  import torch.autograd
   for boundary in 'reflect linear border'.split():
 
     def inverse_convolution(array: _Array) -> _Array:
@@ -3535,7 +3601,6 @@ def test_apply_digital_filter_1d_quick() -> None:
       result = _arr_numpy(inverse_convolution(array))
       assert np.allclose(result, reference)
 
-    import torch
     shape = 5, 7
     array2_np = np.random.default_rng(0).random(shape, dtype=np.float64)
     array2 = torch.tensor(array2_np, requires_grad=True)
@@ -3549,8 +3614,8 @@ if EFFORT >= 1:
 # %% [markdown]
 # ### <a name="resize-function"></a>resize() function
 
-# %% tags=[]
-def resize(                     # pylint: disable=too-many-branches disable=too-many-statements
+# %%
+def resize(  # pylint: disable=too-many-branches disable=too-many-statements
     array: _Array,
     shape: Iterable[int],
     *,
@@ -3558,16 +3623,16 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
     src_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
     dst_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
     boundary: Union[str, Boundary, Iterable[Union[str, Boundary]]] = 'auto',
-    cval: Any = 0,
-    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = 'lanczos3',
+    cval: _ArrayLike = 0,
+    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
     prefilter: Union[None, str, Filter, Iterable[Union[str, Filter]]] = None,
     gamma: Union[None, str, Gamma] = None,
     src_gamma: Union[None, str, Gamma] = None,
     dst_gamma: Union[None, str, Gamma] = None,
     scale: Union[float, Iterable[float]] = 1.0,
     translate: Union[float, Iterable[float]] = 0.0,
-    precision: Any = None,
-    dtype: Any = None,
+    precision: _DTypeLike = None,
+    dtype: _DTypeLike = None,
     dim_order: Optional[Iterable[int]] = None,
 ) -> _Array:
   """Resample `array` (a grid of sample values) onto a grid with resolution `shape`.
@@ -3576,7 +3641,7 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   with `len(shape)` domain coordinate dimensions, where each grid sample value has shape
   `array.shape[len(shape):]`.
 
-  For example:
+  Some examples:
 
   - A grayscale image has `array.shape = height, width` and resizing it with `len(shape) == 2`
     produces a new image of scalar values.
@@ -3639,13 +3704,13 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
       and data type `dtype`.
 
   <center>
+  Example of image upsampling:
   <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_upsampled.png"/>
-  Example of image upsampling
   </center>
 
   <center>
+  Example of image downsampling:
   <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_downsampled.png"/>
-  Example of image downsampling
   </center>
 
   >>> result = resize([1.0, 4.0, 5.0], shape=(4,))
@@ -3673,8 +3738,8 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
   src_gamma2, dst_gamma2 = _get_src_dst_gamma(gamma, src_gamma, dst_gamma, array_dtype, dtype)
   scale2 = np.broadcast_to(np.array(scale), len(shape))
   translate2 = np.broadcast_to(np.array(translate), len(shape))
-  del src_gridtype, dst_gridtype, boundary, filter, prefilter
-  del src_gamma, dst_gamma, scale, translate
+  del (src_gridtype, dst_gridtype, boundary, filter, prefilter,
+       src_gamma, dst_gamma, scale, translate)
   precision = _get_precision(precision, [array_dtype, dtype], [])
   weight_precision = _real_precision(precision)
   if dim_order is None:
@@ -3695,9 +3760,17 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
       all(f.name in ('box', 'trapezoid') for f in prefilter2) and
       np.all(scale2 == 1.0) and np.all(translate2 == 0.0))
   if can_use_fast_box_downsampling:
+    assert isinstance(array, np.ndarray)  # Help mypy.
     array = _downsample_in_2d_using_box_filter(array, typing.cast(Tuple[int, int], shape))
     array = dst_gamma2.encode(array, dtype=dtype)
     return array
+
+  # Multidimensional resize can be expressed using einsum() with multiple per-dim resize matrices,
+  # e.g., as in jax.image.resize().  A benefit is to seek the optimal order of multiplications.
+  # However, efficiency often requires sparse resize matrices, which are unsupported in einsum().
+  # Sparse tensors requested for tf.einsum: https://github.com/tensorflow/tensorflow/issues/43497
+  # https://github.com/tensor-compiler/taco: C++ library that computes tensor algebra expressions
+  # on sparse and dense tensors; however it does not interoperate with tensorflow, torch, or jax.
 
   for dim in dim_order:
     skip_resize_on_this_dim = (shape[dim] == array.shape[dim] and scale2[dim] == 1.0 and
@@ -3724,7 +3797,7 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
         dtype=weight_precision,
         arraylib=arraylib)
 
-    array_dim = _arr_moveaxis(array, dim, 0)
+    array_dim: _Array = _arr_moveaxis(array, dim, 0)
     array_flat = _arr_reshape(array_dim, (array_dim.shape[0], -1))
     array_flat = _arr_possibly_make_contiguous(array_flat)
     if not is_minification and filter2[dim].requires_digital_filter:
@@ -3741,18 +3814,19 @@ def resize(                     # pylint: disable=too-many-branches disable=too-
     if is_minification and filter2[dim].requires_digital_filter:  # use prefilter2[dim]?
       array_flat = _apply_digital_filter_1d(
           array_flat, dst_gridtype2[dim], boundary_dim, cval, filter2[dim])
-    array_dim = _arr_reshape(array_flat, (array_flat.shape[0], *array_dim.shape[1:]))
+    array_dim = _arr_reshape(array_flat, (array_flat.shape[0],
+                                          *array_dim.shape[1:]))  # type: ignore[attr-defined]
     array = _arr_moveaxis(array_dim, 0, dim)
 
   array = dst_gamma2.encode(array, dtype=dtype)
   return array
 
 
-# %% tags=[]
+# %%
 _original_resize = resize
 
 
-# %% tags=[]
+# %%
 def resize_in_arraylib(array: _NDArray, *args: Any,
                        arraylib: str, **kwargs: Any) -> _NDArray:
   """Evaluate the `resize()` operation using the specified array library."""
@@ -3760,35 +3834,65 @@ def resize_in_arraylib(array: _NDArray, *args: Any,
   return _arr_numpy(_original_resize(_make_array(array, arraylib=arraylib), *args, **kwargs))
 
 
-# %% tags=[]
+# %%
 resize_in_numpy = functools.partial(resize_in_arraylib, arraylib='numpy')
 resize_in_tensorflow = functools.partial(resize_in_arraylib, arraylib='tensorflow')
 resize_in_torch = functools.partial(resize_in_arraylib, arraylib='torch')
 resize_in_jax = functools.partial(resize_in_arraylib, arraylib='jax')
 
 
-# %% tags=[]
+# %%
 def resize_possibly_in_arraylib(array: _Array, *args: Any,
-                                arraylib: str, **kwargs: Any) -> _Array:
+                                arraylib: str, **kwargs: Any) -> _AnyArray:
   """If `array` is from numpy, evaluate `resize()` using the specified `arraylib`."""
   if _arr_arraylib(array) == 'numpy':
-    return _arr_numpy(_original_resize(_make_array(array, arraylib=arraylib), *args, **kwargs))
+    return _arr_numpy(_original_resize(
+        _make_array(typing.cast(_ArrayLike, array), arraylib=arraylib), *args, **kwargs))
   return _original_resize(array, *args, **kwargs)
 
 
-# %% tags=[]
-# Export: outside library.
+# %%
+def _immediately_jaxjit_resize(resize_fn: Callable[..., _Array]) -> Callable[..., _Array]:
+  """Return `jax.jit(resize_fn)` with appropriate static arguments from `resize`."""
+  import jax
+  # The keyword 'cval' could be omitted from the static list, but it is likely constant anyways.
+  jitted = jax.jit(resize_fn, static_argnums=(1,),
+                   static_argnames=list(_original_resize.__kwdefaults__))
+  return typing.cast(Callable[..., _Array], jitted)
+
+
+# %%
+def _lazily_jaxjit_resize(resize_fn: Callable[..., _Array]) -> Callable[..., _Array]:
+  """Lazily invoke `jax.jit` on `resize_fn`."""
+  jitted: Optional[Callable[..., _Array]] = None
+
+  @functools.wraps(resize_fn)
+  def jit_and_call(*args: Any, **kwargs: Any) -> _Array:
+    nonlocal jitted
+    if not jitted:
+      jitted = _immediately_jaxjit_resize(resize_fn)
+    return jitted(*args, **kwargs)
+
+  return jit_and_call
+
+
+# %%
+jaxjit_resize = _lazily_jaxjit_resize(resize)
+
+
+# %%
+# Export library: omit.
 if 0:  # For testing.
-  resize = typing.cast(Any, functools.partial(resize_possibly_in_arraylib, arraylib='jax'))
+  resize = typing.cast(Any, functools.partial(resize_possibly_in_arraylib, arraylib='torch'))
   # Note: resize() in jax may return a non-writable np.ndarray, and consequently torch may warn
   # "The given NumPy array is not writable, and PyTorch does not support non-writable tensors".
 
 
-# %% tags=[]
-# Export: outside library.
+# %%
+# Export library: omit.
 def resize_showing_domain_boundary(array: _NDArray, shape, *,
-                                   translate=0.2, scale=0.6, **kwargs) -> _NDArray:
-  array = np.asarray(resize(array, shape, translate=translate, scale=scale, **kwargs))
+                                   scale=0.6, translate=0.2, **kwargs) -> _NDArray:
+  array = np.asarray(resize(array, shape, scale=scale, translate=translate, **kwargs))
   yx_low = (np.array(shape) * translate + 0.5).astype(int)
   yx_high = (np.array(shape) * (translate + scale) + 0.5).astype(int)
   yx = np.indices(shape)
@@ -3800,7 +3904,7 @@ def resize_showing_domain_boundary(array: _NDArray, shape, *,
   return array
 
 
-# %% tags=[]
+# %%
 def test_linear_precision_of_1d_primal_upsampling() -> None:
   array = np.arange(7.0)
   new = resize(array, (13,), gridtype='primal', filter='triangle')
@@ -3823,7 +3927,7 @@ def test_linear_precision_of_2d_primal_upsampling() -> None:
 test_linear_precision_of_2d_primal_upsampling()
 
 
-# %% tags=[]
+# %%
 def test_resize_of_complex_value_type() -> None:
   for arraylib in ARRAYLIBS:
     array = _make_array([1 + 2j, 3 + 6j], arraylib)
@@ -3843,14 +3947,15 @@ def test_resize_of_integer_type() -> None:
 test_resize_of_integer_type()
 
 
-# %% tags=[]
+# %%
 def test_order_of_dimensions_does_not_affect_resize_results(step=3) -> None:
   shapes = [(3, 4, 5), (3, 2, 4), (6, 2, 2), (1, 1, 1)]
   boundaries = 'reflect tile border natural linear_constant'.split()
   filters = 'impulse box trapezoid lanczos3'.split()
-  configs: List[Sequence[Any]] = [shapes, shapes, GRIDTYPES, GRIDTYPES, boundaries, filters]
-  assert all(len(elem) % step != 0 for elem in configs)
-  for config in itertools.islice(itertools.product(*configs), 0, None, step):
+  sequences: List[Sequence[Any]] = [shapes, shapes, GRIDTYPES, GRIDTYPES, boundaries, filters]
+  assert step == 1 or all(len(sequence) % step != 0 for sequence in sequences)
+  configs = itertools.product(*sequences)  # len(configs) = np.prod([4, 4, 2, 2, 5, 4]) = 1280.
+  for config in itertools.islice(configs, 0, None, step):
     src_shape, dst_shape, src_gridtype, dst_gridtype, boundary, filter = config
     if ((src_gridtype == 'primal' and min(src_shape) < 2) or
         (dst_gridtype == 'primal' and min(dst_shape) < 2)):
@@ -3869,14 +3974,14 @@ if EFFORT >= 1:
   test_order_of_dimensions_does_not_affect_resize_results()
 
 
-# %% tags=[]
+# %%
 def test_filters_on_checkerboard(src_shape=(12, 8), boundary='wrap') -> None:
   original = create_checkerboard(src_shape)
   for dst_shape in [(11, 7), (9, 6), (7, 5), (6, 4), (5, 3), (15, 14)]:
     filters = 'impulse box trapezoid triangle cubic lanczos3 lanczos5 lanczos10'.split()
     display_markdown(f'Resizing checkerboard from shape `{src_shape}`'
-                     f' to `{dst_shape}` with boundary=`{boundary}`:')
-    images = {f'{filter}': resize(original, dst_shape, filter=filter, boundary=boundary)
+                     f" to `{dst_shape}` with boundary=`'{boundary}'`:")
+    images = {f"'{filter}'": resize(original, dst_shape, filter=filter, boundary=boundary)
               for filter in filters}
     images = {'original': original, **images}
     media.show_images(images, border=True, vmin=0, vmax=1, width=64)
@@ -3907,7 +4012,7 @@ def test_apply_digital_filter_1d(cval=-10.0, shape=(7, 8)) -> None:
 test_apply_digital_filter_1d()
 
 
-# %% tags=[]
+# %%
 def test_apply_resize_to_batch_of_images(num_images=10, shape=(32, 32), new_shape=(128, 128),
                                          debug=False) -> None:
   for arraylib in ARRAYLIBS:
@@ -3953,25 +4058,25 @@ if EFFORT >= 1:
 _MAX_BLOCK_SIZE_RECURSING = -999  # Special value to indicate re-invocation on partitioned blocks.
 
 
-# %% tags=[]
-def resample(                   # pylint: disable=too-many-branches disable=too-many-statements
+# %%
+def resample(  # pylint: disable=too-many-branches disable=too-many-statements
     array: _Array,
-    coords: Any,
+    coords: _ArrayLike,
     *,
     gridtype: Union[str, Gridtype, Iterable[Union[str, Gridtype]]] = 'dual',
     boundary: Union[str, Boundary, Iterable[Union[str, Boundary]]] = 'auto',
-    cval: Any = 0,
-    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = 'lanczos3',
+    cval: _ArrayLike = 0,
+    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
     prefilter: Union[None, str, Filter, Iterable[Union[str, Filter]]] = None,
     gamma: Union[None, str, Gamma] = None,
     src_gamma: Union[None, str, Gamma] = None,
     dst_gamma: Union[None, str, Gamma] = None,
-    jacobian: Any = None,
-    precision: Any = None,
-    dtype: Any = None,
+    jacobian: Optional[_ArrayLike] = None,
+    precision: _DTypeLike = None,
+    dtype: _DTypeLike = None,
     max_block_size: int = 40_000,
     debug: bool = False,
-) -> _NDArray:
+) -> _Array:
   """Interpolate `array` (a grid of samples) at specified unit-domain coordinates `coords`.
 
   The last dimension of `coords` contains unit-domain coordinates at which to interpolate the
@@ -4052,8 +4157,8 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     the source array.
 
   <center>
-  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_warp_coords.png"/><br/>
-  Example of resample operation.
+  Example of resample operation:<br/>
+  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_warp_coords.png"/>
   </center>
 
   For reference, the identity resampling for a scalar-valued grid with the default grid-type
@@ -4130,7 +4235,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
       print(f'(resample: splitting coords into blocks {block_shape}).')
     coord_blocks = _split_array_into_blocks(coords, block_shape)
 
-    def process_block(coord_block: _NDArray) -> _NDArray:
+    def process_block(coord_block: _NDArray) -> _Array:
       return resample(
           array, coord_block, gridtype=gridtype2, boundary=boundary2, cval=cval,
           filter=filter2, prefilter=prefilter2, src_gamma='identity', dst_gamma=dst_gamma2,
@@ -4197,33 +4302,18 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
 
   # Gather the samples.
 
-  if arraylib == 'tensorflow':
-    import tensorflow as tf
-    # Recall that src_index = [shape(8, 9, 4), shape(8, 9, 6)].
-    gather_shape = resampled_shape + tuple(a.shape[-1] for a in src_index)  # (8, 9, 4, 6)
-    src_index_expanded = []
-    for dim in range(grid_ndim):
-      src_index_dim = np.moveaxis(
-          src_index[dim].reshape(src_index[dim].shape + (1,) * (grid_ndim - 1)),
-          resampled_ndim, resampled_ndim + dim)
-      src_index_expanded.append(np.broadcast_to(src_index_dim, gather_shape))
-    # Unfortunately, broadcast expansion seems unavoidable for tf.gather_nd().
-    indices = np.moveaxis(np.array(src_index_expanded), 0, -1)  # (8, 9, 4, 6, 2)
-    samples = tf.gather_nd(array, indices)  # (8, 9, 4, 6, 3)
+  # Recall that src_index = [shape(8, 9, 4), shape(8, 9, 6)].
+  src_index_expanded = []
+  for dim in range(grid_ndim):
+    src_index_dim = np.moveaxis(
+        src_index[dim].reshape(src_index[dim].shape + (1,) * (grid_ndim - 1)),
+        resampled_ndim, resampled_ndim + dim)
+    src_index_expanded.append(src_index_dim)
+  indices = tuple(src_index_expanded)  # (shape(8, 9, 4, 1), shape(8, 9, 1, 6))
+  samples = _arr_getitem(array, indices)  # (8, 9, 4, 6, 3)
 
-  else:  # 'numpy', 'torch', 'jax'.
-    # Recall that src_index = [shape(8, 9, 4), shape(8, 9, 6)].
-    src_index_expanded = []  # [(8, 9, 4, 1), (8, 9, 1, 6)]
-    for dim in range(grid_ndim):
-      src_index_expanded.append(np.moveaxis(
-          src_index[dim].reshape(src_index[dim].shape + (1,) * (grid_ndim - 1)),
-          resampled_ndim, resampled_ndim + dim))
-    # Unfortunately, gathering 'samples' is the memory bottleneck.  It would be ideal if we could
-    # defer the array reads until inside the np.einsum() call.
-    # For large outputs, splitting the evaluation over output tiles helps a bit.
-    samples = array[tuple(src_index_expanded)]  # (8, 9, 4, 6, 3)
-
-  samples_ndim = len(samples.shape)
+  # Indirectly derive samples.ndim (which is unavailable during Tensorflow grad computation).
+  samples_ndim = resampled_ndim + grid_ndim + len(sample_shape)
 
   # Compute an Einstein summation over the samples and each of the per-dimension weights.
 
@@ -4231,6 +4321,7 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     return ''.join(chr(ord('a') + i) for i in dims)
 
   operands = [samples]  # (8, 9, 4, 6, 3)
+  assert samples_ndim < 26  # Letters 'a' through 'z'.
   labels = [label(range(samples_ndim))]  # ['abcde']
   for dim in range(grid_ndim):
     operands.append(weight[dim])  # (8, 9, 4), then (8, 9, 6)
@@ -4238,8 +4329,12 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
   output_label = label(list(range(resampled_ndim)) +
                        list(range(resampled_ndim + grid_ndim, samples_ndim)))  # 'abe'
   subscripts = ','.join(labels) + '->' + output_label  # 'abcde,abc,abd->abe'
-
   array = _arr_einsum(subscripts, *operands)  # (8, 9, 3)
+
+  # Gathering `samples` is the memory bottleneck.  It would be ideal if the gather() and einsum()
+  # computations could be fused.  In Jax, https://github.com/google/jax/issues/3206 suggests
+  # that this may become possible.  In any case, for large outputs it helps to partition the
+  # evaluation over output tiles (using max_block_size).
 
   if uses_cval:
     cval_weight = 1.0 - np.multiply.reduce(
@@ -4248,11 +4343,16 @@ def resample(                   # pylint: disable=too-many-branches disable=too-
     array += _make_array((cval_weight_reshaped * cval).astype(precision, copy=False), arraylib)
 
   array = dst_gamma2.encode(array, dtype=dtype)
-
   return array
 
 
-# %% tags=[]
+# %%
+# Currently we cannot apply jax.jit to resample() because the `coords` argument is processed
+# using numpy and therefore cannot be differentiated.  Also, because `coords` is an array it
+# cannot be marked as a static argument.  We could allow `coords` to be a general `_Array` type;
+# this would involve generalizing the code in the Boundary and Filter classes?
+
+# %%
 def test_resample_small_array(arraylib: str) -> None:
   shape = 2, 3
   new_shape = 3, 4
@@ -4274,7 +4374,7 @@ if EFFORT >= 1:
   test_resample_small_arrays()
 
 
-# %% tags=[]
+# %%
 def test_identity_resampling_with_many_boundary_rules(filter: Filter) -> None:
   for boundary in BOUNDARIES:
     array = np.arange(6, dtype=np.float32).reshape(2, 3)
@@ -4285,55 +4385,71 @@ def test_identity_resampling_with_many_boundary_rules(filter: Filter) -> None:
 test_identity_resampling_with_many_boundary_rules(LanczosFilter(radius=5, sampled=False))
 
 
-# %% tags=[]
-def test_resample_scenarios() -> None:
+# %%
+def test_resample_scenario1() -> None:
   # Resample a grayscale image with `array.shape = height, width` onto a new grayscale image
   # with `new.shape = height2, width2` by using `coords.shape = height2, width2, 2`.
-  array: Any = [[25, 75], [25, 75]]
-  coords: Any = (np.moveaxis(np.indices((4, 4)), 0, -1) + 0.5) / 4
+  array = [[25, 75], [25, 75]]
+  coords = (np.moveaxis(np.indices((4, 4)), 0, -1) + 0.5) / 4
   new = resample(array, coords, filter='triangle')
   assert np.allclose(new, [[25, 38, 63, 75]] * 4)
 
-  # Resample an RGB image with `array.shape = height, width, 3` onto a new RGB image with
-  # `new.shape = height2, width2, 3` by using `coords.shape = height2, width2, 2`.
+test_resample_scenario1()
+
+def test_resample_scenario2() -> None:
+  """Resample an RGB image with `array.shape = height, width, 3` onto a new RGB image with
+  `new.shape = height2, width2, 3` by using `coords.shape = height2, width2, 2`."""
   array = [[[25, 125, 225], [75, 175, 275]],
            [[25, 125, 225], [75, 175, 275]]]
   coords = (np.moveaxis(np.indices((4, 4)), 0, -1) + 0.5) / 4
   new = resample(array, coords, filter='triangle')
   assert np.allclose(new, [[[25, 125, 225], [38, 138, 238], [63, 163, 263], [75, 175, 275]]] * 4)
 
-  # Sample an RGB image at `num` 2D points along a line segment by using `coords.shape = num, 2`.
+test_resample_scenario2()
+
+def test_resample_scenario3() -> None:
+  """Sample an RGB image at `num` 2D points along a line segment by using
+  `coords.shape = num, 2`."""
   array = [[[10, 10, 10], [100, 10, 10]],
            [[20, 200, 20], [80, 80, 80]]]
   coords = [[0.2, 0.2], [0.3, 0.5], [0.4, 0.8]]
   new = resample(array, coords, filter='triangle')
   assert np.allclose(new, [[10, 10, 10], [55, 23, 14], [94, 31, 31]])
 
-  # Sample an RGB image at a single 2D point by using `coords.shape = (2,)`.
+test_resample_scenario3()
+
+def test_resample_scenario4() -> None:
+  """Sample an RGB image at a single 2D point by using `coords.shape = (2,)`."""
   array = [[[10, 10, 10], [100, 10, 10]],
            [[20, 200, 20], [80, 80, 80]]]
   new = resample(array, (0.25, 0.25))
   assert np.allclose(new, [10, 10, 10])
 
-  # Sample a 3D grid of 3x3 Jacobians with `array.shape = nz, ny, nx, 3, 3`
-  # along a 2D plane by using `coords.shape = height, width, 3`.
+test_resample_scenario4()
+
+def test_resample_scenario5() -> None:
+  """Sample a 3D grid of 3x3 Jacobians with `array.shape = nz, ny, nx, 3, 3` along a 2D plane
+  by using `coords.shape = height, width, 3`."""
   array = np.random.default_rng(0).random((2, 2, 2, 3, 3))
   coords = np.random.default_rng(0).random((2, 2, 3))
   new = resample(array, coords)
   _check_eq(new.shape, (2, 2, 3, 3))
 
-  # Map a grayscale image through a color map by using `array.shape = 256, 3` and
-  # `coords.shape = height, width`.
+test_resample_scenario5()
+
+def test_resample_scenario6() -> None:
+  """Map a grayscale image through a color map by using `array.shape = 256, 3` and
+  `coords.shape = height, width`."""
   array = [1000, 1100, 1400, 2000]
   coords = [[[0.1], [0.3]],
             [[0.7], [0.9]]]
   new = resample(array, coords)
   assert np.allclose(new, [[998, 1060], [1583, 2040]])
 
-test_resample_scenarios()
+test_resample_scenario6()
 
 
-# %% tags=[]
+# %%
 def test_identity_resampling() -> None:
   shape = 3, 2, 5
   array = np.random.default_rng(0).random(shape)
@@ -4346,9 +4462,8 @@ def test_identity_resampling() -> None:
 test_identity_resampling()
 
 
-# %% tags=[]
-def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4),
-                                            step=None) -> None:
+# %%
+def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)) -> None:
   assert np.all(np.array(new_shape) >= np.array(shape))
   scale = 1.1
   translate = -0.4, -0.03, 0.4
@@ -4358,11 +4473,11 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
   boundaries = 'border clamp quadratic reflect wrap'.split()
   filters = 'box bspline3 impulse lanczos3 narrowbox triangle cardinal3 omoms5'.split()
   gammas = 'identity power2'.split()
-  configs = [arraylibs, dtypes, GRIDTYPES, boundaries, filters, gammas]
-  # configs: np.prod([4, 7, 5, 8, 2]) == 2240
-  step = 37 if step is None else step
-  assert all(step == 1 or len(elem) % step != 0 for elem in configs)
-  for config in itertools.islice(itertools.product(*configs), 0, None, step):
+  sequences = [arraylibs, dtypes, GRIDTYPES, boundaries, filters, gammas]
+  configs = itertools.product(*sequences)  # len(configs) = np.prod([4, 7, 5, 8, 2]) = 2240.
+  step = 1 if EFFORT >= 2 else 37
+  assert step == 1 or all(len(sequence) % step != 0 for sequence in sequences)
+  for config in itertools.islice(configs, 0, None, step):
     arraylib, dtype, gridtype, boundary, filter, gamma = config
     if gamma != 'identity' and not (dtype in ['float32', 'uint8'] and
                                     boundary == 'reflect' and filter == 'lanczos3'):
@@ -4393,8 +4508,6 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
 if EFFORT >= 1:
   # hh.prun(lambda: test_that_all_resize_and_resample_agree(), mode='full')
   test_that_all_resize_and_resample_agree()  # ~5.5 s on 1st run due to jax compiles; then ~450 ms.
-if EFFORT >= 2:
-  test_that_all_resize_and_resample_agree(step=1)
 
 
 # %%
@@ -4445,17 +4558,17 @@ test_resample_using_coords_of_various_shapes()
 def resample_affine(
     array: _Array,
     shape: Iterable[int],
-    matrix: Any,
+    matrix: _ArrayLike,
     *,
     gridtype: Union[None, str, Gridtype] = None,
     src_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
     dst_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
-    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = 'lanczos3',
+    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
     prefilter: Union[None, str, Filter, Iterable[Union[str, Filter]]] = None,
-    precision: Any = None,
-    dtype: Any = None,
+    precision: _DTypeLike = None,
+    dtype: _DTypeLike = None,
     **kwargs: Any,
-) -> _NDArray:
+) -> _Array:
   """Resample a source array using an affinely transformed grid of given shape.
 
   The `matrix` transformation can be linear:
@@ -4544,11 +4657,12 @@ def resample_affine(
                   precision=precision, dtype=dtype, **kwargs)
 
 
-# %% tags=[]
-def resize_using_resample(array: _Array, shape: Iterable[int], *,
-                          scale: Any = 1.0, translate: Any = 0.0,
-                          filter: Union[str, Filter, Iterable[Union[str, Filter]]] = 'lanczos3',
-                          fallback: bool = False, **kwargs: Any) -> _Array:
+# %%
+def resize_using_resample(
+    array: _Array, shape: Iterable[int], *,
+    scale: _ArrayLike = 1.0, translate: _ArrayLike = 0.0,
+    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
+    fallback: bool = False, **kwargs: Any) -> _Array:
   """Use the more general `resample` operation for `resize`, as a debug tool."""
   if isinstance(array, (tuple, list)):
     array = np.asarray(array)
@@ -4566,17 +4680,17 @@ def resize_using_resample(array: _Array, shape: Iterable[int], *,
   return resample_affine(array, shape, matrix, filter=filter, **kwargs)
 
 
-# %% tags=[]
-def test_resize_using_resample(shape=(3, 2, 5), new_shape=(4, 2, 7), step=None) -> None:
+# %%
+def test_resize_using_resample(shape=(3, 2, 5), new_shape=(4, 2, 7), step=37) -> None:
   assert np.all(np.array(shape) <= new_shape)
   array = np.random.default_rng(0).random(shape)
   scale = 1.1
   translate = -0.4, -0.03, 0.4
   gammas = 'identity power2'.split()  # Sublist of GAMMAS.
-  configs = [GRIDTYPES, BOUNDARIES, FILTERS, gammas]
-  step = len(FILTERS) * len(gammas) - 1 if step is None else step
-  assert all(len(elem) % step != 0 for elem in configs)
-  for config in itertools.islice(itertools.product(*configs), 0, None, step):
+  sequences = [GRIDTYPES, BOUNDARIES, FILTERS, gammas]
+  assert step == 1 or all(len(sequence) % step != 0 for sequence in sequences)
+  configs = itertools.product(*sequences)  # len(configs) = np.prod([2, 12, 19, 2]) = 912.
+  for config in itertools.islice(configs, 0, None, step):
     gridtype, boundary, filter, gamma = config
     kwargs = dict(gridtype=gridtype, boundary=boundary, filter=filter,
                   gamma=gamma, scale=scale, translate=translate)
@@ -4596,7 +4710,7 @@ def test_resize_using_resample_of_complex_value_type() -> None:
 test_resize_using_resample_of_complex_value_type()
 
 
-# %% tags=[]
+# %%
 def test_profile_resample() -> None:
   def run(src_shape, dst_shape) -> None:
     hh.prun(lambda: resize_using_resample(np.ones(src_shape), dst_shape), top=5)
@@ -4621,10 +4735,10 @@ if EFFORT >= 2:
 #         0.134    0.134 numpy.ufunc.reduce
 #         0.094    0.532 numpy.core._multiarray_umath.implement_array_function (built-in)
 
-# %% tags=[]
-def rotation_about_center_in_2d(src_shape: Any,
+# %%
+def rotation_about_center_in_2d(src_shape: _ArrayLike,
                                 angle: float,
-                                dst_shape: Any = None,
+                                dst_shape: Optional[_ArrayLike] = None,
                                 scale: float = 1.0) -> _NDArray:
   """Return the 3x3 matrix mapping destination into a source unit domain.
 
@@ -4638,12 +4752,12 @@ def rotation_about_center_in_2d(src_shape: Any,
     scale: Scaling factor applied when mapping the source domain onto the destination domain.
   """
 
-  def translation_matrix(vector: Any) -> _NDArray:
+  def translation_matrix(vector: _NDArray) -> _NDArray:
     matrix = np.eye(len(vector) + 1)
     matrix[:-1, -1] = vector
     return matrix
 
-  def scaling_matrix(scale: Any) -> _NDArray:
+  def scaling_matrix(scale: _NDArray) -> _NDArray:
     return np.diag(tuple(scale) + (1.0,))
 
   def rotation_matrix_2d(angle: float) -> _NDArray:
@@ -4664,10 +4778,10 @@ def rotation_about_center_in_2d(src_shape: Any,
   return matrix
 
 
-# %% tags=[]
+# %%
 def rotate_image_about_center(image: _NDArray,
                               angle: float,
-                              new_shape: Any = None,
+                              new_shape: Optional[_ArrayLike] = None,
                               scale: float = 1.0,
                               num_rotations: int = 1,
                               **kwargs: Any) -> _NDArray:
@@ -4691,7 +4805,7 @@ def rotate_image_about_center(image: _NDArray,
 
 
 # %%
-# Export: outside library.
+# Export library: omit.
 if 0:  # For testing.
   resize = typing.cast(Any, functools.partial(resize_using_resample, fallback=True))
 
@@ -4699,7 +4813,7 @@ if 0:  # For testing.
 # %% [markdown]
 # # Other libs (PIL, cv, tf, torch, ...)
 
-# %% tags=[]
+# %%
 def test_resizer_produces_correct_shape(resizer, filter: str = 'lanczos3') -> None:
   np.allclose(resizer(np.ones((11,)), (13,), filter=filter),
               np.ones((13,)), rtol=0, atol=1e-7)
@@ -4709,7 +4823,7 @@ def test_resizer_produces_correct_shape(resizer, filter: str = 'lanczos3') -> No
               np.ones((13, 7, 3)), rtol=0, atol=1e-7)
 
 
-# %% tags=[]
+# %%
 def test_resizers_produce_correct_shape() -> None:
   test_resizer_produces_correct_shape(resize)
   for arraylib in ARRAYLIBS:
@@ -4723,7 +4837,7 @@ if EFFORT >= 1:
 # %% [markdown]
 # **PIL.Image.resize:**
 
-# %% tags=[]
+# %%
 # https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize
 #  resample=PIL.Image.Resampling.NEAREST  # or BOX, BILINEAR, BICUBIC, HAMMING, LANCZOS.
 #  Only 2D float image or 2D 3-or-4-channel uint8 image.
@@ -4731,8 +4845,8 @@ if EFFORT >= 1:
 #  Undocumented Lanczos has radius=3 and seems imperfectly normalized.
 #  Only dual grid.
 
-# %% tags=[]
-def pil_image_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
+# %%
+def pil_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _NDArray:
   """Invoke `PIL.Image.resize` using the same parameters as `resize`."""
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
@@ -4761,33 +4875,33 @@ def pil_image_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
        for channel in np.moveaxis(array, -1, 0)])
 
 
-# %% tags=[]
+# %%
 test_resizer_produces_correct_shape(pil_image_resize)
 
 
-# %% tags=[]
+# %%
 def test_pil_image_resize() -> None:
   at_boundaries = [False, True]
-  scales = [3.7, 2.0, 1.0, 0.5, 0.41]
+  gridscales = [3.7, 2.0, 1.0, 0.5, 0.41]
   filters = 'impulse box triangle hamming1 cubic lanczos3'.split()
-  for config in itertools.product(at_boundaries, scales, filters):
-    at_boundary, scale, filter = config
+  for config in itertools.product(at_boundaries, gridscales, filters):
+    at_boundary, gridscale, filter = config
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
-    shape = (int(original.shape[0] * scale),)
+    shape = (int(original.shape[0] * gridscale),)
     result = pil_image_resize(original, shape, filter)
     reference = resize(original, shape, filter=filter, boundary='natural')
-    atol = 2e-7 if scale in (2.0, 1.0, 0.5) else 3e-6
+    atol = 2e-7 if gridscale in (2.0, 1.0, 0.5) else 3e-6
     assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
 
 test_pil_image_resize()
 
 
-# %% tags=[]
+# %%
 def test_undocumented_lanczos_in_pil_image() -> None:
   array = np.array([0, 0, 0, 1, 0, 0, 0], dtype=np.float32)
   new_len = len(array) * 2
-  new_array = pil_image_resize(array, (new_len,), 'lanczos3')  # (Allegedly 'lanczos3')
+  new_array = pil_image_resize(array, (new_len,), 'lanczos3')
   lanczos = resize(array, (new_len,), filter=LanczosFilter(radius=3), boundary='natural')
   assert np.allclose(new_array, lanczos)
 
@@ -4797,12 +4911,12 @@ def test_undocumented_lanczos_in_pil_image() -> None:
 
 if EFFORT >= 1:
   test_undocumented_lanczos_in_pil_image()
-# Conclusions: (1) their Lanczos radius is 3; (2) their boundary rule is 'natural'.
+# Conclusions: their filter is indeed Lanczos with radius 3, and their boundary rule is 'natural'.
 
 # %% [markdown]
 # **cv.resize:**
 
-# %% tags=[]
+# %%
 # https://docs.opencv.org/3.4/da/d54/group__imgproc__transform.html
 # https://docs.opencv.org/master/da/d6e/tutorial_py_geometric_transformations.html
 # https://github.com/opencv/opencv/blob/master/modules/imgproc/src/resize.cpp
@@ -4812,8 +4926,8 @@ if EFFORT >= 1:
 # Only 2D domain.
 # Only good downsampling prefilter is AREA, which is not too bad.
 
-# %% tags=[]
-def cv_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
+# %%
+def cv_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _NDArray:
   """Invoke `cv.resize` using the same parameters as `resize`."""
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
@@ -4823,8 +4937,8 @@ def cv_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
     return cv_resize(array[None], (1, *shape), filter=filter)[0]
   import cv2 as cv
   interpolation = {
-      'impulse': cv.INTER_NEAREST,  # Consider cv.INTER_NEAREST_EXACT?
-      'triangle': cv.INTER_LINEAR_EXACT,  # Or just cv.INTER_LINEAR?
+      'impulse': cv.INTER_NEAREST,  # Or consider cv.INTER_NEAREST_EXACT.
+      'triangle': cv.INTER_LINEAR_EXACT,  # Or just cv.INTER_LINEAR.
       'trapezoid': cv.INTER_AREA,
       'sharpcubic': cv.INTER_CUBIC,
       'lanczos4': cv.INTER_LANCZOS4,
@@ -4832,34 +4946,34 @@ def cv_resize(array: Any, shape: Sequence[int], filter: str) -> _NDArray:
   return cv.resize(array, shape[::-1], interpolation=interpolation)
 
 
-# %% tags=[]
+# %%
 test_resizer_produces_correct_shape(cv_resize, 'lanczos4')
 
 
-# %% tags=[]
+# %%
 def test_cv_resize() -> None:
   at_boundaries = [False, True]
-  scales = [2.0, 1.0, 0.5]
+  gridscales = [2.0, 1.0, 0.5]
   filters = 'impulse triangle trapezoid sharpcubic lanczos4'.split()
-  for config in itertools.product(at_boundaries, scales, filters):
-    at_boundary, scale, filter = config
-    if scale < 1.0 and filter not in ['trapezoid', 'linear']:
-      continue  # Downsampling is not behaving well except with AREA filter?
+  for config in itertools.product(at_boundaries, gridscales, filters):
+    at_boundary, gridscale, filter = config
+    if gridscale < 1.0 and filter != 'trapezoid':
+      continue  # Downsampling is not behaving well except with AREA filter.
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
-    shape = (int(original.shape[0] * scale),)
+    shape = (int(original.shape[0] * gridscale),)
     result = cv_resize(original, shape, filter)
     filter2: Union[str, Filter] = LanczosFilter(radius=4) if filter == 'lanczos4' else filter
-    reference = resize(original, shape, filter=filter2, boundary='natural')  # natural?
-    # Many discrepancies, why?
+    reference = resize(original, shape, filter=filter2, boundary='natural')
+    # Many discrepancies; perhaps due to different renormalization of weights at boundaries.
     atol = (0.15 if at_boundary else 1e-2 if filter == 'lanczos4' else
-            3e-6 if scale not in (2.0, 1.0, 0.5) else 2e-7)
+            3e-6 if gridscale not in (2.0, 1.0, 0.5) else 2e-7)
     assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
 
 test_cv_resize()
 
 
-# %% tags=[]
+# %%
 def test_sharper_cubic_filter_in_opencv() -> None:
   """Confirm that the OpenCV "cubic" is in fact the 'sharpcubic' filter."""
   # https://github.com/opencv/opencv/blob/master/modules/imgproc/src/resize.cpp#L908
@@ -4880,7 +4994,7 @@ if EFFORT >= 2:
 # %% [markdown]
 # **scipy.ndimage.map_coordinates:**
 
-# %% tags=[]
+# %%
 # https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.resample.html
 #  Uses FFT.  Assumes that signal is periodic.
 
@@ -4897,9 +5011,9 @@ if EFFORT >= 2:
 #  No prefilter for antialiasing.
 #  (Their 'prefilter' is the B-spline digital prefilter).
 
-# %% tags=[]
-# Export: outside library.
-def scipy_ndimage_resize(array: Any, shape: Sequence[int], filter: str,
+# %%
+# Export library: omit.
+def scipy_ndimage_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
                          boundary: str = 'reflect', cval: float = 0.0) -> _NDArray:
   """Invoke `scipy.ndimage.map_coordinates` using the same parameters as `resize`."""
   array = np.asarray(array)
@@ -4909,25 +5023,25 @@ def scipy_ndimage_resize(array: Any, shape: Sequence[int], filter: str,
   mode = {'reflect': 'reflect', 'wrap': 'grid-wrap', 'clamp': 'nearest',
           'border': 'constant'}[boundary]
   shape_all = shape + array.shape[len(shape):]
-  scale = np.array([array.shape[dim] / shape[dim] if dim < len(shape) else 1.0
-                    for dim in range(len(shape_all))])
-  coords = ((np.indices(shape_all).T + 0.5) * scale - 0.5).T
+  gridscale = np.array([array.shape[dim] / shape[dim] if dim < len(shape) else 1.0
+                       for dim in range(len(shape_all))])
+  coords = ((np.indices(shape_all).T + 0.5) * gridscale - 0.5).T
   return scipy.ndimage.map_coordinates(array, coords, order=order, mode=mode, cval=cval)
 
 
-# %% tags=[]
+# %%
 test_resizer_produces_correct_shape(scipy_ndimage_resize, 'cardinal3')
 
 
-# %% tags=[]
+# %%
 def test_scipy_ndimage_resize() -> None:
   boundaries = 'reflect wrap clamp border'.split()
   at_boundaries = [False, True]
-  scales = [2.0, 13 / 8, 1.0, 0.5]
+  gridscales = [2.0, 13 / 8, 1.0, 0.5]
   filters = 'box triangle cardinal3 cardinal5'.split()
-  for config in itertools.product(boundaries, at_boundaries, scales, filters):
-    boundary, at_boundary, scale, filter = config
-    if scale < 1.0:
+  for config in itertools.product(boundaries, at_boundaries, gridscales, filters):
+    boundary, at_boundary, gridscale, filter = config
+    if gridscale < 1.0:
       continue  # Downsampling is aliased because there is no prefilter.
     if boundary in ['clamp', 'border'] and filter in ['cardinal3', 'cardinal5']:
       continue  # The inverse-convolution prefilter is not well-defined in these cases.
@@ -4935,7 +5049,7 @@ def test_scipy_ndimage_resize() -> None:
       continue  # It produces seemingly incorrect results.
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
-    shape = (int(original.shape[0] * scale),)
+    shape = (int(original.shape[0] * gridscale),)
     result = scipy_ndimage_resize(original, shape, filter, boundary=boundary)
     reference = resize(original, shape, filter=filter, boundary=boundary)
     assert np.allclose(result, reference, rtol=0, atol=2e-6), (config, result, reference)
@@ -4946,16 +5060,16 @@ test_scipy_ndimage_resize()
 # %% [markdown]
 # **skimage.transform.resize:**
 
-# %% tags=[]
+# %%
 # https://scikit-image.org/docs/dev/api/skimage.transform.html#skimage.transform.resize
 #  mode='reflect'  # or 'constant', 'edge', 'symmetric' (for dual), 'wrap'.
 #  cval=0  # used for 'constant'.
 #  order=1  # spline interpolation order (0..5), (3='cardinal3')
 #  anti_aliasing=None  # automatically apply Gaussian prefilter prior to downsampling.
 
-# %% tags=[]
-# Export: outside library.
-def skimage_transform_resize(array: Any, shape: Sequence[int], filter: str,
+# %%
+# Export library: omit.
+def skimage_transform_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
                              boundary: str = 'reflect', cval: float = 0.0) -> _NDArray:
   """Invoke `skimage.transform.resize` using the same parameters as `resize`."""
   array = np.asarray(array)
@@ -4968,25 +5082,28 @@ def skimage_transform_resize(array: Any, shape: Sequence[int], filter: str,
   return skimage.transform.resize(array, shape_all, order=order, mode=mode, cval=cval, clip=False)
 
 
-# %% tags=[]
+# %%
 test_resizer_produces_correct_shape(skimage_transform_resize, 'cardinal3')
 
 
-# %% tags=[]
+# %%
 def test_skimage_transform_resize() -> None:
+  skimage_version = tuple(int(num) for num in skimage.__version__.split('.'))
+  if skimage_version < (0, 19):
+    return  # There exist errors, likely due to boundary rules.
   boundaries = 'reflect wrap clamp border'.split()
   at_boundaries = [False, True]
-  scales = [2.0, 13 / 8, 1.0, 0.5]
+  gridscales = [2.0, 13 / 8, 1.0, 0.5]
   filters = 'box triangle cardinal3 cardinal5'.split()
-  for config in itertools.product(boundaries, at_boundaries, scales, filters):
-    boundary, at_boundary, scale, filter = config
-    if scale < 1.0:
+  for config in itertools.product(boundaries, at_boundaries, gridscales, filters):
+    boundary, at_boundary, gridscale, filter = config
+    if gridscale < 1.0:
       continue  # Downsampling is poor due to the Gaussian prefilter.
     if boundary in ['clamp', 'border'] and filter in ['cardinal3', 'cardinal5']:
       continue  # The inverse-convolution prefilter is not well-defined in these cases.
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
-    shape = (int(original.shape[0] * scale),)
+    shape = (int(original.shape[0] * gridscale),)
     result = skimage_transform_resize(original, shape, filter, boundary=boundary)
     reference = resize(original, shape, filter=filter, boundary=boundary)
     assert np.allclose(result, reference, rtol=0, atol=2e-6), (config, result, reference)
@@ -4996,7 +5113,7 @@ test_skimage_transform_resize()
 # %% [markdown]
 # **tf.image.resize:**
 
-# %% tags=[]
+# %%
 # https://www.tensorflow.org/api_docs/python/tf/image/resize
 # It is differentiable.
 # https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/ops/image_ops_impl.py#L1549
@@ -5005,11 +5122,9 @@ test_skimage_transform_resize()
 # The sparse matrix multiply is in GatherRows() then GatherColumns().
 #  method='bilinear'  # or 'area', 'bicubic', 'gaussian', 'lanczos3',
 #                     #   'lanczos5', 'mitchellcubic', 'nearest'.
-#  Only 2D domain.
-#  Only boundary rule is 'natural' (IgnoreOutside).
-#  Only dual (half-integer) grid.
+#  Only 2D domain; only boundary rule is 'natural' (IgnoreOutside); only dual (half-integer) grid.
 
-# %% tags=[]
+# %%
 _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
     'impulse': 'nearest',
     'trapezoid': 'area',
@@ -5021,28 +5136,31 @@ _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
     # GaussianFilter(0.5): 'gaussian',  # radius_4 > desired_radius_3.
 }
 
-def tf_image_resize(array: Any, shape: Sequence[int], filter: str = 'lanczos3',
+
+# %%
+def tf_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str = _DEFAULT_FILTER,
                     antialias: bool = True) -> _TensorflowTensor:
   """Invoke `tf.image.resize` using the same parameters as `resize`."""
   import tensorflow as tf
-  array = tf.convert_to_tensor(array)
-  assert 1 <= array.ndim <= 3
+  array2 = tf.convert_to_tensor(array)
+  del array
+  assert 1 <= array2.ndim <= 3
   shape = tuple(shape)
-  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
-  if array.ndim == 1:
-    return tf_image_resize(array[None], (1, *shape), filter=filter, antialias=antialias)[0]
-  if array.ndim == 2:
-    return tf_image_resize(array[..., None], shape, filter=filter, antialias=antialias)[..., 0]
+  _check_eq(len(shape), 2 if array2.ndim >= 2 else 1)
+  if array2.ndim == 1:
+    return tf_image_resize(array2[None], (1, *shape), filter=filter, antialias=antialias)[0]
+  if array2.ndim == 2:
+    return tf_image_resize(array2[..., None], shape, filter=filter, antialias=antialias)[..., 0]
   method = _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER[filter]
-  return tf.image.resize(array, shape, method=method, antialias=antialias)
+  return tf.image.resize(array2, shape, method=method, antialias=antialias)
 
 
-# %% tags=[]
+# %%
 if EFFORT >= 1:
   test_resizer_produces_correct_shape(tf_image_resize)
 
 
-# %% tags=[]
+# %%
 def test_tf_image_resize() -> None:
   # https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/image/resize_area_op.cc
   original_shape = 32, 32, 1
@@ -5059,7 +5177,7 @@ def test_tf_image_resize() -> None:
       continue  # Cubic without `antialias` uses an older, different code path.
     tfi_result = tf_image_resize(array, shape, filter=filter, antialias=antialias).numpy()
     reference = resize(array, shape, boundary='natural', filter=filter)
-    # atol=4e-6 works most of the time, but fails intermittently, perhaps due to parallelism?
+    # atol=4e-6 works most of the time, but fails intermittently, likely due to parallelism.
     assert np.allclose(tfi_result, reference, rtol=0, atol=1e-5), config
     rms = np.sqrt(np.mean(np.square(tfi_result - reference)))
     # print(f'{filter:10} antialias={antialias:1}  rms={rms:.2e}')
@@ -5071,7 +5189,7 @@ if EFFORT >= 1:
 # %% [markdown]
 # **torch.nn.functional.interpolate:**
 
-# %% tags=[]
+# %%
 # https://pytorch.org/docs/master/generated/torch.nn.functional.interpolate.html
 # It is differentiable.
 # It does not apply prefiltering/antialiasing when downsampling:
@@ -5081,7 +5199,7 @@ if EFFORT >= 1:
 #  Dual grid using align_corners=False.
 # https://github.com/pytorch/vision/issues/2950#issuecomment-811787820.
 
-# %% tags=[]
+# %%
 _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
     'impulse': 'nearest',
     'trapezoid': 'area',
@@ -5089,52 +5207,55 @@ _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
     'sharpcubic': 'bicubic',
 }
 
-def torch_nn_resize(array: Any, shape: Sequence[int], filter: str,
+
+# %%
+def torch_nn_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
                     antialias: bool = False) -> _TorchTensor:
   """Invoke `torch.nn.functional.interpolate` using the same parameters as `resize`."""
   import torch
-  array = torch.as_tensor(array)
-  assert 1 <= array.ndim <= 3
+  a = torch.as_tensor(array)
+  del array
+  assert 1 <= a.ndim <= 3
   shape = tuple(shape)
-  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
+  _check_eq(len(shape), 2 if a.ndim >= 2 else 1)
   mode = _TORCH_INTERPOLATE_MODE_FROM_FILTER[filter]
 
-  def local_resize(array: _TorchTensor) -> _TorchTensor:
+  def local_resize(a: _TorchTensor) -> _TorchTensor:
     # For upsampling, BILINEAR antialias is same PSNR and slower,
     #  and BICUBIC antialias is worse PSNR and faster.
     # For downsampling, antialias improves PSNR for both BILINEAR and BICUBIC.
-    align_corners = False if filter in ['linear', 'cubic'] else None
+    align_corners = False if filter in ['triangle', 'sharpcubic'] else None
     return torch.nn.functional.interpolate(
-        array, shape, mode=mode, align_corners=align_corners, antialias=antialias)
+        a, shape, mode=mode, align_corners=align_corners, antialias=antialias)
 
-  if array.ndim == 1:
+  if a.ndim == 1:
     shape = (1, *shape)
-    return local_resize(array[None, None, None])[0, 0, 0]
-  if array.ndim == 2:
-    return local_resize(array[None, None])[0, 0]
-  return local_resize(array.moveaxis(2, 0)[None])[0].moveaxis(0, 2)
+    return local_resize(a[None, None, None])[0, 0, 0]
+  if a.ndim == 2:
+    return local_resize(a[None, None])[0, 0]
+  return local_resize(a.moveaxis(2, 0)[None])[0].moveaxis(0, 2)
 
 
-# %% tags=[]
+# %%
 test_resizer_produces_correct_shape(torch_nn_resize, 'sharpcubic')
 
 
-# %% tags=[]
+# %%
 def test_torch_nn_resize() -> None:
   at_boundaries = [False, True]
-  scales = [3.7, 2.0, 1.0, 0.5, 0.41]
+  gridscales = [3.7, 2.0, 1.0, 0.5, 0.41]
   filters = 'impulse trapezoid triangle sharpcubic'.split()
-  for config in itertools.product(at_boundaries, scales, filters):
-    at_boundary, scale, filter = config
+  for config in itertools.product(at_boundaries, gridscales, filters):
+    at_boundary, gridscale, filter = config
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
-    if scale not in (2.0, 1.0, 0.5):
-      continue   # torch.nn code misbehaves for fractional scales.
-    if filter == 'impulse' and scale < 1.0:
+    if gridscale not in (2.0, 1.0, 0.5):
+      continue  # torch.nn code misbehaves for fractional gridscales.
+    if filter == 'impulse' and gridscale < 1.0:
       continue  # Alignment of impulse looks incorrect.
-    if filter in ['triangle', 'sharpcubic'] and scale < 1.0:
-      continue  # torch.nn code misbehaves; maybe align_corners=False ignored for scale < 1.
-    shape = (int(original.shape[0] * scale),)
+    if filter in ['triangle', 'sharpcubic'] and gridscale < 1.0:
+      continue  # torch.nn code misbehaves; align_corners=False malfunctions for gridscale < 1.
+    shape = (int(original.shape[0] * gridscale),)
     result = torch_nn_resize(original, shape, filter).numpy()
     reference = resize(original, shape, filter=filter, boundary='natural')
     atol = 7e-2 if at_boundary else 0.0  # The boundary behavior is unexpected.
@@ -5143,79 +5264,10 @@ def test_torch_nn_resize() -> None:
 test_torch_nn_resize()
 
 
-# %% [markdown]
-# **torchvision.transforms.functional.resize:**
-
-# %% tags=[]
-# https://pytorch.org/vision/stable/transforms.html#torchvision.transforms.functional.resize
-# It is differentiable.
-# It does not apply prefiltering/antialiasing when downsampling:
-#   NEAREST, BILINEAR, BICUBIC.
-# torchvision.transforms.functional.affine()
-
-# %% tags=[]
-def torchvision_resize(array: Any, shape: Sequence[int], filter: str,
-                       antialias: Optional[bool] = None) -> _TorchTensor:
-  """Invoke `torchvision.transforms.functional.resize` using the same parameters as `resize`."""
-  # The results appear to be identical to `torch.nn.functional.interpolate` and slightly slower.
-  import torch
-  import torchvision
-  array = torch.as_tensor(array)
-  shape = tuple(shape)
-  _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
-  torchvision_interpolation_from_filter = {
-      'impulse': torchvision.transforms.InterpolationMode.NEAREST,
-      'triangle': torchvision.transforms.InterpolationMode.BILINEAR,
-      'sharpcubic': torchvision.transforms.InterpolationMode.BICUBIC,
-      # Only the 3 modes above are supported when `array` is a torch.Tensor.
-      # 'box': torchvision.transforms.InterpolationMode.BOX,
-  }
-  interpolation = torchvision_interpolation_from_filter[filter]
-
-  def local_resize(array: _TorchTensor) -> _TorchTensor:
-    return torchvision.transforms.functional.resize(
-        array, shape, interpolation=interpolation, antialias=antialias)
-
-  if array.ndim == 1:
-    shape = (1, *shape)
-    return local_resize(array[None, None])[0, 0]
-  if array.ndim == 2:
-    return local_resize(array[None])[0]
-  return local_resize(array.moveaxis(2, 0)).moveaxis(0, 2)
-
-
-# %% tags=[]
-test_resizer_produces_correct_shape(torchvision_resize, 'sharpcubic')
-
-
-# %% tags=[]
-def test_torchvision_resize() -> None:
-  at_boundaries = [False, True]
-  scales = [3.7, 2.0, 1.0, 0.5, 0.41]
-  filters = 'impulse triangle sharpcubic'.split()
-  for config in itertools.product(at_boundaries, scales, filters):
-    at_boundary, scale, filter = config
-    row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
-    original = np.array(row, dtype=np.float32)
-    if scale not in (2.0, 1.0, 0.5):
-      continue   # torchvision code misbehaves for fractional scales.
-    if filter == 'impulse' and scale < 1.0:
-      continue  # Alignment of impulse looks incorrect.
-    if filter in ['triangle', 'sharpcubic'] and scale < 1.0:
-      continue  # torchvision code misbehaves; maybe align_corners=False ignored for scale < 1.
-    shape = (int(original.shape[0] * scale),)
-    result = torchvision_resize(original, shape, filter).numpy()
-    reference = resize(original, shape, filter=filter, boundary='natural')
-    atol = 7e-2 if at_boundary else 0.0  # The boundary behavior is unexpected.
-    assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
-
-test_torchvision_resize()
-
-
-# %% tags=[]
+# %%
 def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7)) -> None:
   import torch
-  torch_functions = {
+  functions: Dict[str, Callable[[_TorchTensor], _TorchTensor]] = {
       'interpolate linear AA': lambda array: torch.nn.functional.interpolate(
           array[None][None], dst_shape, mode='bilinear', align_corners=False, antialias=True),
       'interpolate cubic AA': lambda array: torch.nn.functional.interpolate(
@@ -5223,22 +5275,6 @@ def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7
       'interpolate trapezoid/area': lambda array: torch.nn.functional.interpolate(
           array[None][None], dst_shape, mode='area', align_corners=None, antialias=False),
   }
-
-  import torchvision
-  TorchVisionMode = torchvision.transforms.InterpolationMode
-  torchvision_functions = {
-      'torchvision linear AA': lambda array: torchvision.transforms.functional.resize(
-          array[None], dst_shape, interpolation=TorchVisionMode.BILINEAR, antialias=True),
-      'torchvision cubic AA': lambda array: torchvision.transforms.functional.resize(
-          array[None], dst_shape, interpolation=TorchVisionMode.BICUBIC, antialias=True),
-      'torchvision nearest AA': lambda array: torchvision.transforms.functional.resize(
-          array[None], dst_shape, interpolation=TorchVisionMode.NEAREST, antialias=False),
-  }
-
-  functions = torch_functions
-  if 0:  # This seems to require 'torchvision>=0.13.0' and so creates complications on Colab.
-    functions = {**functions, **torchvision_functions}
-
   array_np = np.random.default_rng(0).random(src_shape, dtype=np.float64)
   array = torch.tensor(array_np, requires_grad=True)
   for name, function in functions.items():
@@ -5246,11 +5282,102 @@ def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7
 
 test_differentiability_of_torch_resizing()
 
+# %% [markdown]
+# - `torchvision.transforms.functional.resize` seems to produce identical results to
+#   `torch.nn.functional.interpolate`, but a little slower and
+#   with slightly less functionality (no antialiased 'area' downsampling).
+
+
+# %% [markdown]
+# **jax.image.resize:**
+
+# %%
+# jax.image.scale_and_translate(image, shape, spatial_dims, scale, translation, method,
+#                               antialias=True)
+# More general than jax.image.resize(), except does not support method='nearest'.
+# len(shape) == len(image.shape);  len(spatial_dims) == len(scale) == len(translation)
+# method: 'triangle', 'cubic', 'lanczos3', and 'lanczos5'.
+# antialias=True: corrects filter scaling for all filters.
+# boundary corresponds to 'natural' with implicit `cval=0`.
+
+# %%
+def jax_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
+                     scale: Union[float, Iterable[float]] = 1.0,
+                     translate: Union[float, Iterable[float]] = 0.0) -> _JaxArray:
+  """Invoke `jax.image.scale_and_translate` using the same parameters as `resize`."""
+  assert filter in 'triangle cubic lanczos3 lanczos5'.split(), filter
+  import jax.image
+  import jax.numpy as jnp
+  array2 = jnp.asarray(array)
+  del array
+  shape = tuple(shape)
+  assert len(shape) <= array2.ndim
+  completed_shape = shape + (1,) * (array2.ndim - len(shape))
+  spatial_dims = list(range(len(shape)))
+  scale2 = np.broadcast_to(np.array(scale), len(shape))
+  scale2 = scale2 / np.array(array2.shape[:len(shape)]) * np.array(shape)
+  translate2 = np.broadcast_to(np.array(translate), len(shape))
+  translate2 = translate2 * np.array(shape)
+  return jax.image.scale_and_translate(
+      array2, completed_shape, spatial_dims, scale2, translate2, filter)
+
+
+# %%
+if EFFORT >= 1:
+  test_resizer_produces_correct_shape(jax_image_resize, 'lanczos3')
+
+
+# %%
+def test_jax_image_resize() -> None:
+  at_boundaries = [False, True]
+  gridscales = [3.7, 2.0, 1.0, 0.5, 0.41]
+  filters = 'triangle cubic lanczos3 lanczos5'.split()
+  scales = [1.0, 1.3, 0.8]
+  translates = [0.0, 0.25]
+  configs = itertools.product(at_boundaries, gridscales, filters, scales, translates)
+  step = 1 if EFFORT >= 1 else 13  # len(configs) = 5 * 4 * 3 * 2 = 120
+  for config in itertools.islice(configs, 0, None, step):
+    at_boundary, gridscale, filter, scale, translate = config
+    if ((scale != 1.0 or translate != 0.0) and
+        (at_boundary or filter == 'lanczos5' or gridscale < 1.0)):
+      # print(f'skipping {config} which seems buggy.')
+      # It seems that they are normalizing weights before setting zero weights outside.
+      continue
+    row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
+    original = np.array(row, dtype=np.float32)
+    shape = (int(original.shape[0] * gridscale),)
+    kwargs: Dict[str, Any] = dict(filter=filter, scale=scale, translate=translate)
+    result = jax_image_resize(original, shape, **kwargs).to_py()
+    reference = resize(original, shape, **kwargs, boundary='natural')
+    assert np.allclose(result, reference, rtol=0, atol=1e-5), (config, result, reference)
+
+if EFFORT >= 1:
+  test_jax_image_resize()
+
+
+# %%
+# Pure jax implementation of scipy.ndimage.map_coordinates:
+# https://jax.readthedocs.io/en/latest/_autosummary/jax.scipy.ndimage.map_coordinates.html
+# "Only nearest neighbor (order=0), linear interpolation (order=1) and
+# modes 'constant', 'nearest', 'wrap' 'mirror' and 'reflect' are currently supported."
+
+# %%
+#  pip install dm-pix  # DeepMind PIX.
+
+# dm_pix.flat_nd_linear_interpolate(volume, coordinates, *, unflattened_vol_shape=None):
+# https://dm-pix.readthedocs.io/en/latest/api.html#flat-nd-linear-interpolate
+# https://github.com/deepmind/dm_pix/blob/master/dm_pix/_src/interpolation.py
+# allows differentiation with respect to coordinates;  only 'triangle' filter.
+
+# dm_pix.affine_transform(image, matrix, *, offset=0.0, order=1, mode='nearest', cval=0.0):
+# allows differentiation with respect to matrix;
+# for GPU acceleration: order must be 0 (nearest) or 1 (linear); mode (boundary) must be 'nearest';
+# else, reverts to slower jax.scipy.ndimage.map_coordinates(); differentiable on coordinates.
 
 # %% [markdown]
 # # Timing/profiling of resize()
 
-# %% tags=[]
+# %%
 def test_best_dimension_ordering_for_resize_timing(dtype=np.float32) -> None:
   for config in itertools.product(ARRAYLIBS, [True, False]):
     arraylib, c_contiguous = config
@@ -5259,24 +5386,24 @@ def test_best_dimension_ordering_for_resize_timing(dtype=np.float32) -> None:
       array = _make_array(np.ones(src_shape, dtype=dtype), arraylib)
       if not c_contiguous:
         array = _arr_swapaxes(array, 0, 1)
-      args = [array, dst_shape]
+      args = (array, dst_shape)
       t0 = hh.get_time(lambda: _original_resize(*args, dim_order=[0, 1]))
       t1 = hh.get_time(lambda: _original_resize(*args, dim_order=[1, 0]))
       t2 = hh.get_time(lambda: _original_resize(*args))
+      warning = ' !' if t2 > min(t0, t1) * 1.1 and t2 > max(t0, t1) * 0.9 else ''
       print(f'# {arraylib:10} {int(c_contiguous)}  {src_shape!s:>15} -> {dst_shape!s:12}'
-            f' {t0:6.3f} {t1:6.3f} {t2:6.3f} s')
-      if t2 > min(t0, t1) * 1.2:
-        print(' Warning: This previous result may indicate a bad choice.')
+            f' {t0:6.3f} {t1:6.3f} {t2:6.3f} s{warning}')
 
     for args in [
       ((1024, 1024, 1), (4096, 4096)),
       ((4096, 4096, 3), (2048, 2048)),
+      ((8192, 8192, 3), (512, 512)),
       ((2048, 2048, 3), (4096, 4096)),
-      ((2048, 2048), (4096, 4096)),
+      # ((2048, 2048), (4096, 4096)),
       ((2048, 2048), (4096, 1024)),
       ((2048, 2048), (1024, 4096)),
-      ((2048, 2048), (4096, 8192)),
-      ((2048, 2048), (8192, 4096)),
+      ((1024, 1024), (4096, 8192)),
+      ((1024, 1024), (8192, 4096)),
       ((4096, 4096), (2048, 1024)),
       ((4096, 4096), (1024, 2048)),
     ]:
@@ -5285,111 +5412,34 @@ def test_best_dimension_ordering_for_resize_timing(dtype=np.float32) -> None:
 
 if EFFORT >= 2:
   test_best_dimension_ordering_for_resize_timing()
-# numpy      1  (1024, 1024, 1) -> (4096, 4096)  0.072  0.075  0.072 s
-# numpy      1  (4096, 4096, 3) -> (2048, 2048)  0.201  0.337  0.201 s
-# numpy      1  (2048, 2048, 3) -> (4096, 4096)  0.270  0.298  0.268 s
-# numpy      1     (2048, 2048) -> (4096, 4096)  0.117  0.140  0.118 s
-# numpy      1     (2048, 2048) -> (4096, 1024)  0.083  0.040  0.040 s
-# numpy      1     (2048, 2048) -> (1024, 4096)  0.017  0.091  0.016 s
-# numpy      1     (2048, 2048) -> (4096, 8192)  0.146  0.253  0.147 s
-# numpy      1     (2048, 2048) -> (8192, 4096)  0.231  0.170  0.173 s
-# numpy      1     (4096, 4096) -> (2048, 1024)  0.092  0.138  0.072 s
-# numpy      1     (4096, 4096) -> (1024, 2048)  0.039  0.169  0.039 s
 
-# numpy      0  (1024, 1024, 1) -> (4096, 4096)  0.078  0.074  0.074 s
-# numpy      0  (4096, 4096, 3) -> (2048, 2048)  0.344  0.204  0.205 s
-# numpy      0  (2048, 2048, 3) -> (4096, 4096)  0.309  0.272  0.277 s
-# numpy      0     (2048, 2048) -> (4096, 4096)  0.146  0.121  0.120 s
-# numpy      0     (2048, 2048) -> (4096, 1024)  0.110  0.017  0.017 s
-# numpy      0     (2048, 2048) -> (1024, 4096)  0.041  0.064  0.041 s
-# numpy      0     (2048, 2048) -> (4096, 8192)  0.171  0.234  0.169 s
-# numpy      0     (2048, 2048) -> (8192, 4096)  0.259  0.163  0.163 s
-# numpy      0     (4096, 4096) -> (2048, 1024)  0.169  0.035  0.035 s
-# numpy      0     (4096, 4096) -> (1024, 2048)  0.132  0.070  0.070 s
 
-# tensorflow 1  (1024, 1024, 1) -> (4096, 4096)  0.043  0.034  0.031 s
-# tensorflow 1  (4096, 4096, 3) -> (2048, 2048)  0.095  0.119  0.093 s
-# tensorflow 1  (2048, 2048, 3) -> (4096, 4096)  0.135  0.111  0.110 s
-# tensorflow 1     (2048, 2048) -> (4096, 4096)  0.050  0.040  0.037 s
-# tensorflow 1     (2048, 2048) -> (4096, 1024)  0.026  0.013  0.012 s
-# tensorflow 1     (2048, 2048) -> (1024, 4096)  0.013  0.027  0.013 s
-# tensorflow 1     (2048, 2048) -> (4096, 8192)  0.074  0.074  0.074 s
-# tensorflow 1     (2048, 2048) -> (8192, 4096)  0.092  0.055  0.059 s
-# tensorflow 1     (4096, 4096) -> (2048, 1024)  0.029  0.029  0.028 s
-# tensorflow 1     (4096, 4096) -> (1024, 2048)  0.022  0.033  0.022 s
-
-# tensorflow 0  (1024, 1024, 1) -> (4096, 4096)  0.044  0.033  0.031 s
-# tensorflow 0  (4096, 4096, 3) -> (2048, 2048)  0.090  0.118  0.090 s
-# tensorflow 0  (2048, 2048, 3) -> (4096, 4096)  0.133  0.109  0.108 s
-# tensorflow 0     (2048, 2048) -> (4096, 4096)  0.049  0.040  0.040 s
-# tensorflow 0     (2048, 2048) -> (4096, 1024)  0.023  0.012  0.012 s
-# tensorflow 0     (2048, 2048) -> (1024, 4096)  0.013  0.028  0.013 s
-# tensorflow 0     (2048, 2048) -> (4096, 8192)  0.076  0.068  0.068 s
-# tensorflow 0     (2048, 2048) -> (8192, 4096)  0.092  0.055  0.055 s
-# tensorflow 0     (4096, 4096) -> (2048, 1024)  0.029  0.028  0.029 s
-# tensorflow 0     (4096, 4096) -> (1024, 2048)  0.022  0.034  0.022 s
-
-# torch      1  (1024, 1024, 1) -> (4096, 4096)  0.058  0.059  0.059 s
-# torch      1  (4096, 4096, 3) -> (2048, 2048)  0.183  0.210  0.184 s
-# torch      1  (2048, 2048, 3) -> (4096, 4096)  0.204  0.215  0.205 s
-# torch      1     (2048, 2048) -> (4096, 4096)  0.073  0.080  0.073 s
-# torch      1     (2048, 2048) -> (4096, 1024)  0.050  0.036  0.029 s
-# torch      1     (2048, 2048) -> (1024, 4096)  0.023  0.056  0.023 s
-# torch      1     (2048, 2048) -> (4096, 8192)  0.116  0.156  0.115 s
-# torch      1     (2048, 2048) -> (8192, 4096)  0.149  0.122  0.123 s
-# torch      1     (4096, 4096) -> (2048, 1024)  0.066  0.074  0.066 s
-# torch      1     (4096, 4096) -> (1024, 2048)  0.050  0.091  0.050 s
-
-# torch      0  (1024, 1024, 1) -> (4096, 4096)  0.062  0.058  0.058 s
-# torch      0  (4096, 4096, 3) -> (2048, 2048)  0.210  0.185  0.181 s
-# torch      0  (2048, 2048, 3) -> (4096, 4096)  0.212  0.207  0.205 s
-# torch      0     (2048, 2048) -> (4096, 4096)  0.080  0.075  0.073 s
-# torch      0     (2048, 2048) -> (4096, 1024)  0.056  0.023  0.023 s
-# torch      0     (2048, 2048) -> (1024, 4096)  0.029  0.050  0.029 s
-# torch      0     (2048, 2048) -> (4096, 8192)  0.124  0.150  0.124 s
-# torch      0     (2048, 2048) -> (8192, 4096)  0.159  0.116  0.115 s
-# torch      0     (4096, 4096) -> (2048, 1024)  0.090  0.050  0.051 s
-# torch      0     (4096, 4096) -> (1024, 2048)  0.074  0.066  0.066 s
-
-# jax        1  (1024, 1024, 1) -> (4096, 4096)  0.175  0.152  0.152 s
-# jax        1  (4096, 4096, 3) -> (2048, 2048)  0.537  0.563  0.535 s
-# jax        1  (2048, 2048, 3) -> (4096, 4096)  0.566  0.559  0.563 s
-# jax        1     (2048, 2048) -> (4096, 4096)  0.208  0.190  0.184 s
-# jax        1     (2048, 2048) -> (4096, 1024)  0.127  0.067  0.067 s
-# jax        1     (2048, 2048) -> (1024, 4096)  0.069  0.134  0.069 s
-# jax        1     (2048, 2048) -> (4096, 8192)  0.321  0.334  0.335 s
-# jax        1     (2048, 2048) -> (8192, 4096)  0.375  0.282  0.276 s
-# jax        1     (4096, 4096) -> (2048, 1024)  0.179  0.157  0.176 s
-# jax        1     (4096, 4096) -> (1024, 2048)  0.142  0.210  0.136 s
-
-# jax        0  (1024, 1024, 1) -> (4096, 4096)  0.175  0.151  0.150 s
-# jax        0  (4096, 4096, 3) -> (2048, 2048)  0.529  0.558  0.532 s
-# jax        0  (2048, 2048, 3) -> (4096, 4096)  0.567  0.554  0.564 s
-# jax        0     (2048, 2048) -> (4096, 4096)  0.205  0.182  0.181 s
-# jax        0     (2048, 2048) -> (4096, 1024)  0.128  0.067  0.067 s
-# jax        0     (2048, 2048) -> (1024, 4096)  0.070  0.133  0.078 s
-# jax        0     (2048, 2048) -> (4096, 8192)  0.313  0.335  0.334 s
-# jax        0     (2048, 2048) -> (8192, 4096)  0.386  0.273  0.274 s
-# jax        0     (4096, 4096) -> (2048, 1024)  0.179  0.156  0.176 s
-# jax        0     (4096, 4096) -> (1024, 2048)  0.136  0.194  0.137 s
-
-# %% tags=[]
+# %%
 def experiment_with_resize_timing() -> None:
 
   def run(src_shape, dst_shape) -> None:
     for dtype in 'uint8 float32 float64'.split():
       array = np.ones(src_shape, dtype=dtype)
-      args = [array, dst_shape]
-      kwargs = dict(gamma='identity')
-      t_np = hh.get_time(lambda: resize_in_numpy(*args, **kwargs))
-      t_tf = hh.get_time(lambda: resize_in_tensorflow(*args, **kwargs))
-      t_to = hh.get_time(lambda: resize_in_torch(*args, **kwargs))
-      t_jax = hh.get_time(lambda: resize_in_jax(*args, **kwargs))
-      t_tfi = hh.get_time(lambda: tf_image_resize(*args))
+      args = [dst_shape]
+      kwargs: Dict[str, Any] = dict(gamma='identity')
+      array_for_lib = {arraylib: _make_array(array, arraylib) for arraylib in ARRAYLIBS}
+      functions: Dict[str, Callable[[], _AnyArray]] = {
+        'np': lambda: resize(array_for_lib['numpy'], *args, **kwargs),
+        'tf': lambda: resize(array_for_lib['tensorflow'], *args, **kwargs),
+        'to': lambda: resize(array_for_lib['torch'], *args, **kwargs),
+        'jax': lambda: resize(array_for_lib['jax'], *args, **kwargs),
+        'jj': lambda: jaxjit_resize(array_for_lib['jax'], *args, **kwargs),
+        'tfi': lambda: tf_image_resize(array_for_lib['tensorflow'], *args),
+      }
       src_str = str(src_shape).replace(' ', '')
       dst_str = str(dst_shape).replace(' ', '')
-      print(f'# {dtype:7} {src_str:>13}->{dst_str:11}  np:{t_np:5.3f}'
-            f'  tf:{t_tf:5.3f}  to:{t_to:5.3f}  jax:{t_jax:5.3f}  tfi:{t_tfi:5.3f} s')
+      text = f'# {dtype:7} {src_str:>13}->{dst_str:11}'
+      for name, function in functions.items():
+        _ = function()  # Possibly pre-compile/jit the function.
+        elapsed = hh.get_time(function)
+        text += f' {name}:{elapsed:5.3f}'
+      text += ' s'
+      print(text)
     print()
 
   for args in [
@@ -5402,21 +5452,21 @@ def experiment_with_resize_timing() -> None:
 
 if EFFORT >= 2:
   experiment_with_resize_timing()
-# uint8   (1024,1024,1)->(4096,4096)  np:0.070  tf:0.070  to:0.080  jax:0.175  tfi:0.144 s
-# float32 (1024,1024,1)->(4096,4096)  np:0.044  tf:0.037  to:0.057  jax:0.151  tfi:0.141 s
-# float64 (1024,1024,1)->(4096,4096)  np:0.117  tf:0.071  to:0.076  jax:0.286  tfi:0.143 s
+# uint8   (1024,1024,1)->(4096,4096) np:0.071 tf:0.079 to:0.084 jax:0.175 jj:0.178 tfi:0.152 s
+# float32 (1024,1024,1)->(4096,4096) np:0.071 tf:0.035 to:0.061 jax:0.151 jj:0.190 tfi:0.142 s
+# float64 (1024,1024,1)->(4096,4096) np:0.114 tf:0.054 to:0.077 jax:0.275 jj:0.233 tfi:0.149 s
 
-# uint8   (1024,1024,3)->(4096,4096)  np:0.252  tf:0.206  to:0.235  jax:0.505  tfi:0.243 s
-# float32 (1024,1024,3)->(4096,4096)  np:0.174  tf:0.101  to:0.163  jax:0.428  tfi:0.222 s
-# float64 (1024,1024,3)->(4096,4096)  np:0.347  tf:0.195  to:0.216  jax:0.832  tfi:0.239 s
+# uint8   (1024,1024,3)->(4096,4096) np:0.280 tf:0.205 to:0.244 jax:0.515 jj:0.286 tfi:0.241 s
+# float32 (1024,1024,3)->(4096,4096) np:0.170 tf:0.080 to:0.163 jax:0.431 jj:0.284 tfi:0.227 s
+# float64 (1024,1024,3)->(4096,4096) np:0.367 tf:0.152 to:0.220 jax:0.861 jj:0.450 tfi:0.242 s
 
-# uint8   (1000,2000,3)->(100,200)    np:0.009  tf:0.011  to:0.020  jax:0.054  tfi:0.023 s
-# float32 (1000,2000,3)->(100,200)    np:0.007  tf:0.009  to:0.015  jax:0.047  tfi:0.014 s
-# float64 (1000,2000,3)->(100,200)    np:0.013  tf:0.015  to:0.016  jax:0.092  tfi:0.022 s
+# uint8   (1000,2000,3)->(100,200)   np:0.009 tf:0.011 to:0.020 jax:0.055 jj:0.022 tfi:0.020 s
+# float32 (1000,2000,3)->(100,200)   np:0.007 tf:0.007 to:0.015 jax:0.047 jj:0.024 tfi:0.012 s
+# float64 (1000,2000,3)->(100,200)   np:0.013 tf:0.012 to:0.016 jax:0.087 jj:0.043 tfi:0.039 s
 
-# uint8   (8192,8192,3)->(2048,2048)  np:0.537  tf:0.491  to:0.706  jax:3.238  tfi:0.832 s
-# float32 (8192,8192,3)->(2048,2048)  np:0.446  tf:0.506  to:0.562  jax:2.264  tfi:0.806 s
-# float64 (8192,8192,3)->(2048,2048)  np:0.882  tf:0.976  to:0.682  jax:5.421  tfi:1.348 s
+# uint8   (8192,8192,3)->(2048,2048) np:0.673 tf:0.434 to:0.705 jax:1.879 jj:0.910 tfi:0.808 s
+# float32 (8192,8192,3)->(2048,2048) np:0.459 tf:0.224 to:0.549 jax:1.821 jj:1.075 tfi:0.556 s
+# float64 (8192,8192,3)->(2048,2048) np:0.832 tf:0.448 to:0.711 jax:3.755 jj:1.783 tfi:0.790 s
 
 # %%
 def test_compare_timing_of_resize_and_media_show_image() -> None:
@@ -5431,7 +5481,7 @@ if EFFORT >= 2:
   test_compare_timing_of_resize_and_media_show_image()
 # Conclusion: media.show_image() should use resize() instead of PIL!
 
-# %% tags=[]
+# %%
 def test_profile_downsampling(shape, new_shape, filter='trapezoid',
                               also_prun=False, dtype='float32') -> None:
   _check_eq(len(shape), 3)
@@ -5439,7 +5489,7 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
   height, width, ch = shape
   new_height, new_width = new_shape
   block_height, block_width = np.array(shape[:2]) // new_shape
-  scale = 1 / (block_height * block_width)
+  factor = 1 / (block_height * block_width)
 
   def reshape_mean() -> _NDArray:
     shape1 = new_height, block_height, new_width, block_width, ch
@@ -5459,7 +5509,7 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
   def einsum() -> _NDArray:
     # https://stackoverflow.com/a/36383134
     shape1 = new_height, block_height, new_width, block_width, ch
-    return np.einsum('ijklm->ikm', array.reshape(shape1), optimize='greedy') * scale
+    return np.einsum('ijklm->ikm', array.reshape(shape1), optimize='greedy') * factor
 
   def two_dots() -> _NDArray:
     if ch != 1:
@@ -5467,7 +5517,7 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
     # https://stackoverflow.com/a/40241502
     left = np.eye(new_height, dtype=dtype).repeat(block_height, axis=1)
     right = np.eye(new_width, dtype=dtype).repeat(block_width, axis=0)
-    return left.dot(array.reshape(height, width)).dot(right)[..., None] * scale
+    return left.dot(array.reshape(height, width)).dot(right)[..., None] * factor
 
   def reshape4() -> _NDArray:
     shape1 = new_height, block_height, new_width, block_width, ch
@@ -5483,13 +5533,14 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
   def reduceat() -> _NDArray:
     # https://www.w3resource.com/python-exercises/numpy/python-numpy-exercise-191.php
     return np.add.reduceat(np.add.reduceat(array, np.arange(0, width, block_width), axis=1),
-                           np.arange(0, height, block_height), axis=0) * scale
+                           np.arange(0, height, block_height), axis=0) * factor
 
-  functions: Dict[str, Callable[[], _NDArray]] = {
+  functions: Dict[str, Callable[[], Any]] = {
       'resize_in_numpy': lambda: resize_in_numpy(array, new_shape, filter=filter),
       'resize_in_tensorflow': lambda: resize_in_tensorflow(array, new_shape, filter=filter),
       'resize_in_torch': lambda: resize_in_torch(array, new_shape, filter=filter),
       'resize_in_jax': lambda: resize_in_jax(array, new_shape, filter=filter),
+      'jaxjit_resize': lambda: jaxjit_resize(array, new_shape, filter=filter),
       'tf_image_resize': lambda: tf_image_resize(array, new_shape, filter=filter),
   }
   if filter == 'trapezoid':
@@ -5508,8 +5559,7 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
   print(f'** {shape} -> {new_shape} {filter} {dtype}:')
   expected = resize_in_numpy(array, new_shape, filter=filter)
   for name, function in functions.items():
-    if filter == 'trapezoid' and name == 'resize_in_numpy':
-      function()  # Precompile the code.
+    function()  # Pre-compile/jit the code.
     elapsed, result = hh.get_time_and_result(function, max_time=0.2)
     result = _arr_numpy(result)
     print(f'{name:20}: {elapsed:5.3f} s')
@@ -5520,14 +5570,14 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
       hh.prun(function, top=2)
 
 if EFFORT >= 1:
-  test_profile_downsampling((1000, 2000, 3), (100, 200), also_prun=True)
+  test_profile_downsampling((2000, 4000, 3), (100, 200))
+if EFFORT >= 2:
+  test_profile_downsampling((2000, 4000, 3), (100, 200), filter='lanczos3')
 if EFFORT >= 2:
   test_profile_downsampling((2000, 2000, 1), (1000, 1000))
   test_profile_downsampling((2000, 2000, 3), (1000, 1000))
   test_profile_downsampling((2000, 2000, 4), (1000, 1000))
   test_profile_downsampling((5000, 5000, 1), (1000, 1000), also_prun=True)
-if EFFORT >= 2:
-  test_profile_downsampling((1000, 2000, 3), (100, 200), filter='lanczos3', also_prun=True)
 if EFFORT >= 2:
   test_profile_downsampling((8192, 8192, 3), (2048, 2048))
   test_profile_downsampling((8192, 8192, 1), (2048, 2048))
@@ -5539,22 +5589,24 @@ if EFFORT >= 2:
 #   the fastest --- even faster than the C++ code in `tf.image.resize`.
 # - For `'lanczos3'` downsampling, `resize_in_numpy` is slightly faster than `tf.image.resize`.
 
-# %% tags=[]
+# %%
 def test_profile_upsampling(shape, new_shape, filter='lanczos3',
                             also_prun=False, dtype='float32') -> None:
   _check_eq(len(shape), 3)
   array = np.ones(shape, dtype=dtype)
 
-  functions = {
+  functions: Dict[str, Callable[[], _AnyArray]] = {
       'resize_in_numpy': lambda: resize_in_numpy(array, new_shape, filter=filter),
       'resize_in_tensorflow': lambda: resize_in_tensorflow(array, new_shape, filter=filter),
       'resize_in_torch': lambda: resize_in_torch(array, new_shape, filter=filter),
       'resize_in_jax': lambda: resize_in_jax(array, new_shape, filter=filter),
+      'jaxjit_resize': lambda: jaxjit_resize(array, new_shape, filter=filter),
       'tf_image_resize': lambda: tf_image_resize(array, new_shape, filter=filter, antialias=False),
   }
   print(f'** {shape} -> {new_shape} {filter} {dtype}:')
   expected = resize_in_numpy(array, new_shape, filter=filter)
   for name, function in functions.items():
+    function()  # Pre-compile/jit.
     elapsed, result = hh.get_time_and_result(function, max_time=0.2)
     print(f'{name:20}: {elapsed:5.3f} s')
     result = _arr_numpy(result)
@@ -5601,9 +5653,9 @@ experiment_rotate_image_about_center()
 
 
 # %%
-# Export: outside library.
-
-def overwrite_outside_circle(image: _NDArray, cval: Any = 0, margin: float = 0.0) -> _NDArray:
+# Export library: omit.
+def overwrite_outside_circle(image: _NDArray, cval: _ArrayLike = 0,
+                             margin: float = 0.0) -> _NDArray:
   shape = np.array(image.shape[:2])
   cval = np.broadcast_to(cval, image.shape[2])
   radius = min(shape) / 2 - margin
@@ -5635,9 +5687,10 @@ def experiment_compare_successive_rotations(num_rotations=7, gamma='identity') -
     image = overwrite_outside_circle(image)
     psnr = get_psnr(image, original_cropped)
     if 1:
-      image = (image - original_cropped) * 5 + 0.5
-    images[f'{filter}: {psnr:.1f} dB'] = image
-  media.show_images(images, columns=6, ylabel=f'gamma={gamma}', height=original.shape[0] * 2)
+      # image = (image - original_cropped) * 5 + 0.5
+      image = np.subtract(image, original_cropped) * 5 + 0.5  # Help mypy.
+    images[f"'{filter}': {psnr:.1f} dB"] = image
+  media.show_images(images, columns=6, ylabel=f"gamma='{gamma}'", height=original.shape[0] * 2)
 
 experiment_compare_successive_rotations(gamma='identity')
 
@@ -5648,7 +5701,7 @@ if 0:
   experiment_compare_successive_rotations(gamma='power2')
 
 
-# %% tags=[]
+# %%
 def experiment_plot_psnr_for_num_rotations(filter='lanczos5') -> None:
   original = resize(EXAMPLE_IMAGE, np.array(EXAMPLE_IMAGE.shape[:2]) // 2)
   _, ax = plt.subplots(figsize=(7, 4))
@@ -5672,7 +5725,7 @@ def experiment_visualize_rotation_boundaries(
   original_image = resize(EXAMPLE_IMAGE, (src_size,) * 2)
   matrix = rotation_about_center_in_2d(original_image.shape[:2], np.radians(degrees), scale=scale)
   images = {
-      boundary: resample_affine(original_image, (dst_size,) * 2, matrix[:-1], boundary=boundary)
+      f"'{boundary}'": resample_affine(original_image, (dst_size,) * 2, matrix[:-1], boundary=boundary)
       for boundary in BOUNDARIES
   }
   images = {'original image': original_image, **images}
@@ -5688,7 +5741,7 @@ def experiment_with_boundary_antialiasing(degrees=8, scale=1.5, src_size=64, dst
   matrix = rotation_about_center_in_2d(original_image.shape[:2], np.radians(degrees), scale=scale)
   images = {}
   for boundary_antialiasing, gamma in [(False, 'power2'), (True, 'power2'), (True, 'identity')]:
-    title = f'boundary_antialiasing={boundary_antialiasing} &nbsp; {gamma}'
+    title = f"boundary_antialiasing={boundary_antialiasing} &nbsp; '{gamma}'"
     boundary = Boundary(override_value=UnitDomainOverrideExteriorValue(
         boundary_antialiasing=boundary_antialiasing))
     images[title] = resample_affine(original_image, (dst_size,) * 2, matrix[:-1],
@@ -5702,7 +5755,7 @@ experiment_with_boundary_antialiasing()
 # Conclusion: the middle result is best, with boundary antialiasing enabled,
 # and with filtering in linear space (after conversion from/to `'power2'` lightness space).
 
-# %% tags=[]
+# %%
 def experiment_zoom_image(original_image, num_frames=60) -> None:
   """Here we vary only the prefilter, keeping constant the default reconstruction filter."""
   videos = collections.defaultdict(list)
@@ -5712,7 +5765,7 @@ def experiment_zoom_image(original_image, num_frames=60) -> None:
     for filter in 'box trapezoid lanczos3'.split():
       new_image = resize(original_image, original_image.shape,
                          translate=(1 - scale) / 2, scale=scale, prefilter=filter)
-      videos[f'resize filter={filter}'].append(new_image)
+      videos[f"resize filter='{filter}'"].append(new_image)
   media.show_videos(videos, height=original_image.shape[0] * 2, border=True, fps=10)
 
 if EFFORT >= 1:
@@ -5724,7 +5777,7 @@ if EFFORT >= 1:
 # - 'trapezoid' is much better; however, for photos, 'lanczos3' is still best.
 # try high-frequency test pattern image?
 
-# %% tags=[]
+# %%
 def experiment_zoom_rotate_image(src_size=128, dst_size=128, num_frames=60) -> None:
   """The `resampler` function lacks a prefilter, so shows aliasing during minification."""
   original_image = resize(EXAMPLE_IMAGE, (src_size,) * 2)
@@ -5738,7 +5791,7 @@ def experiment_zoom_rotate_image(src_size=128, dst_size=128, num_frames=60) -> N
     for filter in 'box lanczos3'.split():  # no 'trapezoid'
       new_image = resample_affine(
           original_image, (dst_size,) * 2, matrix[:-1], filter=filter, boundary='wrap')
-      videos[f'resample filter={filter}'].append(new_image)
+      videos[f"resample filter='{filter}'"].append(new_image)
   media.show_videos(videos, height=dst_size * 2, border=True, fps=10)
 
 if EFFORT >= 1:
@@ -5751,7 +5804,7 @@ if EFFORT >= 1:
 # %% [markdown]
 # - Tensorflow gradient-descent optimization:
 
-# %% tags=[]
+# %%
 def test_tensorflow_optimize_image_for_desired_upsampling(
     operation='resize', method='gradient_tape', num_steps=30, debug=False,
     src_shape=(8, 8, 3), dst_shape=(16, 16), filter='triangle') -> None:
@@ -5763,12 +5816,12 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
 
   def get_keras_resize_model() -> tf.keras.Model:
     x_in = tf.keras.Input(shape=src_shape, batch_size=1)
-    x = tf.keras.layers.Lambda(lambda x: resize(
-        x, (x.shape[0], *dst_shape[:2]), filter=filter))(x_in)
+    x = tf.keras.layers.Lambda(lambda x: resize(x, (x.shape[0], *dst_shape), filter=filter))(x_in)
     return tf.keras.Model(inputs=x_in, outputs=x)
 
   keras_resize_model = get_keras_resize_model()
-  # keras_resize_model.summary()
+  if 0:
+    keras_resize_model.summary()
 
   def model(array) -> tf.Tensor:
     functions: Dict[str, Callable[[], tf.Tensor]] = {
@@ -5779,19 +5832,19 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
     return functions[operation]()
 
   def compute_loss(upsampled) -> tf.Tensor:
-    # The learning_rate must be adapted to the magnitude of the loss value,
-    # which changes between reduce_sum() and reduce_mean().
+    # The learning_rate must be adapted to the magnitude of the loss value, which changes between
+    # reduce_sum() and reduce_mean().
     return tf.math.reduce_mean(tf.math.squared_difference(upsampled, desired))
 
   if method == 'gradient_tape':
-    learning_rate = 1e2  # rms_loss=0.0622 after 100 steps
+    learning_rate = 1e2
     for _ in range(num_steps):
       with tf.GradientTape() as tape:
         loss = compute_loss(model(array))
       gradient = tape.gradient(loss, array)
       array.assign_sub(learning_rate * gradient)
   elif method == 'adam':
-    learning_rate = 1e-1  # rms_loss=0.0622 after 100 steps
+    learning_rate = 1e-1
     opt = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     for _ in range(num_steps):
       opt.minimize(lambda: compute_loss(model(array)), [array])
@@ -5804,7 +5857,7 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
     print(f'rms_loss={rms:.4f}')
     images = {'optimized': array, 'upsampled': upsampled, 'desired': desired}
     media.show_images(images, height=80, border=True)
-  assert rms < 0.07, (operation, method)
+  assert rms < 0.08, (operation, method)
 
 def test_tensorflow_optimize_image_for_desired_upsamplings() -> None:
   operations = 'resize resample keras_resize'.split()
@@ -5816,6 +5869,7 @@ def test_tensorflow_optimize_image_for_desired_upsamplings() -> None:
         operation=operation, method=method, filter=filter)
 
 if EFFORT >= 1:
+  test_tensorflow_optimize_image_for_desired_upsampling(debug=True)
   test_tensorflow_optimize_image_for_desired_upsamplings()
 
 
@@ -5824,15 +5878,15 @@ if EFFORT >= 1:
 
 # %%
 def test_torch_optimize_image_for_desired_upsampling(
-    src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=20) -> None:
+    src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=30) -> None:
   import torch
 
   configs = [
-      ('resize', 'reflect', 'box', 'float32'),
+      ('resize', 'reflect', 'triangle', 'float64'),
       ('resample', 'border', 'cubic', 'float64'),
-      ('resize', 'wrap', 'trapezoid', 'float64'),
-      ('resample', 'reflect', 'omoms5', 'float32'),
-      ('resize', 'quadratic', 'lanczos3', 'float32'),
+      ('resize', 'wrap', 'box', 'float32'),
+      ('resample', 'reflect', 'lanczos3', 'float32'),
+      ('resize', 'quadratic', 'omoms5', 'float32'),
       ('resample', 'constant', 'cardinal5', 'float64'),
       ('resize', 'clamp', 'impulse', 'float32'),
       ('resample', 'natural', 'cardinal3', 'float64'),
@@ -5856,22 +5910,29 @@ def test_torch_optimize_image_for_desired_upsampling(
       return torch.linalg.norm(upsampled - desired)
 
     # https://pytorch.org/tutorials/beginner/basics/optimization_tutorial.html
-    learning_rate = 1e-1  # rms_loss=0.0622 after 100 steps
-    optimizer = torch.optim.SGD([array], lr=learning_rate)
+    learning_rate = 0.2
+    optimizer = torch.optim.SGD([array], lr=learning_rate)  # Stochastic gradient descent.
     for _ in range(num_steps):
       loss = compute_loss(model(array))
       optimizer.zero_grad()
-      loss.backward()
+      loss.backward()  # type: ignore[no-untyped-call]
       optimizer.step()
 
     upsampled = model(array).detach()
     rms = get_rms(upsampled, desired)
+    debug = filter == 'triangle'
+    if debug:
+      print(f'rms_loss={rms:.4f}')
+      images = {'optimized': array.detach(), 'upsampled': upsampled, 'desired': desired}
+      media.show_images(images, height=80, border=True)
     assert rms < 0.08, (config, rms)
 
-test_torch_optimize_image_for_desired_upsampling()
+
+if EFFORT >= 1:
+  test_torch_optimize_image_for_desired_upsampling()
 
 
-# %% tags=[]
+# %%
 def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -> None:
   import torch
   filters = 'cubic cardinal3'.split()
@@ -5886,19 +5947,166 @@ def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -
     for function in functions:
       assert torch.autograd.gradcheck(function, [array], rtol=0, atol=1e-6)
 
-test_torch_gradients_using_gradcheck()
+if EFFORT >= 1:
+  test_torch_gradients_using_gradcheck()
 
 
 # %% [markdown]
 # - Jax gradient-descent optimization:
 
 # %%
+def test_jax_optimize_image_for_desired_upsampling(
+    src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=30) -> None:
+  import jax
+  import jax.numpy as jnp
+
+  configs = [
+      ('resize', 'reflect', 'triangle', 'float64'),
+      ('resample', 'border', 'cubic', 'float64'),
+      ('resize', 'wrap', 'box', 'float32'),
+      ('resample', 'reflect', 'lanczos3', 'float32'),
+      ('resize', 'quadratic', 'omoms5', 'float32'),
+      ('resample', 'constant', 'cardinal5', 'float64'),
+      ('resize', 'clamp', 'impulse', 'float32'),
+      ('resample', 'natural', 'cardinal3', 'float64'),
+  ]
+  for config in configs:
+    operation, boundary, filter, dtype = config
+    if _get_filter(filter).requires_digital_filter:
+      print(f'Skipping {config} because {filter} is not jax-differentiable.')
+      continue
+    array_np = np.full(src_shape, 0.5, dtype=dtype)
+    array = jnp.asarray(array_np)
+    desired = jnp.asarray(resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=dtype))
+    coords = np.moveaxis(np.indices(dst_shape) + 0.5, 0, -1) / dst_shape
+
+    def model(array) -> _JaxArray:
+      kwargs: Dict[str, Any] = dict(boundary=boundary, filter=filter, cval=(0.8, 0.5, 0.4))
+      functions: Dict[str, Callable[[], Any]] = {
+          'resize': lambda: jaxjit_resize(array, dst_shape, **kwargs),
+          'resample': lambda: resample(array, coords, **kwargs),
+      }
+      return functions[operation]()
+
+    def compute_loss(array) -> Any:
+      return jnp.linalg.norm(model(array) - desired)
+
+    grad_loss = jax.grad(compute_loss)
+
+    # For example, see https://medium.com/swlh/solving-optimization-problems-with-jax-98376508bd4f
+    learning_rate = 0.2
+    for _ in range(num_steps):
+      array = array - learning_rate * grad_loss(array)
+
+    upsampled = model(array)
+    rms = get_rms(upsampled, desired)
+    debug = filter == 'triangle'
+    if debug:
+      print(f'rms_loss={rms:.4f}')
+      images = {'optimized': array, 'upsampled': upsampled, 'desired': desired}
+      media.show_images(images, height=80, border=True)
+    assert rms < 0.08, (config, rms)
+
+
+if EFFORT >= 1:
+  test_jax_optimize_image_for_desired_upsampling()
+
+
+# %%
+def test_jax0() -> None:  # ??
+  import jax
+  import jax.numpy as jnp
+  array = jnp.ones((2, 2), dtype='float32')
+  print(array.device_buffer.device())
+  print(array, type(array), repr(array))
+
+  array_np = np.ones((2, 2), dtype='float32')
+  array_jax = jax.device_put(array_np)
+  print(array_jax.device_buffer.device())
+  print(array_jax, type(array_jax), repr(array_jax))
+
+  array_jax = jnp.ones((2000,) * 2, dtype='float32')
+  hh.print_time(lambda: jnp.dot(array_jax, array_jax.T).block_until_ready())
+
+  array_np = np.ones((2000,) * 2, dtype='float32')
+  hh.print_time(lambda: np.dot(array_np, array_np.T))
+
+if 0:
+  test_jax0()
+
+
+# %%
+def test_jax1(filter='cubic') -> None:
+  import jax.numpy as jnp
+  array = jnp.ones((4_000,) * 2)
+  hh.print_time(lambda: resize(array, (3, 3), filter=filter), max_repeat=1)
+  hh.print_time(lambda: resize(array, (3, 3), filter=filter), max_repeat=1)
+  hh.print_time(lambda: resize(array, (3, 3), filter=filter), max_repeat=1)
+  hh.print_time(lambda: jaxjit_resize(array, (3, 3), filter=filter), max_repeat=1)
+  hh.print_time(lambda: jaxjit_resize(array, (3, 3), filter=filter), max_repeat=1)
+  hh.print_time(lambda: jaxjit_resize(array, (3, 3), filter=filter), max_repeat=1)
+
+if EFFORT >= 1:
+  test_jax1()
+if 0:
+  test_jax1(filter='cardinal3')  # Not traceable; 'ShapedArray' object has no attribute 'to_py'.
+
+
+# %%
+def test_jax2() -> None:
+  import jax
+  import jax.numpy as jnp
+
+  def resized_sum(array: _Array) -> Any:
+    return resize(array, (3, 3)).sum()
+
+  array = jnp.ones((2, 2))
+  new = jax.grad(resized_sum)(array)
+  print(new)
+
+if EFFORT >= 1:
+  test_jax2()
+
+
+# %%
+def test_jax() -> None:
+  import jax
+  import jax.numpy as jnp
+  print(jax.default_backend())
+  print(jax.devices())
+  print(jax.local_devices())
+  array = jnp.ones((2, 2), dtype='float32')
+  if 0:
+    print(jax.make_jaxpr(resize, static_argnums=(1,))(array, (3, 3)))
+    print(jax.make_jaxpr(jaxjit_resize, static_argnums=(1,))(array, (3, 3)))
+
+  if 0:
+    # Because `jax.make_jaxpr` unfortunately does not support `static_argnames`, we cannot specify
+    # any keyword arguments, e.g., `boundary='border'`, so we use `functools.partial`.
+    resize2 = functools.partial(resize, boundary='border')
+    print(jax.make_jaxpr(resize2, static_argnums=(1,))(array, (3, 3)))
+    print(jax.make_jaxpr(_immediately_jaxjit_resize(resize2), static_argnums=(1,))(array, (3, 3)))
+
+if 0:
+  test_jax()
+
+
+# %%
 # # ??
+
+# func_value_and_grad = jax.value_and_grad(fun[, argnums, has_aux, ...])
+
+# Can auto-vectorization jax.vmap(func) be used to generate a 2D convolution from a function
+# expressing a single-element combination of its neighbors?
+
+# pip install -U 'jax[cuda]' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+# # !nvcc --version  # CUDA version.
 
 # %% [markdown]
 # - Use Tensorflow to solve for an image whose spiral upsampling matches a desired image:
 
-# %% tags=[]
+# %%
 def experiment_image_optimized_for_spiral_resampling(
     num_steps=30, src_shape=(32, 32, 3), dst_shape=(64, 64),
     regularization_weight=0.0, smoothness_weight=0.0) -> None:
@@ -5943,7 +6151,7 @@ if EFFORT >= 1:
 # %% [markdown]
 # ## Block partition and timing
 
-# %% tags=[]
+# %%
 def test_blocking_using_image_rotation(max_block_size, src_size=64, dst_size=256) -> None:
   for arraylib in ARRAYLIBS:
     original_image = _make_array(resize(EXAMPLE_IMAGE, (src_size,) * 2), arraylib)
@@ -5963,7 +6171,7 @@ if EFFORT >= 1:
   test_blocking_using_image_rotation(max_block_size=1_000)
 
 
-# %% tags=[]
+# %%
 def experiment_find_the_best_max_block_size(src_size=64, dst_size=4096) -> None:
   original_image_numpy = resize(EXAMPLE_IMAGE, (src_size,) * 2)
 
@@ -5994,9 +6202,9 @@ if EFFORT >= 2:
 # max_block_size= 4_000_000 22.768 s
 # max_block_size= 8_000_000 23.178 s
 # max_block_size=         0 35.138 s
-## Conclusion: it's a worthwhile improvement, with max_block_size = ~4_000_000.
+# Conclusion: it's a worthwhile improvement, with max_block_size = ~4_000_000.
 
-# New 2022-07-09: memory seems higher now?  AMD Ryzen 9 5900X: best max_block_size = 40_000
+# New 2022-07-09: memory seems higher now.  AMD Ryzen 9 5900X: best max_block_size = 40_000
 
 # numpy:
 # max_block_size=     4_000 11.148 s
@@ -6043,7 +6251,7 @@ if EFFORT >= 2:
 #
 # TODO: more..
 
-# %% tags=[]
+# %%
 # pylint: disable-next=too-many-statements
 def visualize_filters(filters: Mapping[str, Filter]) -> None:
 
@@ -6057,7 +6265,7 @@ def visualize_filters(filters: Mapping[str, Filter]) -> None:
     # Mock that the filter is a partition of unity for accurate un-normalized integral
     # (e.g. 'lanczos3') and for raw interp_error (e.g. 'gaussian').
     filter_no_renorm = copy.copy(filter)
-    filter_no_renorm.partition_of_unity = True
+    object.__setattr__(filter_no_renorm, 'partition_of_unity', True)
 
     if filter.name == 'impulse':
       interp_err = 0.0
@@ -6115,7 +6323,7 @@ def visualize_filters(filters: Mapping[str, Filter]) -> None:
             f'integral={integral:.5f}']
     for i, line in enumerate(info):
       ax.text(0.9, 0.85 - 0.17 * i, line, fontsize=10.5)
-    ax.set_title(f'{name}')
+    ax.set_title(name)
 
   media.set_max_output_height(2000)
   num_columns = 3
@@ -6135,41 +6343,42 @@ def visualize_filters(filters: Mapping[str, Filter]) -> None:
     display_markdown("\u2020 The radius for `trapezoid` is adjusted based on the scaling factor.")
 
 
-# %% tags=[]
-# Export: outside library.
+# %%
 if 0:  # For debug.
   visualize_filters({'hamming3': _get_filter('hamming3')})
 
 # %% [markdown]
 # <a name="Visualization-of-filters" id="Visualization-of-filters"></a>Visualization of filters:
 
-# %% tags=[]
+# %%
 if EFFORT >= 1:
-  visualize_filters(_DICT_FILTERS)
+  visualize_filters({f"'{name}'": filter for name, filter in _DICT_FILTERS.items()})
 
 
-# %% tags=[]
+# %%
 def visualize_trapezoid_filters() -> None:
   """This shows how the trapezoid filter morphs between the box and triangle filters."""
-  filters = {f'trapezoid_radius{radius}': TrapezoidFilter(radius=radius)
+  filters = {f'TrapezoidFilter(radius={radius})': TrapezoidFilter(radius=radius)
              for radius in [0.6, 0.7, 0.9]}
   visualize_filters(filters)
 
 visualize_trapezoid_filters()
 
 
-# %% tags=[]
+# %%
 def visualize_cardinal_bsplines() -> None:
-  visualize_filters({f'cardinal{degree}': CardinalBsplineFilter(degree=degree)
-                     for degree in range(6)})
+  visualize_filters(
+      {f'CardinalBsplineFilter(degree={degree})': CardinalBsplineFilter(degree=degree)
+       for degree in range(6)})
 
 visualize_cardinal_bsplines()
 
 
-# %% tags=[]
+# %%
 def visualize_kaiser_filter_for_various_beta_values(radius=3.0) -> None:
-  visualize_filters({f'kaiser_radius{radius}_beta{beta}': KaiserFilter(radius=radius, beta=beta)
-                    for beta in [1.0, 2.0, 4.0, 7.0, 10.0, 20.0]})
+  visualize_filters(
+      {f'KaiserFilter(radius={radius}, beta={beta})': KaiserFilter(radius=radius, beta=beta)
+       for beta in [1.0, 2.0, 4.0, 7.0, 10.0, 20.0]})
 
 visualize_kaiser_filter_for_various_beta_values()
 
@@ -6219,7 +6428,7 @@ test_kaiser_filter_fractional_radius()
 # %% [markdown]
 # ## Best boundary rule for resize
 
-# %% tags=[]
+# %%
 def compare_boundary_rules_on_cropped_windows_of_images(
     images, scale, filter, num_windows, reference_filter='lanczos5', name='') -> None:
   """Determine the best boundary rule for resizing windows within images.
@@ -6241,12 +6450,12 @@ def compare_boundary_rules_on_cropped_windows_of_images(
     for _ in range(num_windows):
       shape = 24, 48
       pad = 6 if scale == 5/6 else int(math.ceil(6 / min(scale, 1.0)))
-      scaled_pad = must_be_int(pad * scale)
+      scaled_pad = must_be_int(pad * scale).item()
       broad_shape = shape[0] + pad * 2, shape[1] + pad * 2
       yx = (rng.integers(image.shape[0] - broad_shape[0]),
             rng.integers(image.shape[1] - broad_shape[1]))
       broad_window = image[tuple(slice(start, start + size)
-                                for start, size in zip(yx, broad_shape))]
+                                 for start, size in zip(yx, broad_shape))]
       window = broad_window[pad:-pad, pad:-pad]
       pixel_offset = 0 if scale != 1 else 0.25  # Quarter-pixel translation.
 
@@ -6434,7 +6643,7 @@ def experiment_best_downsampling_filter(scale=0.4, clip=False, debug=False) -> N
       reconstructed = resize(downsampled, image.shape[:2], filter='lanczos3')
       if clip:
         reconstructed = reconstructed.clip(0.0, 1.0)
-      cropped[image_index][filter] = reconstructed[crop[image_index]]
+      cropped[image_index][f"'{filter}'"] = reconstructed[crop[image_index]]
       mse = np.square(reconstructed - image).mean()
       all_mse.append(mse)
       all_psnr.append(10 * np.log10(1.0 / (mse + 1e-20)))
@@ -6509,7 +6718,7 @@ def experiment_best_upsampling_filter(scale=2.0, clip=False, debug=False) -> Non
       reconstructed = resize(downsampled, image.shape[:2], filter=filter)
       if clip:
         reconstructed = reconstructed.clip(0.0, 1.0)
-      cropped[image_index][filter] = reconstructed[crop[image_index]]
+      cropped[image_index][f"'{filter}'"] = reconstructed[crop[image_index]]
       mse = np.square(reconstructed - image).mean()
       all_mse.append(mse)
       all_psnr.append(10 * np.log10(1.0 / (mse + 1e-20)))
@@ -6566,7 +6775,7 @@ def dither(image: _NDArray, num_levels: int, offsets: Iterable[Tuple[int, int]],
   """Dither an image.
 
   From https://github.com/scikit-image/skimage-demos/blob/main/dither.py and
-  https://github.com/SixLabors/ImageSharp/blob/master/src/ImageSharp/Processing/Processors/Dithering/DHALF.TXT
+  https://github.com/SixLabors/ImageSharp/blob/main/src/ImageSharp/Processing/Processors/Dithering/DHALF.TXT
 
   Args:
     image: Source image with float type.
@@ -6632,8 +6841,8 @@ def experiment_gamma_downsample_image() -> None:
   lightness_space = resize(image, new_shape, gamma='identity')
   linear_space = resize(image, new_shape, gamma='power2')
   images = {
-      'lightness space - identity': lightness_space,
-      'linear space - power2': linear_space,
+      "lightness space - 'identity'": lightness_space,
+      "linear space - 'power2'": linear_space,
   }
   media.show_images(images, vmin=0, vmax=1, border=True)
 
@@ -6645,7 +6854,6 @@ experiment_gamma_downsample_image()
 # to linear space (using `'power2'`), downsample, then convert back to lightness.
 
 # %%
-# Export: outside library.
 def radial1(shape=(24, 48), frame_center=(0.75, 0.5), reference_shape=None) -> _NDArray:
   del reference_shape
   yx = (np.moveaxis(np.indices(shape), 0, -1) + (0.5, 0.5)) / min(shape)
@@ -6653,10 +6861,13 @@ def radial1(shape=(24, 48), frame_center=(0.75, 0.5), reference_shape=None) -> _
   value = np.cos((radius + 0.1) ** 0.5 * 70.0) * 0.5 + 0.5
   return value  # linear space
 
-media.show_image(radial1(), height=200)
+def visualize_radial1() -> None:
+  media.show_image(radial1(), height=200)
+
+visualize_radial1()
 
 
-# %% tags=[]
+# %%
 def chirp(shape=(65, 65), frame_center=(0.5, 0.5),
           period_at_center=2.0, period_at_border=4.0, reference_shape=None) -> _NDArray:
   reference_shape = reference_shape or shape
@@ -6694,10 +6905,10 @@ def experiment_visualize_gamma_upsample_image(**kwargs) -> None:
 
     identity = resize_gamma('identity')
     power2 = resize_gamma('power2')
-    images = {'original': image, 'identity': identity, 'power2': power2}
+    images = {'original': image, "gamma='identity'": identity, "gamma='power2'": power2}
     images = {name: image[:image.shape[0] * 5 // 9] for name, image in images.items()}
     media.show_images(images, vmin=0, vmax=1, border=True, width=new_shape[1],
-                      ylabel=f'supersample={supersample} source_pow={source_pow}')
+                      ylabel=f'supersample={supersample}<br/>source_pow={source_pow}')
 
   try_gamma_upsample(**kwargs)
   try_gamma_upsample(**kwargs, source_pow=0.5)
@@ -6765,7 +6976,7 @@ if EFFORT >= 2:
 # that are rotated by various angles (from $0^\circ$ to $90^\circ$)
 # and measure the reconstruction accuracy.
 
-# %% tags=[]
+# %%
 def _get_pil_font(font_size: int, font_name: str = 'cmr10') -> Any:
   font_file = f'{matplotlib.__path__[0]}/mpl-data/fonts/ttf/{font_name}.ttf'
   import PIL.ImageFont
@@ -6844,8 +7055,8 @@ def visualize_prefiltering_a_discontinuity_in_1D(size=400, x_step=0.5) -> None:
       ax.plot(downsample(x), downsample(array), 'o-')
       _ = ax.set_xlim(0.0, 1.0), ax.set_ylim(-0.17, 1.17)
       _ = ax.xaxis.set_ticks([]), ax.yaxis.set_ticks([])
-      ax.set_ylabel(f'{new_size}' if col_index == 0 else None)
-      ax.set_title(filter if row_index == 0 else None)
+      ax.set_ylabel(f'new size {new_size}' if col_index == 0 else None)
+      ax.set_title(f"'{filter}'" if row_index == 0 else None)
   fig.tight_layout()
 
 visualize_prefiltering_a_discontinuity_in_1D()
@@ -6860,7 +7071,7 @@ visualize_prefiltering_a_discontinuity_in_1D()
 # %% [markdown]
 # We now consider the same situation in 2D using a sharply defined circle:
 
-# %% tags=[]
+# %%
 def visualize_prefiltering_a_discontinuity_in_2D(
     shape=(100, 100), radius=0.2, new_shape=(20, 20)) -> None:
   mapped_radius = np.linalg.norm((np.indices(shape).T + 0.5) / np.array(shape) - 0.5, axis=-1).T
@@ -6870,7 +7081,7 @@ def visualize_prefiltering_a_discontinuity_in_2D(
              'hamming3 cardinal3 lanczos3 omoms5 lanczos10').split()
   images = {'original': array}
   for filter in filters:
-    images[filter] = resize(array, new_shape, filter=filter)
+    images[f"'{filter}'"] = resize(array, new_shape, filter=filter)
   media.show_images(images, border=True, height=shape[0]*1.25, vmin=0, vmax=1, columns=6)
 
 visualize_prefiltering_a_discontinuity_in_2D()
@@ -6886,7 +7097,7 @@ visualize_prefiltering_a_discontinuity_in_2D()
 # We saw in 1D that ringing artifacts are scale-dependent.
 # Here we generate videos to show the effect of continuously changing the scale:
 
-# %% tags=[]
+# %%
 def visualize_prefiltering_as_scale_is_varied(
     shape=(100, 100), radius=0.2, new_shape=(20, 20)) -> None:
   mapped_radius = np.linalg.norm((np.indices(shape).T + 0.5) / np.array(shape) - 0.5, axis=-1).T
@@ -6896,7 +7107,7 @@ def visualize_prefiltering_as_scale_is_varied(
   videos = collections.defaultdict(list)
   for filter in filters:
     for scale in np.linspace(0.9, 1.1, 61):
-      videos[filter].append(resize(array, new_shape, scale=scale, filter=filter)[3:-3, 3:-3])
+      videos[f"'{filter}'"].append(resize(array, new_shape, scale=scale, filter=filter)[3:-3, 3:-3])
   media.show_videos(videos, border=True, height=shape[0]*1.5, qp=14, fps=20, columns=4)
 
 if EFFORT >= 1:
@@ -6912,27 +7123,28 @@ if EFFORT >= 1:
 # %% [markdown]
 # ## Prefilter convolution
 
-# %% tags=[]
-# Export: outside library.
-def _torch_symmetric_pad(array: Any, padding: Iterable[int]) -> _TorchTensor:
+# %%
+# Export library: omit.
+def _torch_symmetric_pad(array: _ArrayLike, padding: Iterable[int]) -> _TorchTensor:
   """Use reflection to pad each dimension."""
   # See https://github.com/pytorch/pytorch/issues/46240 and
   # https://discuss.pytorch.org/t/symmetric-padding/19866/3.
   import torch
-  array = torch.as_tensor(array)
+  a = torch.as_tensor(array)
+  del array
   padding = tuple(padding)
-  if len(padding) != array.ndim:
-    raise ValueError(f'Padding {padding} does not match ndim of {array.shape}.')
+  if len(padding) != a.ndim:
+    raise ValueError(f'Padding {padding} does not match ndim of {a.shape}.')
   if any(pad < 0 for pad in padding):
     raise ValueError(f'Padding {padding} has negative values.')
 
   dim_indices: List[_NDArray] = []
-  for dim in range(array.ndim):
+  for dim in range(a.ndim):
     pad = padding[dim]
     if pad == 0 and not dim_indices:
       # The prefix of unmodified dimensions is accounted for by an Ellipsis.
       continue
-    width = array.shape[dim]
+    width = a.shape[dim]
     index = np.arange(-pad, width + pad)
     if pad > 0:
       index = np.mod(index, width * 2)
@@ -6940,10 +7152,10 @@ def _torch_symmetric_pad(array: Any, padding: Iterable[int]) -> _TorchTensor:
     dim_indices.append(index)
 
   grid_indices = np.meshgrid(*dim_indices, indexing='ij')
-  return array[(..., *grid_indices)]
+  return a[(..., *grid_indices)]
 
 
-# %% tags=[]
+# %%
 def experiment_with_convolution() -> None:  # pylint: disable=too-many-statements
   # https://laurentperrinet.github.io/sciblog/posts/2017-09-20-the-fastest-2d-convolution-in-the-world.html
 
@@ -7052,28 +7264,17 @@ def experiment_with_convolution() -> None:  # pylint: disable=too-many-statement
   filter1d = filter1d / filter1d.sum()
   filter = np.outer(filter1d, filter1d)
   functions: Dict[str, Callable[[], _NDArray]] = {
-      'scipy_convolve':  # zero-padding
-          lambda: scipy_convolve(array, filter),
-      'scipy_convolve_r':
-          lambda: scipy_convolve(array, filter, reflect=True),
-      'scipy.oaconvolve':  # zero-padding
-          lambda: scipy_oaconvolve(array, filter),
-      'scipy_oaconvolve_r':
-          lambda: scipy_oaconvolve(array, filter, reflect=True),
-      'scipy.sepfir2d':  # reflect
-          lambda: scipy_sepfir2d(array, filter1d),
-      'numpy_fftconvolve':  # periodic
-          lambda: numpy_fftconvolve(array, filter),
-      'ndimage.convolve':  # selectable
-          lambda: ndimage_convolve(array, filter),
-      'tf_convolve':  # zero-padding
-          lambda: tensorflow_convolve(array, filter),
-      'tf_convolve_r':
-          lambda: tensorflow_convolve(array, filter, reflect=True),
-      # 'torch_convolve':  # zero-padding
-      #     lambda: torch_convolve(array, filter),
-      'torch_convolve_r':
-          lambda: torch_convolve(array, filter, reflect=True),
+      'scipy_convolve': lambda: scipy_convolve(array, filter),  # zero-padding
+      'scipy_convolve_r': lambda: scipy_convolve(array, filter, reflect=True),
+      'scipy.oaconvolve': lambda: scipy_oaconvolve(array, filter),  # zero-padding
+      'scipy_oaconvolve_r': lambda: scipy_oaconvolve(array, filter, reflect=True),
+      'scipy.sepfir2d': lambda: scipy_sepfir2d(array, filter1d),  # reflect
+      'numpy_fftconvolve': lambda: numpy_fftconvolve(array, filter),  # periodic
+      'ndimage.convolve': lambda: ndimage_convolve(array, filter),  # selectable
+      'tf_convolve': lambda: tensorflow_convolve(array, filter),  # zero-padding
+      'tf_convolve_r': lambda: tensorflow_convolve(array, filter, reflect=True),
+      # 'torch_convolve': lambda: torch_convolve(array, filter),  # zero-padding
+      'torch_convolve_r': lambda: torch_convolve(array, filter, reflect=True),
   }
   if 1:
     visualization = {}
@@ -7105,12 +7306,12 @@ def experiment_with_convolution() -> None:  # pylint: disable=too-many-statement
 
   if EFFORT >= 2:  # Convolution on source grid is 8-12x slower than resize().
     array = np.ones((2000, 2000, 3), dtype=np.float32)
-    for downscale in [1, 2, 3, 4, 8]:
-      filter = np.ones((2 * 3 * downscale + 1,) * 2, dtype=np.float32)
+    for downsample in [1, 2, 3, 4, 8]:
+      filter = np.ones((2 * 3 * downsample + 1,) * 2, dtype=np.float32)
       print(array.shape, filter.shape)
       # hh.print_time(lambda: scipy_convolve(array, filter, reflect=False))
       hh.print_time(lambda: scipy_convolve(array, filter, reflect=True))
-      hh.print_time(lambda: resize(array, np.array(array.shape[:2]) // downscale))
+      hh.print_time(lambda: resize(array, np.array(array.shape[:2]) // downsample))
 
 if EFFORT >= 1:
   experiment_with_convolution()
@@ -7132,7 +7333,7 @@ if EFFORT >= 1:
 # %% [markdown]
 # ## Generalized sampling
 
-# %% tags=[]
+# %%
 # pylint: disable-next=too-many-branches disable-next=too-many-statements
 def test_banded(debug=False) -> None:
   # [On band circulant matrices in the periodic spline interpolation theory]:
@@ -7220,8 +7421,8 @@ def test_banded(debug=False) -> None:
 
   if 1 and l in [1, 2]:
     # causal/anticausal filters:
-    # https://github.com/scipy/scipy/blob/master/scipy/ndimage/src/ni_interpolation.c#L145
-    # https://github.com/scipy/scipy/blob/master/scipy/ndimage/src/ni_splines.c
+    # https://github.com/scipy/scipy/blob/main/scipy/ndimage/src/ni_interpolation.c#L145
+    # https://github.com/scipy/scipy/blob/main/scipy/ndimage/src/ni_splines.c
     # Drawbacks: not as precise; only Bspline (no OMOMS); limited boundaries.
     mode = {'reflect': 'reflect', 'wrap': 'grid-wrap'}[boundary]
     new = scipy.ndimage.spline_filter1d(
@@ -7284,9 +7485,9 @@ if 1:
   test_banded()
 
 
-# %% tags=[]
+# %%
 def test_inverse_convolution_2d(  # pylint: disable=too-many-statements
-    scale=2.0, degree=3, gridtype='dual', boundary='reflect', dtype=np.float32) -> None:
+    gridscale=2.0, degree=3, gridtype='dual', boundary='reflect', dtype=np.float32) -> None:
   filter = BsplineFilter(degree=degree)
   l = math.ceil(filter.radius) - 1
   x = np.arange(-l, l + 1)
@@ -7375,11 +7576,13 @@ def test_inverse_convolution_2d(  # pylint: disable=too-many-statements
     return array
 
   def run_filtfilt(array: _NDArray) -> _NDArray:
+    # _filtfilt_gust() in https://github.com/scipy/scipy/blob/main/scipy/signal/_signaltools.py
+    # would likely support complex values but it defines temporaries using untyped np.zeros().
+    assert not np.issubdtype(array.dtype, np.complexfloating)
     for dim in range(2):
       a = np.array([1.0, 2.0 - math.sqrt(3)], dtype=array.dtype)
       b = a.sum()
       with np.errstate(under='ignore'):
-        # Gustafsson method is not defined for complex values?
         array = scipy.signal.filtfilt(b, a, array, axis=dim, method='gust')
     return array
 
@@ -7387,12 +7590,12 @@ def test_inverse_convolution_2d(  # pylint: disable=too-many-statements
   array = media.to_float01(EXAMPLE_PHOTO).astype(dtype, copy=False)
   if np.issubdtype(dtype, np.complexfloating):
     array = array + 0.5j * (array + 0.2)
-  functions = {
+  functions: Dict[str, Callable[[_NDArray], _NDArray]] = {
       'general': run_general,
       'spline_filter1d': run_spline_filter1d,
   }
   if gridtype == 'dual' and boundary == 'reflect' and degree == 3:
-    new_shape = (np.array(array.shape[:2]) * scale + 0.5).astype(int)
+    new_shape = (np.array(array.shape[:2]) * gridscale + 0.5).astype(int)
     hh.print_time(lambda: resize(array, new_shape, filter='cubic'))  # 20 ms
     hh.print_time(lambda: resize(array, new_shape, filter='lanczos5'))  # 35 ms
     functions = {
@@ -7507,9 +7710,9 @@ visualize_rotational_symmetry_of_gaussian_filter()
 # %% [markdown]
 # Images for "Example usage" section:
 
-# %% tags=[]
+# %%
 def visualize_example_usage() -> None:
-  array: Any
+  array: _ArrayLike
 
   array = np.random.default_rng(1).random((4, 6, 3))  # 4x6 RGB image.
   upsampled = resize(array, (128, 192))  # To 128x192 resolution.
@@ -7523,10 +7726,10 @@ def visualize_example_usage() -> None:
   new_dual = resize(array, (32,))  # (default gridtype='dual') 8x resolution.
   new_primal = resize(array, (25,), gridtype='primal')  # 8x resolution.
   _, axs = plt.subplots(1, 2, figsize=(9, 1.5))
-  axs[0].set_title('gridtype dual')
+  axs[0].set_title("gridtype='dual'")
   axs[0].plot((np.arange(len(array)) + 0.5) / len(array), array, 'o')
   axs[0].plot((np.arange(len(new_dual)) + 0.5) / len(new_dual), new_dual, '.')
-  axs[1].set_title('gridtype primal')
+  axs[1].set_title("gridtype='primal'")
   axs[1].plot(np.arange(len(array)) / (len(array) - 1), array, 'o')
   axs[1].plot(np.arange(len(new_primal)) / (len(new_primal) - 1), new_primal, '.')
   plt.show()
@@ -7555,7 +7758,7 @@ def visualize_example_usage() -> None:
 visualize_example_usage()
 
 
-# %% tags=[]
+# %%
 def visualize_resampled_spiral_with_alpha() -> None:
   image = media.read_image('https://github.com/hhoppe/data/raw/main/image.png')
   image = crop_array(image, ((0, 0, 0), (0, 0, -1)), 255)  # Add alpha channel with value 255.
@@ -7570,7 +7773,7 @@ def visualize_resampled_spiral_with_alpha() -> None:
 visualize_resampled_spiral_with_alpha()
 
 
-# %% tags=[]
+# %%
 def visualize_resampled_spiral_large() -> None:
   image = EXAMPLE_IMAGE
   image = crop_array(image, ((0, 0, 0), (0, 0, -1)), 255)  # Add alpha channel with value 255.
@@ -7586,10 +7789,10 @@ def visualize_resampled_spiral_large() -> None:
 if 0:
   visualize_resampled_spiral_large()
 if 0:
-  media.show_image(resize(EXAMPLE_IMAGE, (1280, 1280), filter='lanczos3')[320:-320])
+  media.show_image(resize(EXAMPLE_IMAGE, (1280, 1280))[320:-320])
 
 
-# %% tags=[]
+# %%
 def visualize_warp_samples() -> None:
   image = EXAMPLE_IMAGE
   shape = 32, 32
@@ -7616,7 +7819,7 @@ def visualize_warp_samples() -> None:
 visualize_warp_samples()
 
 
-# %% tags=[]
+# %%
 def visualize_unused() -> None:
   array = [3.0, 5.0, 8.0, 7.0]
   upsampled = resize(array, (32,))
@@ -7630,7 +7833,7 @@ def visualize_unused() -> None:
     upsampled = resize(array, (32,), gridtype=gridtype)
     ax.plot(ordinates(array), array, 'o')
     ax.plot((np.arange(len(upsampled)) + 0.5) / len(upsampled), upsampled, '.')
-    ax.set_title(f'gridtype {gridtype}')
+    ax.set_title(f"gridtype='{gridtype}'")
 
   _, axs = plt.subplots(1, 2, figsize=(12, 2.5))
   upsample_1d(axs[0], 'dual', lambda x: (np.arange(len(x)) + 0.5) / len(x))
@@ -7642,7 +7845,7 @@ visualize_unused()
 # %% [markdown]
 # Images for figures:
 
-# %% tags=[]
+# %%
 def visualize_reconstruction_and_sampling() -> None:
   array = np.random.default_rng(9).random((4, 4, 3))
   new = resize(array, (6, 6))
@@ -7661,16 +7864,13 @@ def visualize_reconstruction_and_sampling() -> None:
 visualize_reconstruction_and_sampling()
 # (These are different from the images originally placed in Google Drawings.)
 
-# %% tags=[]
-def visualize_example_filters(num=1_001) -> None:
-  filters = 'impulse box trapezoid triangle cubic lanczos3 lanczos10'.split()
+# %%
+def visualize_example_filters(filters: Sequence[str], num=1_001) -> None:
   fig, axs = plt.subplots(1, len(filters), figsize=(12, 1.8))
 
   for index, filter_name in enumerate(filters):
     ax = axs.flat[index]
     filter = _get_filter(filter_name)
-    if filter_name == 'lanczos3':
-      filter_name += ' (def.)'  # Default filter.
     if filter_name == 'trapezoid':
       filter = TrapezoidFilter(radius=0.75)  # Some representative shape.
 
@@ -7685,15 +7885,18 @@ def visualize_example_filters(num=1_001) -> None:
     ax.yaxis.set_ticks([0.0, 1.0] if index == 0 else [])
     ax.xaxis.set_ticks(np.arange(-6, 7, 1))
     ax.tick_params(axis='x', labelbottom=False, direction='in')
-    ax.set_title(f'{filter_name}')
+    title = f"'{filter_name}'"
+    title = title + ' (def.)' if filter_name == _DEFAULT_FILTER else title
+    ax.set_title(title)
 
   fig.tight_layout()
 
 
-visualize_example_filters()
+visualize_example_filters('impulse box trapezoid triangle cubic lanczos3 lanczos10'.split())
+# The filter 'cardinal3' (not shown here) looks almost identical to 'lanczos3'.
 
 
-# %% tags=[]
+# %%
 def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
   """Create 1D boundary rule plots similar to
   https://docs.scipy.org/doc/scipy/reference/tutorial/ndimage.html#ndimage-interpolation-modes"""
@@ -7707,10 +7910,11 @@ def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
       fig.subplots_adjust(wspace=0.1)
       array = np.array([0.6, 0.5, 0.8, 0.9])
       for column_index, boundary in enumerate(boundaries):
+        # factor out a single plot??
+        # use it to visualize boundary conditions for tf_image_resize, torch_resize, etc. ??
         ax = axs.flat[column_index]
         for x_value in [0.0, 1.0]:
-          ax.axvline(x=x_value, ymin=0.0, ymax=0.77, color='red',
-                     linestyle='--', linewidth=1)
+          ax.axvline(x=x_value, ymin=0.0, ymax=0.77, color='red', linestyle='--', linewidth=1)
         resized = resize(array, (num_samples,), src_gridtype=gridtype, dst_gridtype='dual',
                          boundary=boundary, cval=1.0, filter=filter,
                          scale=scale, translate=(1 - scale) / 2)
@@ -7724,19 +7928,20 @@ def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
         ax.set_ylim(0.4, 1.2)
         ax.set_xticks([0, 1])
         ax.set_yticks([])
-        title_replacement = {'quadratic_constant': 'quadratic_const.'}
-        title = title_replacement.get(boundary, boundary)
-        dagger = r'$^\dagger$' if gridtype == 'primal' and boundary == 'wrap' else ''
         if row_index == 0:
-          ax.set_title(f'{title}{dagger}', x=0.5, y=1.05, fontsize=14)
+          dagger = r'$^\dagger$' if gridtype == 'primal' and boundary == 'wrap' else ''
+          title = {'quadratic_constant': 'quadratic_const.'}.get(boundary, boundary)
+          title = f"'{title}'{dagger}"
+          title = f'boundary={title}' if column_index == 0 else title
+          ax.set_title(title, x=0.5, y=1.05, fontsize=14)
       plt.subplots_adjust(left=0.035)
-      plt.gcf().text(0.02, 0.55, filter, fontsize=14,
-                     rotation='vertical', verticalalignment='center')
+      text = f"filter='{filter}'" if row_index == 0 else f"'{filter}'"
+      plt.gcf().text(0.02, 0.55, text, fontsize=14, rotation='vertical', va='center')
       plt.show()
 
   media.set_max_output_height(3000)
 
-  display_markdown("**Grid type: `'dual'`**")
+  display_markdown("**`gridtype='dual'`**")
   visualize_gridtype('dual')
   display_markdown("""&emsp; &emsp; Graphics
     [texture sampling](https://www.khronos.org/opengl/wiki/Sampler_Object)
@@ -7744,7 +7949,7 @@ def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
     `'reflect'`, `'wrap'`, `'clamp'`, `'reflect_clamp'`, or `'border'` boundary.
   """)
 
-  display_markdown("<br/>**Grid type: `'primal'`**")
+  display_markdown("<br/>**`gridtype='primal'`**")
   visualize_gridtype('primal')
   display_markdown(r"""&emsp; &emsp; ${}^\dagger$To create a continuous periodic
     reconstruction, the last sample is ignored for the `'wrap'` boundary rule
@@ -7788,21 +7993,21 @@ def visualize_boundary_rules_in_2d(*, scale=0.6, src_gridtype=('dual', 'primal')
   def show_row(show_titles, scale=scale) -> None:
     kwargs = dict(shape=shape, src_gridtype=src_gridtype,
                   dst_gridtype='dual', scale=scale, translate=(1 - scale) / 2)
-    title_replacement = {'quadratic_constant': 'quadratic_const.'}
-    images = {
-        title_replacement.get(boundary, boundary):
-            resize_showing_domain_boundary(
-                array, boundary=boundary, cval=cval, filter=filter, **kwargs)
-        for boundary in _OFTUSED_BOUNDARIES
-    }
+    images = {}
+    for boundary in _OFTUSED_BOUNDARIES:
+      name = {'quadratic_constant': 'quadratic_const.'}.get(boundary, boundary)
+      images[f"'{name}'"] = resize_showing_domain_boundary(
+          array, boundary=boundary, cval=cval, filter=filter, **kwargs)
     image_samples = resize_showing_domain_boundary(
         array, boundary='constant', cval=0.5, filter='narrowbox', **kwargs)
     images = {'(samples)': image_samples, **images}
-    images2 = images if show_titles else images.values()
+    images2: Any = images if show_titles else images.values()
     # Benefit of show_images() over matplotlib.imshow() is no pixel resampling.
-    media.show_images(images2, ylabel=filter, html_class='show_images2')
+    ylabel = f"filter='{filter}'&nbsp;&nbsp;&nbsp" if row_index == 0 else f"'{filter}'"
+    media.show_images(images2, ylabel=ylabel, html_class='show_images2')
 
-  display_markdown("**Upsampling of a 2D grid (`'dual'` in $y$ and `'primal'` in $x$)**")
+  display_markdown("**Upsampling of a 2D grid (`gridtype=('dual', 'primal')`,"
+                   " for $y$ and $x$ axes respectively)**")
   for row_index, filter in enumerate('box triangle cubic lanczos3'.split()):
     show_row(show_titles=(row_index == 0))
 
@@ -7848,9 +8053,9 @@ visualize_boundary_rules_in_2d()
 # | `cv.resize` | 2D | custom | `float32` | dual | up to `'lanczos4'` | `'trapezoid'` (AREA) | several | fast | C++ | no |
 # | `scipy.ndimage` | any | `np` | any | ~dual, primal | cardinal B-splines | aliased &#9785; | several | slow | C | no |
 # | `skimage.transform` | any | `np` | any | dual, primal | cardinal B-splines | Gaussian &#9785; | several | slow | Cython | no |
-# | `tf.image.resize` | 2D | `tf` | `float32` | dual | up to `'lanczos5'` | `'linear'`, `'cubic'`? | `'natural'` | average | C++ | yes |
-# | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `'trapezoid'`, `'linear'`, `'cubic'` | `?` | average | C++ | yes |
-# | `torchvision.transforms.`<br/>&nbsp;`functional.resize` | 2D | `tf` | most | dual | up to cubic | `'linear'`, `'cubic'` | `?` | average | C++ | yes |
+# | `tf.image.resize` | 2D | `tf` | `float32` | dual | up to `'lanczos5'` | good | `'natural'` | average | C++ | yes |
+# | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `'trapezoid'`, `'triangle'`, `'cubic'` | `?` | average | C++ | yes |
+# | `torchvision.transforms.`<br/>&nbsp;`functional.resize` | 2D | `tf` | most | dual | up to cubic | `'triangle'`, `'cubic'` | `?` | average | C++ | yes |
 #
 # The `resampler` library does not involve any new native code;
 # it instead leverages existing sparse matrix representations and operations.
@@ -7864,19 +8069,19 @@ visualize_boundary_rules_in_2d()
 # %% [markdown]
 # ## Upsampling comparison
 
-# %% tags=[]
-def experiment_compare_upsampling_with_other_libraries(scale=2.0, shape=(200, 400)) -> None:
+# %%
+def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200, 400)) -> None:
   # All filtering is done in lightness space (i.e. with gamma='identity').
   original = resize(media.to_float01(example_tissot_image()), shape,
                     filter='trapezoid', dtype=np.float32)  # Was 'lanczos5'.
-  downsampled_shape_2d = (np.array(shape) / scale + 0.5).astype(int)
+  downsampled_shape_2d = (np.array(shape) / gridscale + 0.5).astype(int)
   array = resize(original, downsampled_shape_2d, filter='lanczos5')
   if 1:
     array = np.ascontiguousarray(array)  # Compactify, removing cropped X and Y.
   if 0:
     array = np.swapaxes(np.swapaxes(array, 0, 1).copy(), 0, 1)  # Transpose memory layout.
   print(f'{array.dtype} src_shape={array.shape} strides={array.strides} dst_shape={shape}')
-  funcs: Dict[str, Callable[[], _NDArray]] = {
+  funcs: Dict[str, Callable[[], _AnyArray]] = {
       'original': lambda: original,
       # 'resize lanczos4': lambda: resize(array, shape, filter=LanczosFilter(radius=4)),
       # 'resample lanczos5': lambda: resize_using_resample(array, shape, filter='lanczos5'),
@@ -7884,14 +8089,15 @@ def experiment_compare_upsampling_with_other_libraries(scale=2.0, shape=(200, 40
       'resize lanczos3': lambda: resize(array, shape, filter='lanczos3'),
       'resize cardinal3': lambda: resize(array, shape, filter='cardinal3'),
       'resize cubic': lambda: resize(array, shape, filter='cubic'),
-      'resize linear': lambda: resize(array, shape, filter='triangle'),
+      'resize triangle': lambda: resize(array, shape, filter='triangle'),
       'resize_in_tf lanczos3': lambda: resize_in_tensorflow(array, shape, filter='lanczos3'),
       'resize_in_torch lanczos3': lambda: resize_in_torch(array, shape, filter='lanczos3'),
       'resize_in_jax lanczos3': lambda: resize_in_jax(array, shape, filter='lanczos3'),
+      'jaxjit_resize lanczos3': lambda: jaxjit_resize(array, shape, filter='lanczos3'),
       'resample lanczos3': lambda: resize_using_resample(array, shape, filter='lanczos3'),
       'PIL.Image.resize lanczos3': lambda: pil_image_resize(array, shape, 'lanczos3'),
       'PIL.Image.resize cubic': lambda: pil_image_resize(array, shape, 'cubic'),
-      # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (scale, scale, 1.0)),
+      # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (gridscale, gridscale, 1.0)),
       'map_coordinates order=3': lambda: scipy_ndimage_resize(array, shape, filter='cardinal3'),
       'skimage.transform.resize': lambda: skimage_transform_resize(array, shape, filter='cardinal3'),
       'tf.resize lanczos5': lambda: tf_image_resize(array, shape, filter='lanczos5'),
@@ -7899,20 +8105,18 @@ def experiment_compare_upsampling_with_other_libraries(scale=2.0, shape=(200, 40
       # 'tf.resize cubic new': lambda: tf_image_resize(array, shape, filter='cubic'),  # newer; resize_with_scale_and_translate('keyscubic')
       'tf.resize cubic (aa False)': lambda: tf_image_resize(array, shape, filter='cubic', antialias=False),  # older; gen_image_ops.resize_bicubic()
       'torch.nn.interp sharpcubic': lambda: torch_nn_resize(array, shape, 'sharpcubic'),
-      'torch.nn.interpolate linear': lambda: torch_nn_resize(array, shape, 'triangle'),
+      'torch.nn.interpolate triangle': lambda: torch_nn_resize(array, shape, 'triangle'),
       # 'torch.nn.interp cubic AA': lambda: torch_nn_resize(array, shape, 'sharpcubic', antialias=True),
-      # 'torch.nn.interp linear AA': lambda: torch_nn_resize(array, shape, 'triangle', antialias=True),
-      # 'torchvision sharpcubic': lambda: torchvision_resize(array, shape, 'sharpcubic'),
-      # 'torchvision linear': lambda: torchvision_resize(array, shape, 'triangle'),
-      # 'torchvision sharpcubic AA': lambda: torchvision_resize(array, shape, 'sharpcubic', antialias=True),
-      # 'torchvision linear AA': lambda: torchvision_resize(array, shape, 'triangle', antialias=True),
+      # 'torch.nn.interp triangle AA': lambda: torch_nn_resize(array, shape, 'triangle', antialias=True),
+      'jax.image.resize lanczos3': lambda: jax_image_resize(array, shape, 'lanczos3'),
+      'jax.image.resize triangle': lambda: jax_image_resize(array, shape, 'triangle'),
       'cv.resize lanczos4': lambda: cv_resize(array, shape, filter='lanczos4'),
       'cv.resize (sharp)cubic': lambda: cv_resize(array, shape, filter='sharpcubic'),
   }
   images = {}
   for name, func in funcs.items():
     if 'jax' in name:
-      func()  # Precompile the code.
+      func()  # Pre-compile/jit the code.
     elapsed, image = hh.get_time_and_result(func, max_time=0.05)
     image = _arr_numpy(image)
     _check_eq(image.dtype, np.float32)
@@ -7924,14 +8128,14 @@ def experiment_compare_upsampling_with_other_libraries(scale=2.0, shape=(200, 40
     images = {name: image[:100, :200] for name, image in images.items()}
   media.set_max_output_height(2000)
   # with media.set_show_save_dir('/tmp'):
-  show_args = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
+  show_args: Any = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
   media.show_images(images, **show_args)
   # media.show_video([upsampled3, upsampled4], fps=1, height=400, codec='gif')
 
 if EFFORT >= 1:
   experiment_compare_upsampling_with_other_libraries()
 if EFFORT >= 3:
-  experiment_compare_upsampling_with_other_libraries(scale=1.9)
+  experiment_compare_upsampling_with_other_libraries(gridscale=1.9)
 
 
 # %% [markdown]
@@ -7944,10 +8148,10 @@ if EFFORT >= 3:
 # %% [markdown]
 # ## Downsampling comparison
 
-# %% tags=[]
-def experiment_compare_downsampling_with_other_libraries(scale=0.1, shape=(100, 200)) -> None:
+# %%
+def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(100, 200)) -> None:
   # All filtering is done in lightness space (i.e. with gamma='identity').
-  original_shape_2d = (np.array(shape) / scale + 0.5).astype(int)
+  original_shape_2d = (np.array(shape) / gridscale + 0.5).astype(int)
   original = resize(media.to_float01(example_tissot_image()), original_shape_2d,
                     filter='lanczos5', dtype=np.float32)
   if 1:
@@ -7956,12 +8160,12 @@ def experiment_compare_downsampling_with_other_libraries(scale=0.1, shape=(100, 
     original = np.swapaxes(np.swapaxes(original, 0, 1).copy(), 0, 1)  # Transpose memory layout.
   array = original
   print(f'{array.dtype} src_shape={array.shape} strides={array.strides} dst_shape={shape}')
-  funcs: Dict[str, Callable[[], _NDArray]] = {
+  funcs: Dict[str, Callable[[], _AnyArray]] = {
       # 'resize lanczos5': lambda: resize(array, shape, filter='lanczos5'),
       'resize lanczos3': lambda: resize(array, shape),
       'resize cardinal3': lambda: resize(array, shape, filter='cardinal3'),
       'resize cubic': lambda: resize(array, shape, filter='cubic'),
-      'resize linear': lambda: resize(array, shape, filter='triangle'),
+      'resize triangle': lambda: resize(array, shape, filter='triangle'),
       'resize trapezoid': lambda: resize(array, shape, filter='trapezoid'),
       'resize box': lambda: resize(array, shape, filter='box'),
       'resize_in_tf lanczos3': lambda: resize_in_tensorflow(array, shape),
@@ -7970,32 +8174,31 @@ def experiment_compare_downsampling_with_other_libraries(scale=0.1, shape=(100, 
       'resize_in_torch trapezoid': lambda: resize_in_torch(array, shape, filter='trapezoid'),
       'resize_in_jax lanczos3': lambda: resize_in_jax(array, shape),
       'resize_in_jax trapezoid': lambda: resize_in_jax(array, shape, filter='trapezoid'),
+      'jaxjit_resize lanczos3': lambda: jaxjit_resize(array, shape, filter='lanczos3'),
+      'jaxjit_resize trapezoid': lambda: jaxjit_resize(array, shape, filter='trapezoid'),
       'resample lanczos3': lambda: resize_using_resample(array, shape, filter='lanczos3'),
       'PIL.Image.resize lanczos3': lambda: pil_image_resize(array, shape, 'lanczos3'),
       # 'PIL.Image.resize cubic': lambda: pil_image_resize(array, shape, 'cubic'),
       'PIL.Image.resize box': lambda: pil_image_resize(array, shape, 'box'),
-      # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (scale, scale, 1.0)),
+      # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (gridscale, gridscale, 1.0)),
       'map_coordinates order=3': lambda: scipy_ndimage_resize(array, shape, filter='cardinal3'),
       'skimage.transform.resize': lambda: skimage_transform_resize(array, shape, filter='cardinal3'),
       'tf.resize lanczos3': lambda: tf_image_resize(array, shape, filter='lanczos3'),
       'tf.resize trapezoid': lambda: tf_image_resize(array, shape, filter='trapezoid'),
       # 'torch.nn.interpolate cubic': lambda: torch_nn_resize(array, shape, 'sharpcubic'),
-      # 'torch.nn.interpolate linear': lambda: torch_nn_resize(array, shape, 'triangle'),
+      # 'torch.nn.interpolate triangle': lambda: torch_nn_resize(array, shape, 'triangle'),
       'torch.nn.interp trapezoid': lambda: torch_nn_resize(array, shape, 'trapezoid'),
       'torch.nn.interp cubic AA': lambda: torch_nn_resize(array, shape, 'sharpcubic', antialias=True),
-      'torch.nn.interp linear AA': lambda: torch_nn_resize(array, shape, 'triangle', antialias=True),
-      # 'torchvision (sharp)cubic': lambda: torchvision_resize(array, shape, 'sharpcubic'),
-      # 'torchvision linear': lambda: torchvision_resize(array, shape, 'triangle'),
-      'torchvision (sharp)cubic AA': lambda: torchvision_resize(array, shape, 'sharpcubic', antialias=True),
-      # 'torchvision linear AA': lambda: torchvision_resize(array, shape, 'triangle', antialias=True),
-      # torchvision does not have differentiable box/trapezoid.
+      'torch.nn.interp triangle AA': lambda: torch_nn_resize(array, shape, 'triangle', antialias=True),
+      'jax.image.resize lanczos3': lambda: jax_image_resize(array, shape, 'lanczos3'),
+      'jax.image.resize triangle': lambda: jax_image_resize(array, shape, 'triangle'),
       'cv.resize lanczos4': lambda: cv_resize(array, shape, filter='lanczos4'),  # Aliased.
       'cv.resize trapezoid': lambda: cv_resize(array, shape, filter='trapezoid'),
   }
   images = {}
   for name, func in funcs.items():
     if name == 'resize trapezoid' or 'jax' in name:
-      func()  # Precompile the code.
+      func()  # Pre-compile/jit the code.
     elapsed, image = hh.get_time_and_result(func, max_time=0.05)
     image = _arr_numpy(image)
     upsampled = _original_resize(image, original.shape[:2], filter='lanczos5')
@@ -8007,17 +8210,17 @@ def experiment_compare_downsampling_with_other_libraries(scale=0.1, shape=(100, 
     images = {name: image[:50, :100] for name, image in images.items()}
   media.set_max_output_height(2000)
   # with media.set_show_save_dir('/tmp'):
-  show_args = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
+  show_args: Any = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
   media.show_images(images, **show_args)
 
 if EFFORT >= 1:
   experiment_compare_downsampling_with_other_libraries()
 if EFFORT >= 3:
-  experiment_compare_downsampling_with_other_libraries(scale=1/8)
-  experiment_compare_downsampling_with_other_libraries(scale=0.1007)
+  experiment_compare_downsampling_with_other_libraries(gridscale=1/8)
+  experiment_compare_downsampling_with_other_libraries(gridscale=0.1007)
 
 
-# %% tags=[]
+# %%
 def test_downsample_timing() -> None:
   """Check that we account for strides in `_arr_best_dims_order_for_resize()`."""
   for with_copy in [False, True]:
@@ -8026,7 +8229,7 @@ def test_downsample_timing() -> None:
                      shape, filter='lanczos5', dtype=np.float32)
       if with_copy:
         array = np.ascontiguousarray(array)  # Like copy(), it keeps a stride of 4.
-      print(array.dtype, array.shape, array.strides)
+      print(f'{array.dtype} {array.shape!s:<16} {array.strides!s:<16}: ', end='')
       hh.print_time(lambda: resize(array, (100, 200), filter='lanczos3', boundary='reflect'),
                     max_time=0)
 
@@ -8034,17 +8237,14 @@ test_downsample_timing()
 
 # %% [markdown]
 # Conclusions for downsampling:
-# - The `ndimage` library ibraries do not apply prefiltering when downsampling
-#   and therefore introduce aliasing.
+# - The `ndimage` library does not apply prefiltering when downsampling and therefore
+#   introduces aliasing.
 # - With `ndimage`, it is difficult to create the right transform / coords to exactly resize
 #   a 'dual' grid.
 #   The `zoom()` in the more recent `scipy` has new `grid_mode='True'` to assist with this.
-# - The `torch.nn` and `torchvision` require `antialias=True` for prefiltering.
+# - The `torch.nn` requires `antialias=True` for prefiltering.
 # - The `skimage.transform.resize` also requires `anti_aliasing=True` and it introduces a
 #   Gaussian prefilter which prevents aliasing but is blurry.
-# - `torchvision.transforms.functional.resize` seems to produce identical results to
-#   `torch.nn.functional.interpolate`, but a little slower and
-#   with slightly less functionality (no antialiased 'area' downsampling).
 # - OpenCV's best downsampling filter is `AREA`, which is not as sharp as a Lanczos filter.
 # - The `resize` box-filtering (using `numba`) is as fast as the C++
 #   `tf.image.resize` and `OpenCV` implementations.
@@ -8053,10 +8253,10 @@ test_downsample_timing()
 # # Export Python
 
 # %%
-# Export: end.
+# Export library: end.
 
 
-# %% tags=[]
+# %%
 def notebook_code_cells_text(filename: str) -> Iterator[str]:
   """Yield notebook code cells as multiline strings."""
 
@@ -8089,49 +8289,52 @@ def notebook_code_cells_text(filename: str) -> Iterator[str]:
     return
 
   # Yield code cells as they were first ran within the notebook.
-  only_ran_once = sum('def save_notebook_inputs' in text for text in In) == 1
-  if only_ran_once:
-    assert 'In' in globals()
-    for cell in In[1:]:
-      yield cell
-    return
+  try:
+    cells: List[str] = globals()['In']
+  except KeyError:
+    pass
+  else:
+    only_ran_once = sum('def save_notebook_inputs' in text for text in cells) == 1
+    if only_ran_once:
+      yield from cells[1:]
+      return
 
   raise AssertionError('No access to notebook cell contents.')
 
 
-# %% tags=[]
+# %%
 def write_library_python_file() -> None:
   """Write the python library source file by concatenating a subset of the notebook code cells."""
-  within_notebook_header = False
+  export_library_paused = False
   cells_text = []
 
   def contains_only_comments(cell_text: str) -> bool:
     return not re.sub(r'(?m)^ *#.*$', r'', cell_text).strip()
 
   for cell_text in notebook_code_cells_text('resampler_notebook.py'):
-    if cell_text == '# Export: end.':
+    if cell_text == '# Export library: end.':
       break
-    if cell_text == '# Export: begin notebook header.':
-      within_notebook_header = True
+    if cell_text == '# Export library: pause.':
+      export_library_paused = True
       continue
-    if cell_text == '# Export: end notebook header.':
-      within_notebook_header = False
+    if cell_text == '# Export library: resume.':
+      export_library_paused = False
       continue
-    outside_lib = (within_notebook_header or contains_only_comments(cell_text) or
-                   '# Export: outside library.' in cell_text or
-                   re.search(r'(?m)^(def )?(test_|experiment_|visualize_|if EFFORT)', cell_text))
+    outside_lib = (export_library_paused or contains_only_comments(cell_text) or
+                   '!pip install' in cell_text or '# Export library: omit.' in cell_text or
+                   re.search(r'(?m)^(def |  )?(test_|experiment_|visualize_|if EFFORT)', cell_text))
     if not outside_lib:
       cells_text.append(cell_text)
 
   text = '\n\n\n'.join(cells_text) + '\n'
-  text += '\n\n# For Emacs:\n# Local Variables: *\n# fill-column: 100 *\n# End: *\n'
+  text += '\n\n# For Emacs:\n# Local Variables:\n# fill-column: 100\n# End:\n'
   hh.run('mkdir -p ./resampler')
   pathlib.Path('resampler/__init__.py').write_text(text)
 
 write_library_python_file()
 
 
-# %% tags=[]
+# %%
 def run_doctest(filename: str, debug: bool = False) -> None:
   """Run tests within the function doc strings."""
   assert running_in_notebook()
@@ -8140,12 +8343,12 @@ def run_doctest(filename: str, debug: bool = False) -> None:
 if EFFORT >= 1:
   run_doctest('resampler/__init__.py')
 
-# %% tags=[]
+# %%
 if EFFORT >= 2:
   run_doctest('resampler_notebook.py')
 
 
-# %% tags=[]
+# %%
 def run_pytest_command() -> None:  # (This function name cannot end in 'test', else recursion.)
   assert running_in_notebook()
   hh.run('pytest --doctest-modules --ignore=Old --ignore=Other --ignore=resampler_other.py')
@@ -8154,13 +8357,13 @@ if EFFORT >= 2:
   run_pytest_command()
 
 
-# %% tags=[]
+# %%
 def run_spell_check(filename: str, commit_new_words: bool = False) -> None:
   """Look for misspelled words in notebook."""
   path = pathlib.Path(filename)
   if path.is_file():
     # -Fxvif: fixed_string, match_whole_line, invert_match, case_insensitive, patterns_from_file.
-    find = f"""cat {path} | perl -pe "s@https?:/.*?[)> ]@@g; s/'/ /g" | spell | \
+    find = rf"""cat {path} | perl -pe "s@https?:/.*?[)> ]@@g; s/'/ /g; s/\\\\n//g;" | spell | \
                sort -u | grep -Fxvif {path.stem}.spell"""
     if commit_new_words:
       hh.run(f'{find} >v.spell; cat v.spell >>{path.stem}.spell && rm v.spell')
@@ -8170,38 +8373,43 @@ def run_spell_check(filename: str, commit_new_words: bool = False) -> None:
 if EFFORT >= 1:
   run_spell_check('resampler_notebook.py')
 
-# %% tags=[]
+# %%
 if 0:  # To commit new words to local dictionary.
   run_spell_check('resampler_notebook.py', commit_new_words=True)
 
 
-# %% tags=[]
+# %%
 def run_lint(filename: str, strict: bool = False) -> None:
   """Run checks on *.py notebook code (saved using jupytext or from menu)."""
   if not pathlib.Path(filename).is_file():
     return
-  mypy_args = '--strict --ignore-missing-imports'
+  flake8_args = '--indent-size 2 --max-line-length=1000 --doctests --extend-ignore'
+  flake8_ignore = 'E302,E741' + ('' if strict else ',E131,E305,E402')
+  mypy_args = ('--strict --ignore-missing-imports'
+               r' --config <(echo -e "[mypy]\n[mypy-jax.*]\nfollow_imports = skip")')
   s = '' if strict else 'type annotation for one or more arguments|'
-  mypy_grep = f'egrep -v "{s}gradgradcheck|Untyped decorator|Name .In| errors? in 1 file"'
+  mypy_grep = (f'grep -Ev "{s}gradgradcheck|Untyped decorator| errors? in 1 file'
+               '|Any from function declared to return .(ndarray|Tensor)"')
   autopep8_args = '-aaa --max-line-length 100 --indent-size 2 --diff --ignore'
   autopep8_ignore = 'E265,E121,E125,E128,E129,E131,E226,E302,E305,E703,E402'  # E501
   pylint_disabled = ('C0301,C0302,W0125,C0114,R0913,W0301,R0902,W1514,R0914,C0103,C0415'
                      ',R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412,C0413')
   pylint_args = f'--indent-string="  " --disable={pylint_disabled}'
-  pylint_grep = (" | egrep -v 'E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)"
-                 r"|colab|has been rated at|\*\* Module|(^-+$)|(^$)'" +
-                 ("" if strict else " | grep -v 'Missing function or method docstring'"))
-  hh.run(f'echo mypy; mypy {mypy_args} "{filename}" | {mypy_grep} || true')
+  pylint_grep = (" | grep -Ev 'E1101: Module .(torch|cv2)|Method .(jvp|vjp)"
+                 r"|colab|has been rated at|\*\* Module|(^-*$)'" +
+                 ('' if strict else " | grep -v 'Missing function or method docstring'"))
+  hh.run(f'echo flake8; flake8 {flake8_args} {flake8_ignore} "{filename}"')
+  hh.run(f'echo mypy; bash -c \'mypy {mypy_args} "{filename}" | {mypy_grep} || true\'')
   hh.run(f'echo autopep8; autopep8 {autopep8_args} {autopep8_ignore} "{filename}"')
   hh.run(f'echo pylint; pylint {pylint_args} "{filename}" {pylint_grep} || true')
   print('All ran.')
 
 
-# %% tags=[]
+# %%
 if EFFORT >= 1:
   run_lint('resampler_notebook.py')
 
-# %% tags=[]
+# %%
 if EFFORT >= 1:
   run_lint('resampler/__init__.py', strict=True)
 
@@ -8209,16 +8417,16 @@ if EFFORT >= 1:
 # %% [markdown]
 # In Windows Emacs, `compile` command:
 # ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'f=resampler_notebook.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "type annotation for one or more arguments|gradgradcheck|Untyped decorator|Name .In| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703,E402 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0302,C0415,R0902,R0903,R0913,R0914,W0640,W0125,C0413,W1514 --disable=C0301,C0114,W0301,R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412 "$f" | egrep -v "E1101: Module .(torch|cv2)|Undefined variable .In|Method .(jvp|vjp)|colab"; echo All ran.'
+# c:/windows/sysnative/wsl -e bash -lc 'f=resampler_notebook.py; echo flake8; flake8 --indent-size 2 --max-line-length=1000 --doctests --extend-ignore E302,E741,E131,E305,E402 "$f"; echo mypy; mypy --strict --ignore-missing-imports --config <(echo -e "[mypy]\n[mypy-jax.*]\nfollow_imports = skip") "$f" | grep -Ev "type annotation for one or more arguments|gradgradcheck|Untyped decorator| errors? in 1 file|Any from function declared to return .(ndarray|Tensor)"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703,E402 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0302,C0415,R0902,R0903,R0913,R0914,W0640,W0125,C0413,W1514 --disable=C0301,C0114,W0301,R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412 "$f" | grep -Ev "E1101: Module .(torch|cv2)|Method .(jvp|vjp)|colab|has been rated at|\*\* Module|(^-*$)"; echo All ran.'
 # ```
 
 # %% [markdown]
 # In Windows Emacs, `compile` command:
 # ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'f=resampler/__init__.py; echo mypy; env mypy --strict --ignore-missing-imports "$f" | egrep -v "gradgradcheck|Untyped decorator| errors? in 1 file"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0301,C0302,R0903,R0913,R0914,W0125,W0301,W0511,W0622,W0640 "$f" | egrep -v "E1101: Module .(torch|cv2)|Method .(jvp|vjp)|W0221.*(forward|backward)|C0415.*(tensorflow|torch|jax|PIL|cv2)"; echo All ran.'
+# c:/windows/sysnative/wsl -e bash -lc 'f=resampler/__init__.py; echo flake8; flake8 --indent-size 2 --max-line-length=1000 --doctests --extend-ignore E302,E741 "$f"; echo mypy; mypy --strict --ignore-missing-imports --config <(echo -e "[mypy]\n[mypy-jax.*]\nfollow_imports = skip") "$f" | grep -Ev "gradgradcheck|Untyped decorator| errors? in 1 file|Any from function declared to return .(ndarray|Tensor)"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0301,C0302,R0903,R0913,R0914,W0125,W0301,W0511,W0622,W0640 "$f" | grep -Ev "E1101: Module .(torch|cv2)|Method .(jvp|vjp)|W0221.*(forward|backward)|C0415.*(tensorflow|torch|jax|PIL|cv2)|has been rated at|\*\* Module|(^-*$)"; echo All ran.'
 # ```
 
-# %% tags=[]
+# %%
 # Remember to increment __version__ to allow a new pypi package.
 
 def build_and_upload_pypi_package() -> None:
@@ -8239,7 +8447,7 @@ if 0:
   build_and_upload_pypi_package()
 
 
-# %% tags=[]
+# %%
 def create_documentation_files() -> None:
   """Locally create pdoc HTML.  (Instead, this is normally performed as a GitHub action.)
 
@@ -8248,20 +8456,24 @@ def create_documentation_files() -> None:
   modified Action permissions to prevent pages-build-deployment bot action --
   see https://github.com/mitmproxy/pdoc/issues/414.
   """
-  hh.run('pip install pdoc')
+  if 0:
+    hh.run('pip install pdoc')
   # Used http://www.xiconeditor.com/ to upload 4-channel png and save *.ico .
   # Use custom template ./pdoc/module.html.jinja2 and output ./docs/*.
-  hh.run('pdoc --math -t ./pdoc -o ./docs ./resampler --logo https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png --favicon https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha_scaletox64.ico --logo-link https://hhoppe.github.io/resampler/resampler.html')
+  # hh.run('pdoc --math -t ./pdoc -o ./docs ./resampler --logo https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png --favicon https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha_scaletox64.ico --logo-link https://hhoppe.github.io/resampler/resampler.html')
   # To run interactively in web browser, just omit '-o ./docs'.
+  hh.run('pdoc/make.py')
 
 if 0:
+  # write_library_python_file()
   create_documentation_files()
 
 
-# %% tags=[]
+# %%
 def write_copy_of_notebook_without_code(filename: str, output_filename: str) -> None:
   """Create a copy of the notebook without any code, to examine just the markdown and output."""
-  import nbformat  # See https://github.com/jupyter/nbformat/blob/main/nbformat/__init__.py
+  import nbformat
+  # See https://github.com/jupyter/nbformat/blob/main/nbformat/__init__.py; has no type info.
   notebook = nbformat.reads(pathlib.Path(filename).read_text(), nbformat.NO_CONVERT)  # type: ignore
   # https://nbformat.readthedocs.io/en/latest/format_description.html
   del notebook['metadata']['jupytext']  # Remove pairing 'ipynb,py:percent'.
@@ -8283,11 +8495,11 @@ if 0:
 # %% [markdown]
 # # Epilog
 
-# %% tags=[]
+# %%
 hh.analyze_lru_caches(globals())
 
 
-# %% tags=[]
+# %%
 def show_added_global_variables_sorted_by_type() -> None:
   for typename, name in sorted(
       (type(value).__name__, name) for name, value in globals().items()):
@@ -8303,7 +8515,7 @@ def show_added_global_variables_sorted_by_type() -> None:
 
 show_added_global_variables_sorted_by_type()
 
-# %% tags=[]
+# %%
 print(f'# EFFORT={EFFORT}')
 hh.show_notebook_cell_top_times()
 # EFFORT=1:
@@ -8315,10 +8527,10 @@ hh.show_notebook_cell_top_times()
 
 # %%
 # EFFORT=0
-# Total time: 9.87 s
-# In[228] def visualize_example_usage() -> None:\n  array: Any\n\n     0.756 s
-# In[220] def visualize_prefiltering_a_discontinuity_in_1D(size=400,   0.697 s
-# In[188] def experiment_plot_psnr_for_num_rotations(filter='lanczos5  0.678 s
+# Total time: 9.81 s
+# In[240] def visualize_prefiltering_a_discontinuity_in_1D(size=400,   0.737 s
+# In[202] def experiment_plot_psnr_for_num_rotations(filter='lanczos5  0.711 s
+# In[223] def visualize_cardinal_bsplines() -> None:\n  visualize_     0.652 s
 
 # EFFORT=1
 # Total time: 126.37 s
@@ -8350,7 +8562,7 @@ hh.show_notebook_cell_top_times()
 # In[162] def test_inverse_convolution_2d(  # pylinX: disable=too-     4.233 s
 # In[118] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2)  3.671 s
 # In[184] def experiment_compare_upsampling_with_other_libraries(      2.590 s
-# In[140] # Export: outside library.\nvisualize_filters(FILTERS)       2.125 s
+# In[140] # Export library: omit.\nvisualize_filters(FILTERS)          2.125 s
 # In[ 44] def test_cached_sampling_of_1d_function(radius=2.0) ->       1.821 s
 # In[169] def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:   1.776 s
 # In[156] def experiment_visualize_gamma_upsample_video(shape=(24, 48  1.743 s
@@ -8366,7 +8578,7 @@ hh.show_notebook_cell_top_times()
 
 # %% [markdown]
 # <!-- For Emacs:
-# Local Variables: *
-# fill-column: 100 *
-# End: *
+# Local Variables:
+# fill-column: 100
+# End:
 # -->
