@@ -3,8 +3,9 @@
 .. include:: ../README.md
 """
 
+from __future__ import annotations
 __docformat__ = 'google'
-__version__ = '0.3.6'
+__version__ = '0.4.0'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 
@@ -13,7 +14,7 @@ import functools
 import itertools
 import math
 import typing
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Sequence, Tuple, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -43,7 +44,7 @@ if typing.TYPE_CHECKING:
 else:
   _DType = Any
   _NDArray = Any
-  _DTypeLike = Any  # Else `pdoc` documents a long Union[...] type.
+  _DTypeLike = Any  # Else `pdoc` documents a long typename.
   _ArrayLike = Any  # Same.
   _JaxArray = Any
   _TensorflowTensor = Any
@@ -275,9 +276,10 @@ class _Arraylib(typing.Generic[_Array]):
     """Return the equivalent of `np.einsum(subscripts, *operands, optimize=True)`."""
 
   @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int],
-                           weight: _NDArray, src_index: _NDArray) -> _Array:
-    """Return a sparse matrix for 1D resize; see `_make_sparse_resize_matrix`."""
+  def make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
+                         shape: Tuple[int, int]) -> _Array:
+    """Return the equivalent of `scipy.sparse.csr_matrix(data, (row_ind, col_ind), shape=shape)`.
+    However, indices must be ordered and unique."""
 
   @staticmethod
   def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
@@ -345,15 +347,8 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
     return np.einsum(subscripts, *operands, optimize=True)
 
   @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int],
-                           weight: _NDArray, src_index: _NDArray) -> _NDArray:
-    dst_size, _ = shape
-    data = weight.reshape(-1)
-    row_ind = np.arange(dst_size).repeat(src_index.shape[1])
-    col_ind = src_index.reshape(-1)
-    nonzero = data != 0.0
-    data, row_ind, col_ind = data[nonzero], row_ind[nonzero], col_ind[nonzero]
-    # Note: csr_matrix automatically reorders and merges duplicate indices.
+  def make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
+                         shape: Tuple[int, int]) -> _NDArray:
     return scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape=shape)
 
   @staticmethod
@@ -451,25 +446,11 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
     return tf.einsum(subscripts, *operands, optimize='greedy')
 
   @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int],
-                           weight: _NDArray, src_index: _NDArray) -> _TensorflowTensor:
+  def make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
+                         shape: Tuple[int, int]) -> _TensorflowTensor:
     import tensorflow as tf
-    _, src_size = shape
-    linearized = (src_index + np.indices(src_index.shape)[0] * src_size).reshape(-1)
-    values = weight.reshape(-1)
-    # Remove the zero weights.
-    nonzero = values != 0.0
-    linearized, values = linearized[nonzero], values[nonzero]
-    # Sort and merge the duplicate indices.
-    unique, unique_inverse = np.unique(linearized, return_inverse=True)
-    data = np.ones(len(linearized), dtype=np.float32)
-    row_ind = unique_inverse
-    col_ind = np.arange(len(linearized))
-    shape2 = len(unique), len(linearized)
-    csr = scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape=shape2)
-    merged_values = csr * values
-    merged_indices = np.vstack((unique // src_size, unique % src_size))
-    return tf.sparse.SparseTensor(merged_indices.T, merged_values, shape)
+    indices = np.vstack((row_ind, col_ind)).T
+    return tf.sparse.SparseTensor(indices, data, shape)
 
   @staticmethod
   def sparse_dense_matmul(sparse: 'tf.sparse.SparseTensor',
@@ -577,17 +558,13 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
     return torch.einsum(subscripts, *operands)
 
   @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int],
-                           weight: _NDArray, src_index: _NDArray) -> _TorchTensor:
+  def make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
+                         shape: Tuple[int, int]) -> _TorchTensor:
     import torch
-    dst_size, _ = shape
-    indices = np.vstack((np.arange(dst_size).repeat(src_index.shape[1]), src_index.reshape(-1))).T
-    values = weight.reshape(-1)
-    # Remove the zero weights, then coalesce the duplicate indices.
-    nonzero = values != 0.0
-    indices, values = indices[nonzero], values[nonzero]
+    indices = np.vstack((row_ind, col_ind))
     return torch.sparse_coo_tensor(
-        torch.as_tensor(indices.T), torch.as_tensor(values), shape).coalesce()
+        torch.as_tensor(indices), torch.as_tensor(data), shape)
+    # .coalesce() is unnecessary because indices/data are already merged.
 
   @staticmethod
   def sparse_dense_matmul(sparse: Any, dense: _TorchTensor) -> _TorchTensor:
@@ -668,18 +645,13 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
     return jnp.einsum(subscripts, *operands, optimize='greedy')
 
   @staticmethod
-  def sparse_resize_matrix(shape: Tuple[int, int],
-                           weight: _NDArray, src_index: _NDArray) -> _JaxArray:
+  def make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
+                         shape: Tuple[int, int]) -> _JaxArray:
     # https://jax.readthedocs.io/en/latest/jax.experimental.sparse.html
     import jax.experimental.sparse
-    dst_size, _ = shape
-    indices = np.vstack((np.arange(dst_size).repeat(src_index.shape[1]), src_index.reshape(-1))).T
-    data = weight.reshape(-1)
-    # Remove the zero weights, then coalesce the duplicate indices.
-    nonzero = data != 0.0
-    indices, data = indices[nonzero], data[nonzero]
+    indices = np.vstack((row_ind, col_ind)).T
     return jax.experimental.sparse.BCOO(
-        (data, indices), shape=shape, indices_sorted=False, unique_indices=False)
+        (data, indices), shape=shape, indices_sorted=True, unique_indices=True)
 
   @staticmethod
   def sparse_dense_matmul(sparse: 'jax.experimental.sparse.BCOO', dense: _Array) -> _Array:
@@ -785,14 +757,11 @@ def _arr_moveaxis(array: _Array, source: int, destination: int) -> _Array:
   axes.insert(destination, source)
   return _arr_transpose(array, axes)
 
-def _make_sparse_resize_matrix(shape: Tuple[int, int], weight: _NDArray,
-                               src_index: _NDArray, arraylib: str) -> _Array:
-  """Return a sparse matrix for a 1D resize operation, expressing destination samples as linear
-  combination of source samples.  The matrix `shape` is `(dst_size, src_size)`.  Each row of the
-  2D matrices `weight` and `src_index` provide values and positions in each sparse row."""
-  dst_size, _ = shape
-  _check_eq(src_index.shape[0], dst_size)
-  return _DICT_ARRAYLIBS[arraylib].sparse_resize_matrix(shape, weight, src_index)  # type: ignore
+def _make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
+                        shape: Tuple[int, int], arraylib: str) -> _Array:
+  """Return the equivalent of `scipy.sparse.csr_matrix(data, (row_ind, col_ind), shape=shape)`.
+  However, indices must be ordered and unique."""
+  return _DICT_ARRAYLIBS[arraylib].make_sparse_matrix(data, row_ind, col_ind, shape)  # type: ignore
 
 def _arr_sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
   """Return the multiplication of the `sparse` and `dense` matrices."""
@@ -1006,15 +975,15 @@ See the source code for extensibility.
 """
 
 
-def _get_gridtype(gridtype: Union[str, Gridtype]) -> Gridtype:
+def _get_gridtype(gridtype: str | Gridtype) -> Gridtype:
   """Return a `Gridtype`, which can be specified as a name in `GRIDTYPES`."""
   return gridtype if isinstance(gridtype, Gridtype) else _DICT_GRIDTYPES[gridtype]
 
 
 def _get_gridtypes(
-    gridtype: Union[None, str, Gridtype],
-    src_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]],
-    dst_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]],
+    gridtype: str | Gridtype | None,
+    src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None,
+    dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None,
     src_ndim: int, dst_ndim: int) -> Tuple[List[Gridtype], List[Gridtype]]:
   """Return per-dim source and destination grid types given all parameters."""
   if gridtype is None and src_gridtype is None and dst_gridtype is None:
@@ -1387,7 +1356,7 @@ _OFTUSED_BOUNDARIES = ('reflect wrap tile clamp border natural'
 """A useful subset of `BOUNDARIES` for visualization in figures."""
 
 
-def _get_boundary(boundary: Union[str, Boundary]) -> Boundary:
+def _get_boundary(boundary: str | Boundary) -> Boundary:
   """Return a `Boundary`, which can be specified as a name in `BOUNDARIES`."""
   return boundary if isinstance(boundary, Boundary) else _DICT_BOUNDARIES[boundary]
 
@@ -1474,7 +1443,7 @@ class TrapezoidFilter(Filter):
   1.0 - radius <= abs(x) <= radius, always with value 0.5 at x = 0.5.
   """
 
-  def __init__(self, *, radius: Optional[float] = None) -> None:
+  def __init__(self, *, radius: float | None = None) -> None:
     if radius is None:
       super().__init__(name='trapezoid', radius=0.0)
       return
@@ -1523,7 +1492,7 @@ class CubicFilter(Filter):
   - (b=0, c=0.75) is the "sharper cubic" used in Photoshop and OpenCV.
   """
 
-  def __init__(self, *, b: float, c: float, name: Optional[str] = None) -> None:
+  def __init__(self, *, b: float, c: float, name: str | None = None) -> None:
     name = f'cubic_b{b}_c{c}' if name is None else name
     super().__init__(name=name, radius=2.0, interpolating=(b == 0))
     self.b, self.c = b, c
@@ -1868,11 +1837,11 @@ The names expand to:
 | `'mitchell'`   | `MitchellFilter()`            | *mitchellcubic* |
 | `'narrowbox'`  | `NarrowBoxFilter()`           | for visualization of sample positions |
 
-The comment label *GF* denotes generalized filters, formed as the composition of
-a finitely supported kernel and a discrete inverse convolution.
+The comment label *GF* denotes a [generalized filter](https://hhoppe.com/proj/filtering/), formed
+as the composition of a finitely supported kernel and a discrete inverse convolution.
 
 <center>
-Some example filter kernels:<br/>
+Some example filter kernels:<br/><br/>
 <img src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png" width="100%"/>
 </center>
 
@@ -1882,7 +1851,7 @@ visualizes all filters in 1D and 2D.  See the source code for extensibility.
 """
 
 
-def _get_filter(filter: Union[str, Filter]) -> Filter:
+def _get_filter(filter: str | Filter) -> Filter:
   """Return a `Filter`, which can be specified as a name string key in `FILTERS`."""
   return filter if isinstance(filter, Filter) else _DICT_FILTERS[filter]
 
@@ -2031,13 +2000,13 @@ See the source code for extensibility.
 """
 
 
-def _get_gamma(gamma: Union[str, Gamma]) -> Gamma:
+def _get_gamma(gamma: str | Gamma) -> Gamma:
   """Return a `Gamma`, which can be specified as a name in `GAMMAS`."""
   return gamma if isinstance(gamma, Gamma) else _DICT_GAMMAS[gamma]
 
 
-def _get_src_dst_gamma(gamma: Union[None, str, Gamma],
-                       src_gamma: Union[None, str, Gamma], dst_gamma: Union[None, str, Gamma],
+def _get_src_dst_gamma(gamma: str | Gamma | None,
+                       src_gamma: str | Gamma | None, dst_gamma: str | Gamma | None,
                        src_dtype: _DType, dst_dtype: _DType) -> Tuple[Gamma, Gamma]:
   if gamma is None and src_gamma is None and dst_gamma is None:
     src_uint = np.issubdtype(src_dtype, np.unsignedinteger)
@@ -2069,7 +2038,7 @@ def _create_resize_matrix(  # pylint: disable=too-many-statements
     dst_gridtype: Gridtype,
     boundary: Boundary,
     filter: Filter,
-    prefilter: Optional[Filter] = None,
+    prefilter: Filter | None = None,
     scale: float = 1.0,
     translate: float = 0.0,
     dtype: _DTypeLike = np.float64,
@@ -2150,7 +2119,26 @@ def _create_resize_matrix(  # pylint: disable=too-many-statements
 
   src_index, weight = boundary.apply(src_index, weight, src_position, src_size, src_gridtype)
   shape = dst_size, src_size
-  resize_matrix = _make_sparse_resize_matrix(shape, weight, src_index, arraylib)
+
+  def prepare_sparse_resize_matrix() -> Tuple[_NDArray, _NDArray, _NDArray]:
+    linearized = (src_index + np.indices(src_index.shape)[0] * src_size).reshape(-1)
+    values = weight.reshape(-1)
+    # Remove the zero weights.
+    nonzero = values != 0.0
+    linearized, values = linearized[nonzero], values[nonzero]
+    # Sort and merge the duplicate indices.
+    unique, unique_inverse = np.unique(linearized, return_inverse=True)
+    data2 = np.ones(len(linearized), dtype=np.float32)
+    row_ind2 = unique_inverse
+    col_ind2 = np.arange(len(linearized))
+    shape2 = len(unique), len(linearized)
+    csr = scipy.sparse.csr_matrix((data2, (row_ind2, col_ind2)), shape=shape2)
+    data = csr * values  # Merged values.
+    row_ind, col_ind = unique // src_size, unique % src_size  # Merged indices.
+    return data, row_ind, col_ind
+
+  data, row_ind, col_ind = prepare_sparse_resize_matrix()
+  resize_matrix = _make_sparse_matrix(data, row_ind, col_ind, shape, arraylib)
 
   uses_cval = boundary.uses_cval or filter.name == 'narrowbox'
   cval_weight = _make_array(1.0 - weight.sum(axis=-1), arraylib) if uses_cval else None
@@ -2322,21 +2310,21 @@ def resize(  # pylint: disable=too-many-branches disable=too-many-statements
     array: _Array,
     shape: Iterable[int],
     *,
-    gridtype: Union[None, str, Gridtype] = None,
-    src_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
-    dst_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
-    boundary: Union[str, Boundary, Iterable[Union[str, Boundary]]] = 'auto',
+    gridtype: str | Gridtype | None = None,
+    src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
+    dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
+    boundary: str | Boundary | Iterable[str | Boundary] = 'auto',
     cval: _ArrayLike = 0,
-    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
-    prefilter: Union[None, str, Filter, Iterable[Union[str, Filter]]] = None,
-    gamma: Union[None, str, Gamma] = None,
-    src_gamma: Union[None, str, Gamma] = None,
-    dst_gamma: Union[None, str, Gamma] = None,
-    scale: Union[float, Iterable[float]] = 1.0,
-    translate: Union[float, Iterable[float]] = 0.0,
+    filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
+    prefilter: str | Filter | Iterable[str | Filter] | None = None,
+    gamma: str | Gamma | None = None,
+    src_gamma: str | Gamma | None = None,
+    dst_gamma: str | Gamma | None = None,
+    scale: float | Iterable[float] = 1.0,
+    translate: float | Iterable[float] = 0.0,
     precision: _DTypeLike = None,
     dtype: _DTypeLike = None,
-    dim_order: Optional[Iterable[int]] = None,
+    dim_order: Iterable[int] | None = None,
 ) -> _Array:
   """Resample `array` (a grid of sample values) onto a grid with resolution `shape`.
 
@@ -2561,7 +2549,7 @@ def _immediately_jaxjit_resize(resize_fn: Callable[..., _Array]) -> Callable[...
 
 def _lazily_jaxjit_resize(resize_fn: Callable[..., _Array]) -> Callable[..., _Array]:
   """Lazily invoke `jax.jit` on `resize_fn`."""
-  jitted: Optional[Callable[..., _Array]] = None
+  jitted: Callable[..., _Array] | None = None
 
   @functools.wraps(resize_fn)
   def jit_and_call(*args: Any, **kwargs: Any) -> _Array:
@@ -2583,15 +2571,15 @@ def resample(  # pylint: disable=too-many-branches disable=too-many-statements
     array: _Array,
     coords: _ArrayLike,
     *,
-    gridtype: Union[str, Gridtype, Iterable[Union[str, Gridtype]]] = 'dual',
-    boundary: Union[str, Boundary, Iterable[Union[str, Boundary]]] = 'auto',
+    gridtype: str | Gridtype | Iterable[str | Gridtype] = 'dual',
+    boundary: str | Boundary | Iterable[str | Boundary] = 'auto',
     cval: _ArrayLike = 0,
-    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
-    prefilter: Union[None, str, Filter, Iterable[Union[str, Filter]]] = None,
-    gamma: Union[None, str, Gamma] = None,
-    src_gamma: Union[None, str, Gamma] = None,
-    dst_gamma: Union[None, str, Gamma] = None,
-    jacobian: Optional[_ArrayLike] = None,
+    filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
+    prefilter: str | Filter | Iterable[str | Filter] | None = None,
+    gamma: str | Gamma | None = None,
+    src_gamma: str | Gamma | None = None,
+    dst_gamma: str | Gamma | None = None,
+    jacobian: _ArrayLike | None = None,
     precision: _DTypeLike = None,
     dtype: _DTypeLike = None,
     max_block_size: int = 40_000,
@@ -2871,11 +2859,11 @@ def resample_affine(
     shape: Iterable[int],
     matrix: _ArrayLike,
     *,
-    gridtype: Union[None, str, Gridtype] = None,
-    src_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
-    dst_gridtype: Union[None, str, Gridtype, Iterable[Union[str, Gridtype]]] = None,
-    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
-    prefilter: Union[None, str, Filter, Iterable[Union[str, Filter]]] = None,
+    gridtype: str | Gridtype | None = None,
+    src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
+    dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
+    filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
+    prefilter: str | Filter | Iterable[str | Filter] | None = None,
     precision: _DTypeLike = None,
     dtype: _DTypeLike = None,
     **kwargs: Any,
@@ -2971,7 +2959,7 @@ def resample_affine(
 def resize_using_resample(
     array: _Array, shape: Iterable[int], *,
     scale: _ArrayLike = 1.0, translate: _ArrayLike = 0.0,
-    filter: Union[str, Filter, Iterable[Union[str, Filter]]] = _DEFAULT_FILTER,
+    filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
     fallback: bool = False, **kwargs: Any) -> _Array:
   """Use the more general `resample` operation for `resize`, as a debug tool."""
   if isinstance(array, (tuple, list)):
@@ -2992,7 +2980,7 @@ def resize_using_resample(
 
 def rotation_about_center_in_2d(src_shape: _ArrayLike,
                                 angle: float,
-                                dst_shape: Optional[_ArrayLike] = None,
+                                dst_shape: _ArrayLike | None = None,
                                 scale: float = 1.0) -> _NDArray:
   """Return the 3x3 matrix mapping destination into a source unit domain.
 
@@ -3034,7 +3022,7 @@ def rotation_about_center_in_2d(src_shape: _ArrayLike,
 
 def rotate_image_about_center(image: _NDArray,
                               angle: float,
-                              new_shape: Optional[_ArrayLike] = None,
+                              new_shape: _ArrayLike | None = None,
                               scale: float = 1.0,
                               num_rotations: int = 1,
                               **kwargs: Any) -> _NDArray:
@@ -3058,7 +3046,7 @@ def rotate_image_about_center(image: _NDArray,
 
 
 def pil_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _NDArray:
-  """Invoke `PIL.Image.resize` using the same parameters as `resize`."""
+  """Invoke `PIL.Image.resize` using the same parameters as `resampler.resize`."""
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
   assert np.issubdtype(array.dtype, np.floating)
@@ -3087,7 +3075,7 @@ def pil_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _N
 
 
 def cv_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _NDArray:
-  """Invoke `cv.resize` using the same parameters as `resize`."""
+  """Invoke `cv.resize` using the same parameters as `resampler.resize`."""
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
   shape = tuple(shape)
@@ -3119,7 +3107,7 @@ _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
 
 def tf_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str = _DEFAULT_FILTER,
                     antialias: bool = True) -> _TensorflowTensor:
-  """Invoke `tf.image.resize` using the same parameters as `resize`."""
+  """Invoke `tf.image.resize` using the same parameters as `resampler.resize`."""
   import tensorflow as tf
   array2 = tf.convert_to_tensor(array)
   del array
@@ -3144,7 +3132,7 @@ _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
 
 def torch_nn_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
                     antialias: bool = False) -> _TorchTensor:
-  """Invoke `torch.nn.functional.interpolate` using the same parameters as `resize`."""
+  """Invoke `torch.nn.functional.interpolate` using the same parameters as `resampler.resize`."""
   import torch
   a = torch.as_tensor(array)
   del array
@@ -3170,9 +3158,9 @@ def torch_nn_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
 
 
 def jax_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
-                     scale: Union[float, Iterable[float]] = 1.0,
-                     translate: Union[float, Iterable[float]] = 0.0) -> _JaxArray:
-  """Invoke `jax.image.scale_and_translate` using the same parameters as `resize`."""
+                     scale: float | Iterable[float] = 1.0,
+                     translate: float | Iterable[float] = 0.0) -> _JaxArray:
+  """Invoke `jax.image.scale_and_translate` using the same parameters as `resampler.resize`."""
   assert filter in 'triangle cubic lanczos3 lanczos5'.split(), filter
   import jax.image
   import jax.numpy as jnp
