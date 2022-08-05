@@ -175,6 +175,8 @@
 # - Filters are assumed to be [separable](https://en.wikipedia.org/wiki/Separable_filter).
 # - Although `resize` implements prefiltering, `resample` does not yet have it (and therefore
 #   may have aliased results if downsampling).
+# - Differentiability is only with respect to the grid values, 
+#   not wrt the resize shape, scale, translation, or the resampling coordinates.
 
 
 # %% [markdown]
@@ -1184,7 +1186,7 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
     return tf.sparse.SparseTensor(indices, data, shape)
 
   @staticmethod
-  def sparse_dense_matmul(sparse: 'tf.sparse.SparseTensor',
+  def sparse_dense_matmul(sparse: tf.sparse.SparseTensor,
                           dense: _TensorflowTensor) -> _TensorflowTensor:
     import tensorflow as tf
     if np.issubdtype(_arr_dtype(dense), np.complexfloating):
@@ -1387,7 +1389,7 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
         (data, indices), shape=shape, indices_sorted=True, unique_indices=True)
 
   @staticmethod
-  def sparse_dense_matmul(sparse: 'jax.experimental.sparse.BCOO', dense: _Array) -> _Array:
+  def sparse_dense_matmul(sparse: jax.experimental.sparse.BCOO, dense: _Array) -> _Array:
     """Return the multiplication of the `sparse` matrix and `dense` matrix."""
     return sparse @ dense  # Calls jax.bcoo_multiply_dense().
 
