@@ -9,12 +9,13 @@ __version__ = '0.4.0'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 
+from collections.abc import Iterable, Sequence
 import dataclasses
 import functools
 import itertools
 import math
 import typing
-from typing import Any, Callable, Dict, Iterable, List, Sequence, Tuple, Union
+from typing import Any, Callable, Generic, TypeVar, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -50,7 +51,7 @@ else:
   _TensorflowTensor = Any
   _TorchTensor = Any
 
-_Array = typing.TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
+_Array = TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
 _AnyArray = Union[_NDArray, _TensorflowTensor, _TorchTensor, _JaxArray]
 
 
@@ -71,8 +72,8 @@ def _complex_precision(dtype: _DTypeLike) -> _DType:
   return np.find_common_type([], [dtype, np.complex64])
 
 
-def _get_precision(precision: _DTypeLike, dtypes: List[_DType],
-                   weight_dtypes: List[_DType]) -> _DType:
+def _get_precision(precision: _DTypeLike, dtypes: list[_DType],
+                   weight_dtypes: list[_DType]) -> _DType:
   """Return dtype based on desired precision or on data and weight types."""
   precision2 = np.dtype(precision if precision is not None else
                         np.find_common_type([], [np.float32, *dtypes, *weight_dtypes]))
@@ -145,9 +146,9 @@ class _DownsampleIn2dUsingBoxFilter:
 
   def __init__(self) -> None:
     # Downsampling function for params (dtype, block_height, block_width, ch).
-    self._jitted_function: Dict[Tuple[_DType, int, int, int], Callable[[_NDArray], _NDArray]] = {}
+    self._jitted_function: dict[tuple[_DType, int, int, int], Callable[[_NDArray], _NDArray]] = {}
 
-  def __call__(self, array: _NDArray, shape: Tuple[int, int]) -> _NDArray:
+  def __call__(self, array: _NDArray, shape: tuple[int, int]) -> _NDArray:
     assert 'numba' in globals()
     assert array.ndim in (2, 3), array.ndim
     _check_eq(len(shape), 2)
@@ -216,7 +217,7 @@ _downsample_in_2d_using_box_filter = _DownsampleIn2dUsingBoxFilter()
 
 
 @dataclasses.dataclass
-class _Arraylib(typing.Generic[_Array]):
+class _Arraylib(Generic[_Array]):
   """Abstract base class for abstraction of array libraries."""
 
   arraylib: str
@@ -237,7 +238,7 @@ class _Arraylib(typing.Generic[_Array]):
   def astype(self, dtype: _DTypeLike) -> _Array:
     """Return the equivalent of `self.array.astype(dtype, copy=False)` with `numpy` `dtype`."""
 
-  def reshape(self, shape: Tuple[int, ...]) -> _Array:
+  def reshape(self, shape: tuple[int, ...]) -> _Array:
     """Return the equivalent of `self.array.reshape(shape)`."""
     return self.array.reshape(shape)
 
@@ -264,7 +265,7 @@ class _Arraylib(typing.Generic[_Array]):
   def transpose(self, axes: Sequence[int]) -> _Array:
     """Return the equivalent of `np.transpose(self.array, axes)`."""
 
-  def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
+  def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     """Return the best order in which to process dims for resizing `self.array` to `dst_shape`."""
 
   @staticmethod
@@ -277,7 +278,7 @@ class _Arraylib(typing.Generic[_Array]):
 
   @staticmethod
   def make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
-                         shape: Tuple[int, int]) -> _Array:
+                         shape: tuple[int, int]) -> _Array:
     """Return the equivalent of `scipy.sparse.csr_matrix(data, (row_ind, col_ind), shape=shape)`.
     However, indices must be ordered and unique."""
 
@@ -322,13 +323,13 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
   def transpose(self, axes: Sequence[int]) -> _NDArray:
     return np.transpose(self.array, tuple(axes))
 
-  def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
+  def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     # Our heuristics: (1) a dimension with small scaling (especially minification) gets priority,
     # and (2) timings show preference to resizing dimensions with larger strides first.
     # (Of course, tensorflow.Tensor lacks strides, so (2) does not apply.)
     # The optimal ordering might be related to the logic in np.einsum_path().  (Unfortunately,
     # np.einsum() does not support the sparse multiplications that we require here.)
-    src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
+    src_shape: tuple[int, ...] = self.array.shape[:len(dst_shape)]
     strides: Sequence[int] = self.array.strides
     largest_stride_dim = max(range(len(src_shape)), key=lambda dim: strides[dim])
 
@@ -348,7 +349,7 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
 
   @staticmethod
   def make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
-                         shape: Tuple[int, int]) -> _NDArray:
+                         shape: tuple[int, int]) -> _NDArray:
     return scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape=shape)
 
   @staticmethod
@@ -383,7 +384,7 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
     import tensorflow as tf
     return tf.cast(self.array, dtype)
 
-  def reshape(self, shape: Tuple[int, ...]) -> _TensorflowTensor:
+  def reshape(self, shape: tuple[int, ...]) -> _TensorflowTensor:
     import tensorflow as tf
     return tf.reshape(self.array, shape)
 
@@ -426,10 +427,10 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
     import tensorflow as tf
     return tf.transpose(self.array, tuple(axes))
 
-  def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
+  def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     # Note that a tensorflow.Tensor does not have strides.
     # Our heuristic is to process dimension 1 first iff dimension 0 is upsampling.  Improve?
-    src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
+    src_shape: tuple[int, ...] = self.array.shape[:len(dst_shape)]
     dims = list(range(len(src_shape)))
     if len(dims) > 1 and dst_shape[0] / src_shape[0] > 1.0:
       dims[:2] = [1, 0]
@@ -447,7 +448,7 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
 
   @staticmethod
   def make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
-                         shape: Tuple[int, int]) -> _TensorflowTensor:
+                         shape: tuple[int, int]) -> _TensorflowTensor:
     import tensorflow as tf
     indices = np.vstack((row_ind, col_ind)).T
     return tf.sparse.SparseTensor(indices, data, shape)
@@ -531,9 +532,9 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
     import torch
     return torch.permute(self.array, tuple(axes))
 
-  def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
+  def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     # Similar to `_NumpyArraylib`.  We access `array.stride()` instead of `array.strides`.
-    src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
+    src_shape: tuple[int, ...] = self.array.shape[:len(dst_shape)]
     strides: Sequence[int] = self.array.stride()
     largest_stride_dim = max(range(len(src_shape)), key=lambda dim: strides[dim])
 
@@ -559,7 +560,7 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
 
   @staticmethod
   def make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
-                         shape: Tuple[int, int]) -> _TorchTensor:
+                         shape: tuple[int, int]) -> _TorchTensor:
     import torch
     indices = np.vstack((row_ind, col_ind))
     return torch.sparse_coo_tensor(
@@ -624,11 +625,11 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
     import jax.numpy as jnp
     return jnp.transpose(self.array, tuple(axes))
 
-  def best_dims_order_for_resize(self, dst_shape: Tuple[int, ...]) -> List[int]:
+  def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     # Jax/XLA does not have strides.  Arrays are contiguous, almost always in C order; see
     # https://github.com/google/jax/discussions/7544#discussioncomment-1197038.
     # We use a heuristic similar to `_TensorflowArraylib`.
-    src_shape: Tuple[int, ...] = self.array.shape[:len(dst_shape)]
+    src_shape: tuple[int, ...] = self.array.shape[:len(dst_shape)]
     dims = list(range(len(src_shape)))
     if len(dims) > 1 and dst_shape[0] / src_shape[0] > 1.0:
       dims[:2] = [1, 0]
@@ -646,7 +647,7 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
 
   @staticmethod
   def make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
-                         shape: Tuple[int, int]) -> _JaxArray:
+                         shape: tuple[int, int]) -> _JaxArray:
     # https://jax.readthedocs.io/en/latest/jax.experimental.sparse.html
     import jax.experimental.sparse
     indices = np.vstack((row_ind, col_ind)).T
@@ -694,7 +695,7 @@ def _arr_astype(array: _Array, dtype: _DTypeLike) -> _Array:
   """Return the equivalent of `array.astype(dtype)` with `numpy` `dtype`."""
   return _as_arr(array).astype(dtype)
 
-def _arr_reshape(array: _Array, shape: Tuple[int, ...]) -> _Array:
+def _arr_reshape(array: _Array, shape: tuple[int, ...]) -> _Array:
   """Return the equivalent of `array.reshape(shape)."""
   return _as_arr(array).reshape(shape)
 
@@ -726,7 +727,7 @@ def _arr_transpose(array: _Array, axes: Sequence[int]) -> _Array:
   """Return the equivalent of `np.transpose(array, axes)`."""
   return _as_arr(array).transpose(axes)
 
-def _arr_best_dims_order_for_resize(array: _Array, dst_shape: Tuple[int, ...]) -> List[int]:
+def _arr_best_dims_order_for_resize(array: _Array, dst_shape: tuple[int, ...]) -> list[int]:
   """Return the best order in which to process dims for resizing `array` to `dst_shape`."""
   return _as_arr(array).best_dims_order_for_resize(dst_shape)
 
@@ -758,7 +759,7 @@ def _arr_moveaxis(array: _Array, source: int, destination: int) -> _Array:
   return _arr_transpose(array, axes)
 
 def _make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
-                        shape: Tuple[int, int], arraylib: str) -> _Array:
+                        shape: tuple[int, int], arraylib: str) -> _Array:
   """Return the equivalent of `scipy.sparse.csr_matrix(data, (row_ind, col_ind), shape=shape)`.
   However, indices must be ordered and unique."""
   return _DICT_ARRAYLIBS[arraylib].make_sparse_matrix(data, row_ind, col_ind, shape)  # type: ignore
@@ -773,8 +774,8 @@ def _make_array(array: _ArrayLike, arraylib: str) -> _Array:
   return _DICT_ARRAYLIBS[arraylib](np.asarray(array)).array
 
 
-def _block_shape_with_min_size(shape: Tuple[int, ...], min_size: int,
-                               compact: bool = True) -> Tuple[int, ...]:
+def _block_shape_with_min_size(shape: tuple[int, ...], min_size: int,
+                               compact: bool = True) -> tuple[int, ...]:
   """Return shape of block (of size at least `min_size`) to subdivide shape."""
   if np.prod(shape) < min_size:
     raise ValueError(f'Shape {shape} smaller than min_size {min_size}.')
@@ -795,7 +796,7 @@ def _block_shape_with_min_size(shape: Tuple[int, ...], min_size: int,
   return tuple(block_shape)
 
 
-def _array_split(array: _Array, axis: int, num_sections: int) -> List[Any]:
+def _array_split(array: _Array, axis: int, num_sections: int) -> list[Any]:
   """Split `array` into `num_sections` along `axis`."""
   assert 0 <= axis < array.ndim
   assert 1 <= num_sections <= array.shape[axis]
@@ -984,7 +985,7 @@ def _get_gridtypes(
     gridtype: str | Gridtype | None,
     src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None,
     dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None,
-    src_ndim: int, dst_ndim: int) -> Tuple[List[Gridtype], List[Gridtype]]:
+    src_ndim: int, dst_ndim: int) -> tuple[list[Gridtype], list[Gridtype]]:
   """Return per-dim source and destination grid types given all parameters."""
   if gridtype is None and src_gridtype is None and dst_gridtype is None:
     gridtype = 'dual'
@@ -1042,7 +1043,7 @@ class ExtendSamples:
   is non-affine."""
 
   def __call__(self, index: _NDArray, weight: _NDArray, size: int,
-               gridtype: Gridtype) -> Tuple[_NDArray, _NDArray]:
+               gridtype: Gridtype) -> tuple[_NDArray, _NDArray]:
     """Detect references to exterior samples, i.e., entries of `index` that lie outside the
     interval [0, size), and update these indices (and possibly their associated weights) to
     reference only interior samples.  Return `new_index, new_weight`."""
@@ -1052,7 +1053,7 @@ class ReflectExtendSamples(ExtendSamples):
   """Find the interior sample by reflecting across domain boundaries."""
 
   def __call__(self, index: _NDArray, weight: _NDArray, size: int,
-               gridtype: Gridtype) -> Tuple[_NDArray, _NDArray]:
+               gridtype: Gridtype) -> tuple[_NDArray, _NDArray]:
     index = gridtype.reflect(index, size)
     return index, weight
 
@@ -1062,7 +1063,7 @@ class WrapExtendSamples(ExtendSamples):
   sample is ignored as its value is replaced by the first sample."""
 
   def __call__(self, index: _NDArray, weight: _NDArray, size: int,
-               gridtype: Gridtype) -> Tuple[_NDArray, _NDArray]:
+               gridtype: Gridtype) -> tuple[_NDArray, _NDArray]:
     index = gridtype.wrap(index, size)
     return index, weight
 
@@ -1071,7 +1072,7 @@ class ClampExtendSamples(ExtendSamples):
   """Use the nearest interior sample."""
 
   def __call__(self, index: _NDArray, weight: _NDArray, size: int,
-               gridtype: Gridtype) -> Tuple[_NDArray, _NDArray]:
+               gridtype: Gridtype) -> tuple[_NDArray, _NDArray]:
     index = index.clip(0, size - 1)
     return index, weight
 
@@ -1081,7 +1082,7 @@ class ReflectClampExtendSamples(ExtendSamples):
   samples outside [-1, 1] as that of the nearest sample."""
 
   def __call__(self, index: _NDArray, weight: _NDArray, size: int,
-               gridtype: Gridtype) -> Tuple[_NDArray, _NDArray]:
+               gridtype: Gridtype) -> tuple[_NDArray, _NDArray]:
     index = gridtype.reflect_clamp(index, size)
     return index, weight
 
@@ -1093,7 +1094,7 @@ class BorderExtendSamples(ExtendSamples):
     super().__init__(uses_cval=True)
 
   def __call__(self, index: _NDArray, weight: _NDArray, size: int,
-               gridtype: Gridtype) -> Tuple[_NDArray, _NDArray]:
+               gridtype: Gridtype) -> tuple[_NDArray, _NDArray]:
     low = index < 0
     weight[low] = 0.0
     index[low] = 0
@@ -1111,7 +1112,7 @@ class ValidExtendSamples(ExtendSamples):
     super().__init__(uses_cval=True)
 
   def __call__(self, index: _NDArray, weight: _NDArray, size: int,
-               gridtype: Gridtype) -> Tuple[_NDArray, _NDArray]:
+               gridtype: Gridtype) -> tuple[_NDArray, _NDArray]:
     low = index < 0
     weight[low] = 0.0
     index[low] = 0
@@ -1128,7 +1129,7 @@ class LinearExtendSamples(ExtendSamples):
   """Linearly extrapolate beyond boundary samples."""
 
   def __call__(self, index: _NDArray, weight: _NDArray, size: int,
-               gridtype: Gridtype) -> Tuple[_NDArray, _NDArray]:
+               gridtype: Gridtype) -> tuple[_NDArray, _NDArray]:
     if size < 2:
       index = gridtype.reflect(index, size)
       return index, weight
@@ -1162,7 +1163,7 @@ class QuadraticExtendSamples(ExtendSamples):
   """Quadratically extrapolate beyond boundary samples."""
 
   def __call__(self, index: _NDArray, weight: _NDArray, size: int,
-               gridtype: Gridtype) -> Tuple[_NDArray, _NDArray]:
+               gridtype: Gridtype) -> tuple[_NDArray, _NDArray]:
     # [Keys 1981] suggests this as x[-1] = 3*x[0] - 3*x[1] + x[2], calling it "cubic precision",
     # but it seems just quadratic.
     if size < 3:
@@ -1288,7 +1289,7 @@ class Boundary:
     return point
 
   def apply(self, index: _NDArray, weight: _NDArray, point: _NDArray,
-            size: int, gridtype: Gridtype) -> Tuple[_NDArray, _NDArray]:
+            size: int, gridtype: Gridtype) -> tuple[_NDArray, _NDArray]:
     """Replace exterior samples by combinations of interior samples."""
     index, weight = self.extend_samples(index, weight, size, gridtype)
     self.override_reconstruction(weight, point)
@@ -2007,7 +2008,7 @@ def _get_gamma(gamma: str | Gamma) -> Gamma:
 
 def _get_src_dst_gamma(gamma: str | Gamma | None,
                        src_gamma: str | Gamma | None, dst_gamma: str | Gamma | None,
-                       src_dtype: _DType, dst_dtype: _DType) -> Tuple[Gamma, Gamma]:
+                       src_dtype: _DType, dst_dtype: _DType) -> tuple[Gamma, Gamma]:
   if gamma is None and src_gamma is None and dst_gamma is None:
     src_uint = np.issubdtype(src_dtype, np.unsignedinteger)
     dst_uint = np.issubdtype(dst_dtype, np.unsignedinteger)
@@ -2042,7 +2043,7 @@ def _create_resize_matrix(  # pylint: disable=too-many-statements
     scale: float = 1.0,
     translate: float = 0.0,
     dtype: _DTypeLike = np.float64,
-    arraylib: str = 'numpy') -> Tuple[_Array, _Array]:
+    arraylib: str = 'numpy') -> tuple[_Array, _Array]:
   """Compute affine weights for 1D resampling from `src_size` to `dst_size`.
 
   Compute a sparse matrix in which each row expresses a destination sample value as a combination
@@ -2120,7 +2121,7 @@ def _create_resize_matrix(  # pylint: disable=too-many-statements
   src_index, weight = boundary.apply(src_index, weight, src_position, src_size, src_gridtype)
   shape = dst_size, src_size
 
-  def prepare_sparse_resize_matrix() -> Tuple[_NDArray, _NDArray, _NDArray]:
+  def prepare_sparse_resize_matrix() -> tuple[_NDArray, _NDArray, _NDArray]:
     linearized = (src_index + np.indices(src_index.shape)[0] * src_size).reshape(-1)
     values = weight.reshape(-1)
     # Remove the zero weights.
@@ -2452,7 +2453,7 @@ def resize(  # pylint: disable=too-many-branches disable=too-many-statements
       np.all(scale2 == 1.0) and np.all(translate2 == 0.0))
   if can_use_fast_box_downsampling:
     assert isinstance(array, np.ndarray)  # Help mypy.
-    array = _downsample_in_2d_using_box_filter(array, typing.cast(Tuple[int, int], shape))
+    array = _downsample_in_2d_using_box_filter(array, typing.cast(Any, shape))
     array = dst_gamma2.encode(array, dtype=dtype)
     return array
 
@@ -2768,8 +2769,8 @@ def resample(  # pylint: disable=too-many-branches disable=too-many-statements
   #   src_index = [shape(8, 9, 4), shape(8, 9, 6)]
 
   # Both:[shape(8, 9, 4), shape(8, 9, 6)]
-  weight: List[_NDArray] = [np.array([]) for _ in range(grid_ndim)]
-  src_index: List[_NDArray] = [np.array([]) for _ in range(grid_ndim)]
+  weight: list[_NDArray] = [np.array([]) for _ in range(grid_ndim)]
+  src_index: list[_NDArray] = [np.array([]) for _ in range(grid_ndim)]
   uses_cval = False
   all_num_samples = []  # will be [4, 6]
 
