@@ -9,13 +9,13 @@ __version__ = '0.4.0'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 import dataclasses
 import functools
 import itertools
 import math
 import typing
-from typing import Any, Callable, Generic, TypeVar, Union
+from typing import Any, Generic, TypeVar, Union
 
 import numpy as np
 import numpy.typing as npt

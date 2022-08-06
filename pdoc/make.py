@@ -10,19 +10,18 @@ if 0:  # https://github.com/mitmproxy/pdoc/issues/420
   pdoc.doc_types.simplify_annotation.recompile()
 
 MODULES = ['./resampler']  # One or more module names or file paths.
-DOCFORMAT = 'restructuredtext'  # 'google' is inferred from __docformat__.
 FAVICON = 'https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha_scaletox64.ico'
 FOOTER_TEXT = ''
 LOGO = 'https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png'
 LOGO_LINK = 'https://hhoppe.github.io/resampler/resampler.html'
-TEMPLATE_DIRECTORY = './pdoc'
+TEMPLATE_DIRECTORY = pathlib.Path('./pdoc')
 OUTPUT_DIRECTORY = pathlib.Path('./docs')
 
 
-def main1():
+def main1() -> None:
   # See https://github.com/mitmproxy/pdoc/blob/main/pdoc/__main__.py
   pdoc.render.configure(
-    docformat=DOCFORMAT,
+    docformat='restructuredtext',  # 'google' is inferred from __docformat__.
     edit_url_map=None,
     favicon=FAVICON,
     footer_text=FOOTER_TEXT,
@@ -41,7 +40,7 @@ def main1():
   )
 
 
-def main2():
+def main2() -> None:
   import resampler
 
   # Put the README.md text inline; otherwise the README.md file is not found in site-packages/resampler/.
@@ -55,7 +54,7 @@ def main2():
     doc.get('Foo.A').docstring = 'I am a docstring for Foo.A.'
 
   pdoc.render.configure(
-    docformat=DOCFORMAT,
+    docformat='restructuredtext',  # 'google' is inferred from __docformat__.
     favicon=FAVICON,
     footer_text=FOOTER_TEXT,
     logo=LOGO,
@@ -69,7 +68,6 @@ def main2():
   # This creates just resampler.html, not index.html and search.js which are also in ./docs.
   text = pdoc.render.html_module(module=doc, all_modules={'resampler': doc})
   pathlib.Path('resampler.html').write_text(text)
-  
 
 
 if __name__ == '__main__':
