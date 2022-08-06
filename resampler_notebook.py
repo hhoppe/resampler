@@ -319,13 +319,13 @@ __version_info__ = tuple(int(num) for num in __version__.split('.'))
 # !pip install -q 'numba>=0.55.1' numpy scipy
 
 # %%
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 import dataclasses
 import functools
 import itertools
 import math
 import typing
-from typing import Any, Callable, Generic, TypeVar, Union
+from typing import Any, Generic, TypeVar, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -391,9 +391,9 @@ def _check_eq(a: Any, b: Any) -> None:
 # %%
 import copy
 import collections
+from collections.abc import Iterator, Mapping
 import os
 import pathlib
-from typing import Iterator, Mapping
 import warnings
 
 import hhoppe_tools as hh  # https://github.com/hhoppe/hhoppe-tools/blob/main/hhoppe_tools/__init__.py
