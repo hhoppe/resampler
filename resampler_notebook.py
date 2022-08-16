@@ -3828,7 +3828,7 @@ def resize_possibly_in_arraylib(array: _Array, *args: Any,
 
 # %%
 @functools.lru_cache()
-def create_jaxjit_resize() -> Callable[..., _Array]:
+def _create_jaxjit_resize() -> Callable[..., _Array]:
   """Lazily invoke `jax.jit` on `resize`."""
   import jax
   jitted = jax.jit(_original_resize, static_argnums=(1,),
@@ -3839,7 +3839,7 @@ def create_jaxjit_resize() -> Callable[..., _Array]:
 # %%
 def jaxjit_resize(array: _Array, *args: Any, **kwargs: Any) -> _Array:
   """Compute `resize` but with resize function jitted using Jax."""
-  return create_jaxjit_resize()(array, *args, **kwargs)
+  return _create_jaxjit_resize()(array, *args, **kwargs)
 
 
 # %%
