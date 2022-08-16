@@ -13,7 +13,7 @@ MODULES = ['./resampler']  # One or more module names or file paths.
 FAVICON = 'https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha_scaletox64.ico'
 FOOTER_TEXT = ''
 LOGO = 'https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png'
-LOGO_LINK = 'https://hhoppe.github.io/resampler/resampler.html'
+LOGO_LINK = 'https://hhoppe.github.io/resampler/'
 TEMPLATE_DIRECTORY = pathlib.Path('./pdoc')
 OUTPUT_DIRECTORY = pathlib.Path('./docs')
 
