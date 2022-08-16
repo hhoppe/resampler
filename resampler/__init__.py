@@ -45,7 +45,7 @@ if typing.TYPE_CHECKING:
 else:
   _DType = Any
   _NDArray = Any
-  _DTypeLike = Any  # Else `pdoc` documents a long typename.
+  _DTypeLike = Any  # Else `pdoc` uses a long type expression for documentation.
   _ArrayLike = Any  # Same.
   _JaxArray = Any
   _TensorflowTensor = Any
@@ -365,8 +365,9 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
   """Tensorflow implementation of the array abstraction."""
 
   def __init__(self, array: _NDArray) -> None:
-    import tensorflow as tf
-    super().__init__(arraylib='tensorflow', array=tf.convert_to_tensor(array))
+    import tensorflow
+    self.tf = tensorflow
+    super().__init__(arraylib='tensorflow', array=self.tf.convert_to_tensor(array))
 
   @staticmethod
   def recognize(array: Any) -> bool:
@@ -381,30 +382,24 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
     return np.dtype(self.array.dtype.as_numpy_dtype)
 
   def astype(self, dtype: _DTypeLike) -> _TensorflowTensor:
-    import tensorflow as tf
-    return tf.cast(self.array, dtype)
+    return self.tf.cast(self.array, dtype)
 
   def reshape(self, shape: tuple[int, ...]) -> _TensorflowTensor:
-    import tensorflow as tf
-    return tf.reshape(self.array, shape)
+    return self.tf.reshape(self.array, shape)
 
   def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _TensorflowTensor:
-    import tensorflow as tf
     array = self.array
     if dtype is not None:
-      array = tf.cast(array, dtype)
-    return tf.clip_by_value(array, low, high)
+      array = self.tf.cast(array, dtype)
+    return self.tf.clip_by_value(array, low, high)
 
   def square(self) -> _TensorflowTensor:
-    import tensorflow as tf
-    return tf.square(self.array)
+    return self.tf.square(self.array)
 
   def sqrt(self) -> _TensorflowTensor:
-    import tensorflow as tf
-    return tf.sqrt(self.array)
+    return self.tf.sqrt(self.array)
 
   def getitem(self, indices: Any) -> _TensorflowTensor:
-    import tensorflow as tf
     if isinstance(indices, tuple):
       basic = all(isinstance(x, (type(None), type(Ellipsis), int, slice)) for x in indices)
       if not basic:
@@ -413,19 +408,17 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
         assert all(a.ndim == indices[0].ndim for a in indices)
         broadcast_indices = np.broadcast_arrays(*indices)  # list of np.ndarray
         indices_array = np.moveaxis(np.array(broadcast_indices), 0, -1)
-        return tf.gather_nd(self.array, indices_array)
+        return self.tf.gather_nd(self.array, indices_array)
     elif _arr_dtype(indices).type in (np.uint8, np.uint16):
-      indices = tf.cast(indices, np.int32)
-    return tf.gather(self.array, indices)
+      indices = self.tf.cast(indices, np.int32)
+    return self.tf.gather(self.array, indices)
 
   def where(self, if_true: Any, if_false: Any) -> _TensorflowTensor:
-    import tensorflow as tf
     condition = self.array
-    return tf.where(condition, if_true, if_false)
+    return self.tf.where(condition, if_true, if_false)
 
   def transpose(self, axes: Sequence[int]) -> _TensorflowTensor:
-    import tensorflow as tf
-    return tf.transpose(self.array, tuple(axes))
+    return self.tf.transpose(self.array, tuple(axes))
 
   def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     # Note that a tensorflow.Tensor does not have strides.
@@ -467,7 +460,8 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
 
   def __init__(self, array: _NDArray) -> None:
     import torch
-    super().__init__(arraylib='torch', array=torch.as_tensor(array))
+    self.torch = torch
+    super().__init__(arraylib='torch', array=self.torch.as_tensor(array))
 
   @staticmethod
   def recognize(array: Any) -> bool:
@@ -477,30 +471,28 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
     return self.array.numpy()
 
   def dtype(self) -> _DType:
-    import torch
     numpy_type = {
-        torch.float32: np.float32,
-        torch.float64: np.float64,
-        torch.complex64: np.complex64,
-        torch.complex128: np.complex128,
-        torch.uint8: np.uint8,  # No uint16, uint32, uint64.
-        torch.int16: np.int16,
-        torch.int32: np.int32,
-        torch.int64: np.int64,
+        self.torch.float32: np.float32,
+        self.torch.float64: np.float64,
+        self.torch.complex64: np.complex64,
+        self.torch.complex128: np.complex128,
+        self.torch.uint8: np.uint8,  # No uint16, uint32, uint64.
+        self.torch.int16: np.int16,
+        self.torch.int32: np.int32,
+        self.torch.int64: np.int64,
     }[self.array.dtype]
     return np.dtype(numpy_type)
 
   def astype(self, dtype: _DTypeLike) -> _TorchTensor:
-    import torch
     torch_type = {
-        np.float32: torch.float32,
-        np.float64: torch.float64,
-        np.complex64: torch.complex64,
-        np.complex128: torch.complex128,
-        np.uint8: torch.uint8,  # No uint16, uint32, uint64.
-        np.int16: torch.int16,
-        np.int32: torch.int32,
-        np.int64: torch.int64,
+        np.float32: self.torch.float32,
+        np.float64: self.torch.float64,
+        np.complex64: self.torch.complex64,
+        np.complex128: self.torch.complex128,
+        np.uint8: self.torch.uint8,  # No uint16, uint32, uint64.
+        np.int16: self.torch.int16,
+        np.int32: self.torch.int32,
+        np.int64: self.torch.int64,
     }[np.dtype(dtype).type]
     return self.array.type(torch_type)
 
@@ -519,9 +511,8 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
     return self.array.sqrt()
 
   def getitem(self, indices: Any) -> _TorchTensor:
-    import torch
     if not isinstance(indices, tuple):
-      indices = indices.type(torch.int64)
+      indices = indices.type(self.torch.int64)
     return self.array[indices]
 
   def where(self, if_true: Any, if_false: Any) -> _TorchTensor:
@@ -529,8 +520,7 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
     return if_true.where(condition, if_false)
 
   def transpose(self, axes: Sequence[int]) -> _TorchTensor:
-    import torch
-    return torch.permute(self.array, tuple(axes))
+    return self.torch.permute(self.array, tuple(axes))
 
   def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     # Similar to `_NumpyArraylib`.  We access `array.stride()` instead of `array.strides`.
@@ -563,8 +553,7 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
                          shape: tuple[int, int]) -> _TorchTensor:
     import torch
     indices = np.vstack((row_ind, col_ind))
-    return torch.sparse_coo_tensor(
-        torch.as_tensor(indices), torch.as_tensor(data), shape)
+    return torch.sparse_coo_tensor(torch.as_tensor(indices), torch.as_tensor(data), shape)
     # .coalesce() is unnecessary because indices/data are already merged.
 
   @staticmethod
@@ -578,8 +567,9 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
   """Jax implementation of the array abstraction."""
 
   def __init__(self, array: _NDArray) -> None:
-    import jax.numpy as jnp
-    super().__init__(arraylib='jax', array=jnp.asarray(array))
+    import jax.numpy
+    self.jnp = jax.numpy
+    super().__init__(arraylib='jax', array=self.jnp.asarray(array))
 
   @staticmethod
   def recognize(array: Any) -> bool:
@@ -602,28 +592,23 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
     return self.array.copy()
 
   def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _JaxArray:
-    import jax.numpy as jnp
     array = self.array
     if dtype is not None:
       array = array.astype(dtype)  # (copy=False is unavailable)
-    return jnp.clip(array, low, high)
+    return self.jnp.clip(array, low, high)
 
   def square(self) -> _JaxArray:
-    import jax.numpy as jnp
-    return jnp.square(self.array)
+    return self.jnp.square(self.array)
 
   def sqrt(self) -> _JaxArray:
-    import jax.numpy as jnp
-    return jnp.sqrt(self.array)
+    return self.jnp.sqrt(self.array)
 
   def where(self, if_true: Any, if_false: Any) -> _JaxArray:
-    import jax.numpy as jnp
     condition = self.array
-    return jnp.where(condition, if_true, if_false)
+    return self.jnp.where(condition, if_true, if_false)
 
   def transpose(self, axes: Sequence[int]) -> _JaxArray:
-    import jax.numpy as jnp
-    return jnp.transpose(self.array, tuple(axes))
+    return self.jnp.transpose(self.array, tuple(axes))
 
   def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     # Jax/XLA does not have strides.  Arrays are contiguous, almost always in C order; see
@@ -2519,7 +2504,7 @@ _original_resize = resize
 
 def resize_in_arraylib(array: _NDArray, *args: Any,
                        arraylib: str, **kwargs: Any) -> _NDArray:
-  """Evaluate the `resize()` operation using the specified array library."""
+  """Evaluate the `resize()` operation using the specified array library from `ARRAYLIBS`."""
   _check_eq(_arr_arraylib(array), 'numpy')
   return _arr_numpy(_original_resize(_make_array(array, arraylib=arraylib), *args, **kwargs))
 
@@ -2532,37 +2517,25 @@ resize_in_jax = functools.partial(resize_in_arraylib, arraylib='jax')
 
 def resize_possibly_in_arraylib(array: _Array, *args: Any,
                                 arraylib: str, **kwargs: Any) -> _AnyArray:
-  """If `array` is from numpy, evaluate `resize()` using the specified `arraylib`."""
+  """If `array` is from numpy, evaluate `resize()` using the array library from `ARRAYLIBS`."""
   if _arr_arraylib(array) == 'numpy':
     return _arr_numpy(_original_resize(
         _make_array(typing.cast(_ArrayLike, array), arraylib=arraylib), *args, **kwargs))
   return _original_resize(array, *args, **kwargs)
 
 
-def _immediately_jaxjit_resize(resize_fn: Callable[..., _Array]) -> Callable[..., _Array]:
-  """Return `jax.jit(resize_fn)` with appropriate static arguments from `resize`."""
+@functools.lru_cache
+def create_jaxjit_resize() -> Callable[..., _Array]:
+  """Lazily invoke `jax.jit` on `resize`."""
   import jax
-  # The keyword 'cval' could be omitted from the static list, but it is likely constant anyways.
-  jitted = jax.jit(resize_fn, static_argnums=(1,),
+  jitted = jax.jit(_original_resize, static_argnums=(1,),
                    static_argnames=list(_original_resize.__kwdefaults__))
   return typing.cast(Callable[..., _Array], jitted)
 
 
-def _lazily_jaxjit_resize(resize_fn: Callable[..., _Array]) -> Callable[..., _Array]:
-  """Lazily invoke `jax.jit` on `resize_fn`."""
-  jitted: Callable[..., _Array] | None = None
-
-  @functools.wraps(resize_fn)
-  def jit_and_call(*args: Any, **kwargs: Any) -> _Array:
-    nonlocal jitted
-    if not jitted:
-      jitted = _immediately_jaxjit_resize(resize_fn)
-    return jitted(*args, **kwargs)
-
-  return jit_and_call
-
-
-jaxjit_resize = _lazily_jaxjit_resize(resize)
+def jaxjit_resize(array: _Array, *args: Any, **kwargs: Any) -> _Array:
+  """Compute `resize` but with resize function jitted using Jax."""
+  return create_jaxjit_resize()(array, *args, **kwargs)
 
 
 _MAX_BLOCK_SIZE_RECURSING = -999  # Special value to indicate re-invocation on partitioned blocks.
