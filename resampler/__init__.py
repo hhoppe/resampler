@@ -221,7 +221,7 @@ class _Arraylib(Generic[_Array]):
   """Abstract base class for abstraction of array libraries."""
 
   arraylib: str
-  """Name of array library (e.g., 'numpy', 'tensorflow', 'torch', 'jax')."""
+  """Name of array library (e.g., `'numpy'`, `'tensorflow'`, `'torch'`, `'jax'`)."""
 
   array: _Array
 
@@ -836,7 +836,7 @@ def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> _Array:
 
 @dataclasses.dataclass(frozen=True)
 class Gridtype:
-  """Abstract base class for grid-types such as 'dual' and 'primal'.
+  """Abstract base class for grid-types such as `'dual'` and `'primal'`.
 
   In resampling operations, the grid-type may be specified separately as `src_gridtype` for the
   source domain and `dst_gridtype` for the destination domain.  Moreover, the grid-type may be
@@ -1044,7 +1044,7 @@ class ReflectExtendSamples(ExtendSamples):
 
 
 class WrapExtendSamples(ExtendSamples):
-  """Wrap the interior samples periodically.  For a 'primal' grid, the last
+  """Wrap the interior samples periodically.  For a `'primal'` grid, the last
   sample is ignored as its value is replaced by the first sample."""
 
   def __call__(self, index: _NDArray, weight: _NDArray, size: int,
@@ -1573,7 +1573,7 @@ class GeneralizedHammingFilter(Filter):
   See https://en.wikipedia.org/wiki/Window_function#Hann_and_Hamming_windows,
   and hamming() in https://github.com/scipy/scipy/blob/main/scipy/signal/windows/_windows.py.
 
-  Note that 'hamming3' is `(radius=3, a0=25/46)`, which close to but different from `a0=0.54`.
+  Note that `'hamming3'` is `(radius=3, a0=25/46)`, which close to but different from `a0=0.54`.
 
   See also np.hamming() and np.hanning().
   """
@@ -2346,8 +2346,8 @@ def resize(  # pylint: disable=too-many-branches disable=too-many-statements
     dst_gridtype: Placement of the samples in the output domain grid for each dimension.
       Parameters `gridtype` and `dst_gridtype` cannot both be set.
     boundary: The reconstruction boundary rule for each dimension in `shape`, specified as either
-      a name in `BOUNDARIES` or a `Boundary` instance.  The special value 'auto' uses 'reflect'
-      for upsampling and 'clamp' for downsampling.
+      a name in `BOUNDARIES` or a `Boundary` instance.  The special value `'auto'` uses `'reflect'`
+      for upsampling and `'clamp'` for downsampling.
     cval: Constant value used beyond the samples by some boundary rules.  It must be broadcastable
       onto `array.shape[len(shape):]`.
     filter: The reconstruction kernel for each dimension in `shape`, specified as either a filter
@@ -2602,8 +2602,8 @@ def resample(  # pylint: disable=too-many-branches disable=too-many-statements
     gridtype: Placement of the samples in the source domain grid for each dimension, specified as
       either a name in `GRIDTYPES` or a `Gridtype` instance.  It defaults to `'dual'`.
     boundary: The reconstruction boundary rule for each dimension in `coords.shape[-1]`, specified
-      as either a name in `BOUNDARIES` or a `Boundary` instance.  The special value 'auto' uses
-      'reflect' for upsampling and 'clamp' for downsampling.
+      as either a name in `BOUNDARIES` or a `Boundary` instance.  The special value `'auto'` uses
+      `'reflect'` for upsampling and `'clamp'` for downsampling.
     cval: Constant value used beyond the samples by some boundary rules.  It must be broadcastable
       onto the shape `array.shape[coords.shape[-1]:]`.
     filter: The reconstruction kernel for each dimension in `coords.shape[-1]`, specified as either
@@ -2645,7 +2645,7 @@ def resample(  # pylint: disable=too-many-branches disable=too-many-statements
   </center>
 
   For reference, the identity resampling for a scalar-valued grid with the default grid-type
-  'dual' is:
+  `'dual'` is:
 
   >>> array = np.random.default_rng(0).random((5, 7, 3))
   >>> coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
