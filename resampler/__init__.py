@@ -2516,8 +2516,8 @@ resize_in_torch = functools.partial(resize_in_arraylib, arraylib='torch')
 resize_in_jax = functools.partial(resize_in_arraylib, arraylib='jax')
 
 
-def resize_possibly_in_arraylib(array: _Array, *args: Any,
-                                arraylib: str, **kwargs: Any) -> _AnyArray:
+def _resize_possibly_in_arraylib(array: _Array, *args: Any,
+                                 arraylib: str, **kwargs: Any) -> _AnyArray:
   """If `array` is from numpy, evaluate `resize()` using the array library from `ARRAYLIBS`."""
   if _arr_arraylib(array) == 'numpy':
     return _arr_numpy(_original_resize(
@@ -2526,7 +2526,7 @@ def resize_possibly_in_arraylib(array: _Array, *args: Any,
 
 
 @functools.lru_cache()
-def create_jaxjit_resize() -> Callable[..., _Array]:
+def _create_jaxjit_resize() -> Callable[..., _Array]:
   """Lazily invoke `jax.jit` on `resize`."""
   import jax
   jitted = jax.jit(_original_resize, static_argnums=(1,),
@@ -2536,7 +2536,7 @@ def create_jaxjit_resize() -> Callable[..., _Array]:
 
 def jaxjit_resize(array: _Array, *args: Any, **kwargs: Any) -> _Array:
   """Compute `resize` but with resize function jitted using Jax."""
-  return create_jaxjit_resize()(array, *args, **kwargs)
+  return _create_jaxjit_resize()(array, *args, **kwargs)
 
 
 _MAX_BLOCK_SIZE_RECURSING = -999  # Special value to indicate re-invocation on partitioned blocks.
@@ -2931,7 +2931,7 @@ def resample_affine(
                   precision=precision, dtype=dtype, **kwargs)
 
 
-def resize_using_resample(
+def _resize_using_resample(
     array: _Array, shape: Iterable[int], *,
     scale: _ArrayLike = 1.0, translate: _ArrayLike = 0.0,
     filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
@@ -2954,8 +2954,8 @@ def resize_using_resample(
 
 
 def rotation_about_center_in_2d(src_shape: _ArrayLike,
-                                angle: float,
-                                dst_shape: _ArrayLike | None = None,
+                                angle: float, *,
+                                new_shape: _ArrayLike | None = None,
                                 scale: float = 1.0) -> _NDArray:
   """Return the 3x3 matrix mapping destination into a source unit domain.
 
@@ -2965,7 +2965,7 @@ def rotation_about_center_in_2d(src_shape: _ArrayLike,
     src_shape: Resolution (ny, nx) of the source domain grid.
     angle: Angle in radians (positive from x to y axis) applied when mapping the source domain
       onto the destination domain.
-    dst_shape: Resolution (ny, nx) of the destination domain grid; it defaults to `src_shape`.
+    new_shape: Resolution (ny, nx) of the destination domain grid; it defaults to `src_shape`.
     scale: Scaling factor applied when mapping the source domain onto the destination domain.
   """
 
@@ -2982,21 +2982,21 @@ def rotation_about_center_in_2d(src_shape: _ArrayLike,
     return np.array([[cos, sin, 0], [-sin, cos, 0], [0, 0, 1]])
 
   src_shape = np.asarray(src_shape)
-  dst_shape = src_shape if dst_shape is None else np.asarray(dst_shape)
+  new_shape = src_shape if new_shape is None else np.asarray(new_shape)
   _check_eq(src_shape.shape, (2,))
-  _check_eq(dst_shape.shape, (2,))
+  _check_eq(new_shape.shape, (2,))
   half = np.array([0.5, 0.5])
   matrix = (translation_matrix(half) @
             scaling_matrix(min(src_shape) / src_shape) @
             rotation_matrix_2d(angle) @
-            scaling_matrix(scale * dst_shape / min(dst_shape)) @
+            scaling_matrix(scale * new_shape / min(new_shape)) @
             translation_matrix(-half))
   assert np.allclose(matrix[-1], [0.0, 0.0, 1.0])
   return matrix
 
 
 def rotate_image_about_center(image: _NDArray,
-                              angle: float,
+                              angle: float, *,
                               new_shape: _ArrayLike | None = None,
                               scale: float = 1.0,
                               num_rotations: int = 1,
@@ -3014,13 +3014,13 @@ def rotate_image_about_center(image: _NDArray,
     **kwargs: Additional parameters for `resample_affine`.
   """
   new_shape = image.shape[:2] if new_shape is None else np.asarray(new_shape)
-  matrix = rotation_about_center_in_2d(image.shape[:2], angle, new_shape, scale=scale)
+  matrix = rotation_about_center_in_2d(image.shape[:2], angle, new_shape=new_shape, scale=scale)
   for _ in range(num_rotations):
     image = resample_affine(image, new_shape, matrix[:-1], **kwargs)
   return image
 
 
-def pil_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _NDArray:
+def pil_image_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str) -> _NDArray:
   """Invoke `PIL.Image.resize` using the same parameters as `resize`."""
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
@@ -3049,7 +3049,7 @@ def pil_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _N
        for channel in np.moveaxis(array, -1, 0)])
 
 
-def cv_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _NDArray:
+def cv_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str) -> _NDArray:
   """Invoke `cv.resize` using the same parameters as `resize`."""
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
@@ -3068,6 +3068,39 @@ def cv_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _NDArray:
   return cv.resize(array, shape[::-1], interpolation=interpolation)
 
 
+def scipy_ndimage_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str,
+                         boundary: str = 'reflect', cval: float = 0.0) -> _NDArray:
+  """Invoke `scipy.ndimage.map_coordinates` using the same parameters as `resize`."""
+  array = np.asarray(array)
+  shape = tuple(shape)
+  assert 1 <= len(shape) <= array.ndim
+  order = {'box': 0, 'triangle': 1, 'cardinal2': 2, 'cardinal3': 3,
+           'cardinal4': 4, 'cardinal5': 5}[filter]
+  mode = {'reflect': 'reflect', 'wrap': 'grid-wrap', 'clamp': 'nearest',
+          'border': 'constant'}[boundary]
+  shape_all = shape + array.shape[len(shape):]
+  # We could introduce scale and translate parameters.
+  gridscale = np.array([array.shape[dim] / shape[dim] if dim < len(shape) else 1.0
+                       for dim in range(len(shape_all))])
+  coords = ((np.indices(shape_all).T + 0.5) * gridscale - 0.5).T
+  return scipy.ndimage.map_coordinates(array, coords, order=order, mode=mode, cval=cval)
+
+
+def skimage_transform_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str,
+                             boundary: str = 'reflect', cval: float = 0.0) -> _NDArray:
+  """Invoke `skimage.transform.resize` using the same parameters as `resize`."""
+  import skimage.transform
+  array = np.asarray(array)
+  shape = tuple(shape)
+  assert 1 <= len(shape) <= array.ndim
+  order = {'box': 0, 'triangle': 1, 'cardinal2': 2, 'cardinal3': 3,
+           'cardinal4': 4, 'cardinal5': 5}[filter]
+  mode = {'reflect': 'symmetric', 'wrap': 'wrap', 'clamp': 'edge', 'border': 'constant'}[boundary]
+  shape_all = shape + array.shape[len(shape):]
+  # Default anti_aliasing=None automatically enables (poor) Gaussian prefilter if downsampling.
+  return skimage.transform.resize(array, shape_all, order=order, mode=mode, cval=cval, clip=False)
+
+
 _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
     'impulse': 'nearest',
     'trapezoid': 'area',
@@ -3080,37 +3113,7 @@ _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
 }
 
 
-def scipy_ndimage_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
-                         boundary: str = 'reflect', cval: float = 0.0) -> _NDArray:
-  """Invoke `scipy.ndimage.map_coordinates` using the same parameters as `resize`."""
-  array = np.asarray(array)
-  shape = tuple(shape)
-  assert 1 <= len(shape) <= array.ndim
-  order = {'box': 0, 'triangle': 1, 'cardinal3': 3, 'cardinal5': 5}[filter]
-  mode = {'reflect': 'reflect', 'wrap': 'grid-wrap', 'clamp': 'nearest',
-          'border': 'constant'}[boundary]
-  shape_all = shape + array.shape[len(shape):]
-  gridscale = np.array([array.shape[dim] / shape[dim] if dim < len(shape) else 1.0
-                       for dim in range(len(shape_all))])
-  coords = ((np.indices(shape_all).T + 0.5) * gridscale - 0.5).T
-  return scipy.ndimage.map_coordinates(array, coords, order=order, mode=mode, cval=cval)
-
-
-def skimage_transform_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
-                             boundary: str = 'reflect', cval: float = 0.0) -> _NDArray:
-  """Invoke `skimage.transform.resize` using the same parameters as `resize`."""
-  import skimage.transform
-  array = np.asarray(array)
-  shape = tuple(shape)
-  assert 1 <= len(shape) <= array.ndim
-  order = {'box': 0, 'triangle': 1, 'cardinal3': 3, 'cardinal5': 5}[filter]
-  mode = {'reflect': 'symmetric', 'wrap': 'wrap', 'clamp': 'edge', 'border': 'constant'}[boundary]
-  shape_all = shape + array.shape[len(shape):]
-  # Default anti_aliasing=None automatically enables Gaussian prefilter if downsampling.
-  return skimage.transform.resize(array, shape_all, order=order, mode=mode, cval=cval, clip=False)
-
-
-def tf_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str = _DEFAULT_FILTER,
+def tf_image_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str,
                     antialias: bool = True) -> _TensorflowTensor:
   """Invoke `tf.image.resize` using the same parameters as `resize`."""
   import tensorflow as tf
@@ -3129,14 +3132,14 @@ def tf_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str = _DEFA
 
 
 _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
-    'impulse': 'nearest',
+    'impulse': 'nearest-exact',  # ('nearest' matches buggy OpenCV's INTER_NEAREST)
     'trapezoid': 'area',
     'triangle': 'bilinear',
     'sharpcubic': 'bicubic',
 }
 
 
-def torch_nn_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
+def torch_nn_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str,
                     antialias: bool = False) -> _TorchTensor:
   """Invoke `torch.nn.functional.interpolate` using the same parameters as `resize`."""
   import torch
@@ -3151,9 +3154,8 @@ def torch_nn_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
     # For upsampling, BILINEAR antialias is same PSNR and slower,
     #  and BICUBIC antialias is worse PSNR and faster.
     # For downsampling, antialias improves PSNR for both BILINEAR and BICUBIC.
-    align_corners = False if filter in ['triangle', 'sharpcubic'] else None
-    return torch.nn.functional.interpolate(
-        a, shape, mode=mode, align_corners=align_corners, antialias=antialias)
+    # Default align_corners=None corresponds to False which is what we desire.
+    return torch.nn.functional.interpolate(a, shape, mode=mode, antialias=antialias)
 
   if a.ndim == 1:
     shape = (1, *shape)
@@ -3163,7 +3165,7 @@ def torch_nn_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
   return local_resize(a.moveaxis(2, 0)[None])[0].moveaxis(0, 2)
 
 
-def jax_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
+def jax_image_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str,
                      scale: float | Iterable[float] = 1.0,
                      translate: float | Iterable[float] = 0.0) -> _JaxArray:
   """Invoke `jax.image.scale_and_translate` using the same parameters as `resize`."""

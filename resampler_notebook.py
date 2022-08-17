@@ -829,7 +829,7 @@ show_docstring('resampler.GAMMAS')
 # Export library: omit.
 if 0:  # For testing.
   resampler.resize = typing.cast(
-      Any, functools.partial(resampler.resize_possibly_in_arraylib, arraylib='torch'))
+      Any, functools.partial(resampler._resize_possibly_in_arraylib, arraylib='torch'))
   # Note: resize() in jax may return a non-writable np.ndarray, and consequently torch may warn
   # "The given NumPy array is not writable, and PyTorch does not support non-writable tensors".
 
@@ -902,7 +902,7 @@ if EFFORT >= 1:
 # %%
 def test_profile_resample() -> None:
   def run(src_shape, dst_shape) -> None:
-    hh.prun(lambda: resampler.resize_using_resample(np.ones(src_shape), dst_shape), top=5)
+    hh.prun(lambda: resampler._resize_using_resample(np.ones(src_shape), dst_shape), top=5)
 
   run((8192,) * 2 + (3,), (2048,) * 2)
   run((1024,) * 2 + (3,), (2048,) * 2)
@@ -928,7 +928,7 @@ if EFFORT >= 2:
 # Export library: omit.
 if 0:  # For testing.
   resampler.resize = typing.cast(
-      Any, functools.partial(resampler.resize_using_resample, fallback=True))
+      Any, functools.partial(resampler._resize_using_resample, fallback=True))
 
 
 # %% [markdown]
@@ -1643,7 +1643,7 @@ def test_resize_using_resample(shape=(3, 2, 5), new_shape=(4, 2, 7), step=37) ->
     kwargs = dict(gridtype=gridtype, boundary=boundary, filter=filter,
                   gamma=gamma, scale=scale, translate=translate)
     expected = resampler._original_resize(array, new_shape, **kwargs)
-    new_array = resampler.resize_using_resample(array, new_shape, **kwargs)
+    new_array = resampler._resize_using_resample(array, new_shape, **kwargs)
     assert np.allclose(new_array, expected, rtol=0, atol=1e-7), config
 
 test_resize_using_resample()
@@ -1652,7 +1652,7 @@ test_resize_using_resample()
 # %%
 def test_resize_using_resample_of_complex_value_type() -> None:
   array = np.array([1 + 2j, 3 + 6j])
-  new = resampler.resize_using_resample(array, (4,), filter='triangle')
+  new = resampler._resize_using_resample(array, (4,), filter='triangle')
   assert np.allclose(new, [1 + 2j, 1.5 + 3j, 2.5 + 5j, 3 + 6j])
 
 test_resize_using_resample_of_complex_value_type()
@@ -1714,7 +1714,7 @@ def test_pil_image_resize() -> None:
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
     shape = (int(original.shape[0] * gridscale),)
-    result = resampler.pil_image_resize(original, shape, filter)
+    result = resampler.pil_image_resize(original, shape, filter=filter)
     reference = resampler.resize(original, shape, filter=filter, boundary='natural')
     atol = 2e-7 if gridscale in (2.0, 1.0, 0.5) else 3e-6
     assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
@@ -1726,12 +1726,12 @@ test_pil_image_resize()
 def test_undocumented_lanczos_in_pil_image() -> None:
   array = np.array([0, 0, 0, 1, 0, 0, 0], dtype=np.float32)
   new_len = len(array) * 2
-  new_array = resampler.pil_image_resize(array, (new_len,), 'lanczos3')
+  new_array = resampler.pil_image_resize(array, (new_len,), filter='lanczos3')
   lanczos = resampler.resize(array, (new_len,), filter=resampler.LanczosFilter(radius=3),
                              boundary='natural')
   assert np.allclose(new_array, lanczos)
 
-  new_array = resampler.pil_image_resize(array, (new_len,), 'cubic')
+  new_array = resampler.pil_image_resize(array, (new_len,), filter='cubic')
   cubic = resampler.resize(array, (new_len,), filter='cubic', boundary='natural')
   assert np.allclose(new_array, cubic)
 
@@ -1765,7 +1765,7 @@ def test_cv_resize() -> None:
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
     shape = (int(original.shape[0] * gridscale),)
-    result = resampler.cv_resize(original, shape, filter)
+    result = resampler.cv_resize(original, shape, filter=filter)
     filter2: str | resampler.Filter = (
         resampler.LanczosFilter(radius=4) if filter == 'lanczos4' else filter)
     reference = resampler.resize(original, shape, filter=filter2, boundary='natural')
@@ -1831,7 +1831,7 @@ def test_scipy_ndimage_resize() -> None:
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
     shape = (int(original.shape[0] * gridscale),)
-    result = resampler.scipy_ndimage_resize(original, shape, filter, boundary=boundary)
+    result = resampler.scipy_ndimage_resize(original, shape, filter=filter, boundary=boundary)
     reference = resampler.resize(original, shape, filter=filter, boundary=boundary)
     assert np.allclose(result, reference, rtol=0, atol=2e-6), (config, result, reference)
 
@@ -1866,7 +1866,7 @@ def test_skimage_transform_resize() -> None:
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, dtype=np.float32)
     shape = (int(original.shape[0] * gridscale),)
-    result = resampler.skimage_transform_resize(original, shape, filter, boundary=boundary)
+    result = resampler.skimage_transform_resize(original, shape, filter=filter, boundary=boundary)
     reference = resampler.resize(original, shape, filter=filter, boundary=boundary)
     assert np.allclose(result, reference, rtol=0, atol=2e-6), (config, result, reference)
 
@@ -1942,7 +1942,7 @@ def test_torch_nn_resize() -> None:
     if filter in ['triangle', 'sharpcubic'] and gridscale < 1.0:
       continue  # torch.nn code misbehaves; align_corners=False malfunctions for gridscale < 1.
     shape = (int(original.shape[0] * gridscale),)
-    result = resampler.torch_nn_resize(original, shape, filter).numpy()
+    result = resampler.torch_nn_resize(original, shape, filter=filter).numpy()
     reference = resampler.resize(original, shape, filter=filter, boundary='natural')
     atol = 7e-2 if at_boundary else 0.0  # The boundary behavior is unexpected.
     assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
@@ -2106,7 +2106,8 @@ def experiment_with_resize_timing() -> None:
         'to': lambda: resampler.resize(array_for_lib['torch'], *args, **kwargs),
         'jax': lambda: resampler.resize(array_for_lib['jax'], *args, **kwargs),
         'jj': lambda: resampler.jaxjit_resize(array_for_lib['jax'], *args, **kwargs),
-        'tfi': lambda: resampler.tf_image_resize(array_for_lib['tensorflow'], *args),
+        'tfi': lambda: resampler.tf_image_resize(array_for_lib['tensorflow'], *args,
+                                                 filter=resampler._DEFAULT_FILTER),
       }
       src_str = str(src_shape).replace(' ', '')
       dst_str = str(dst_shape).replace(' ', '')
@@ -2320,7 +2321,7 @@ def experiment_rotate_image_about_center(scale=1.0) -> None:
     new_shapes = [original.shape[:2], image.shape[:2], (100, 200), (100, 50)]
     images = {
         f'{i}: {new_shape}': resampler.rotate_image_about_center(
-            image, np.radians(10), new_shape, scale=scale, boundary='constant')
+            image, np.radians(10), new_shape=new_shape, scale=scale, boundary='constant')
         for i, new_shape in enumerate(new_shapes)
     }
     images = {'image': image, **images}
@@ -4779,7 +4780,7 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200
   funcs: dict[str, Callable[[], _AnyArray]] = {
       'original': lambda: original,
       # 'resize lanczos4': lambda: resampler.resize(array, shape, filter=resampler.LanczosFilter(radius=4)),
-      # 'resample lanczos5': lambda: resampler.resize_using_resample(array, shape, filter='lanczos5'),
+      # 'resample lanczos5': lambda: resampler._resize_using_resample(array, shape, filter='lanczos5'),
       'resize lanczos5': lambda: resampler.resize(array, shape, filter='lanczos5'),
       'resize lanczos3': lambda: resampler.resize(array, shape, filter='lanczos3'),
       'resize cardinal3': lambda: resampler.resize(array, shape, filter='cardinal3'),
@@ -4789,9 +4790,9 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200
       'resize_in_torch lanczos3': lambda: resampler.resize_in_torch(array, shape, filter='lanczos3'),
       'resize_in_jax lanczos3': lambda: resampler.resize_in_jax(array, shape, filter='lanczos3'),
       'jaxjit_resize lanczos3': lambda: resampler.jaxjit_resize(array, shape, filter='lanczos3'),
-      'resample lanczos3': lambda: resampler.resize_using_resample(array, shape, filter='lanczos3'),
-      'PIL.Image.resize lanczos3': lambda: resampler.pil_image_resize(array, shape, 'lanczos3'),
-      'PIL.Image.resize cubic': lambda: resampler.pil_image_resize(array, shape, 'cubic'),
+      'resample lanczos3': lambda: resampler._resize_using_resample(array, shape, filter='lanczos3'),
+      'PIL.Image.resize lanczos3': lambda: resampler.pil_image_resize(array, shape, filter='lanczos3'),
+      'PIL.Image.resize cubic': lambda: resampler.pil_image_resize(array, shape, filter='cubic'),
       # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (gridscale, gridscale, 1.0)),
       'map_coordinates order=3': lambda: resampler.scipy_ndimage_resize(array, shape, filter='cardinal3'),
       'skimage.transform.resize': lambda: resampler.skimage_transform_resize(array, shape, filter='cardinal3'),
@@ -4799,12 +4800,12 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200
       'tf.resize lanczos3': lambda: resampler.tf_image_resize(array, shape, filter='lanczos3'),
       # 'tf.resize cubic new': lambda: resampler.tf_image_resize(array, shape, filter='cubic'),  # newer; resize_with_scale_and_translate('keyscubic')
       'tf.resize cubic (aa False)': lambda: resampler.tf_image_resize(array, shape, filter='cubic', antialias=False),  # older; gen_image_ops.resize_bicubic()
-      'torch.nn.interp sharpcubic': lambda: resampler.torch_nn_resize(array, shape, 'sharpcubic'),
-      'torch.nn.interpolate triangle': lambda: resampler.torch_nn_resize(array, shape, 'triangle'),
-      # 'torch.nn.interp cubic AA': lambda: resampler.torch_nn_resize(array, shape, 'sharpcubic', antialias=True),
-      # 'torch.nn.interp triangle AA': lambda: resampler.torch_nn_resize(array, shape, 'triangle', antialias=True),
-      'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(array, shape, 'lanczos3'),
-      'jax.image.resize triangle': lambda: resampler.jax_image_resize(array, shape, 'triangle'),
+      'torch.nn.interp sharpcubic': lambda: resampler.torch_nn_resize(array, shape, filter='sharpcubic'),
+      'torch.nn.interpolate triangle': lambda: resampler.torch_nn_resize(array, shape, filter='triangle'),
+      # 'torch.nn.interp cubic AA': lambda: resampler.torch_nn_resize(array, shape, filter='sharpcubic', antialias=True),
+      # 'torch.nn.interp triangle AA': lambda: resampler.torch_nn_resize(array, shape, 'filter=triangle', antialias=True),
+      'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(array, shape, filter='lanczos3'),
+      'jax.image.resize triangle': lambda: resampler.jax_image_resize(array, shape, filter='triangle'),
       'cv.resize lanczos4': lambda: resampler.cv_resize(array, shape, filter='lanczos4'),
       'cv.resize (sharp)cubic': lambda: resampler.cv_resize(array, shape, filter='sharpcubic'),
   }
@@ -4872,22 +4873,22 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
       'resize_in_jax trapezoid': lambda: resampler.resize_in_jax(array, shape, filter='trapezoid'),
       'jaxjit_resize lanczos3': lambda: resampler.jaxjit_resize(array, shape, filter='lanczos3'),
       'jaxjit_resize trapezoid': lambda: resampler.jaxjit_resize(array, shape, filter='trapezoid'),
-      'resample lanczos3': lambda: resampler.resize_using_resample(array, shape, filter='lanczos3'),
-      'PIL.Image.resize lanczos3': lambda: resampler.pil_image_resize(array, shape, 'lanczos3'),
-      # 'PIL.Image.resize cubic': lambda: resampler.pil_image_resize(array, shape, 'cubic'),
-      'PIL.Image.resize box': lambda: resampler.pil_image_resize(array, shape, 'box'),
+      'resample lanczos3': lambda: resampler._resize_using_resample(array, shape, filter='lanczos3'),
+      'PIL.Image.resize lanczos3': lambda: resampler.pil_image_resize(array, shape, filter='lanczos3'),
+      # 'PIL.Image.resize cubic': lambda: resampler.pil_image_resize(array, shape, filter='cubic'),
+      'PIL.Image.resize box': lambda: resampler.pil_image_resize(array, shape, filter='box'),
       # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (gridscale, gridscale, 1.0)),
       'map_coordinates order=3': lambda: resampler.scipy_ndimage_resize(array, shape, filter='cardinal3'),
       'skimage.transform.resize': lambda: resampler.skimage_transform_resize(array, shape, filter='cardinal3'),
       'tf.resize lanczos3': lambda: resampler.tf_image_resize(array, shape, filter='lanczos3'),
       'tf.resize trapezoid': lambda: resampler.tf_image_resize(array, shape, filter='trapezoid'),
-      # 'torch.nn.interpolate cubic': lambda: resampler.torch_nn_resize(array, shape, 'sharpcubic'),
-      # 'torch.nn.interpolate triangle': lambda: resampler.torch_nn_resize(array, shape, 'triangle'),
-      'torch.nn.interp trapezoid': lambda: resampler.torch_nn_resize(array, shape, 'trapezoid'),
-      'torch.nn.interp cubic AA': lambda: resampler.torch_nn_resize(array, shape, 'sharpcubic', antialias=True),
-      'torch.nn.interp triangle AA': lambda: resampler.torch_nn_resize(array, shape, 'triangle', antialias=True),
-      'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(array, shape, 'lanczos3'),
-      'jax.image.resize triangle': lambda: resampler.jax_image_resize(array, shape, 'triangle'),
+      # 'torch.nn.interpolate cubic': lambda: resampler.torch_nn_resize(array, shape, filter='sharpcubic'),
+      # 'torch.nn.interpolate triangle': lambda: resampler.torch_nn_resize(array, shape, filter='triangle'),
+      'torch.nn.interp trapezoid': lambda: resampler.torch_nn_resize(array, shape, filter='trapezoid'),
+      'torch.nn.interp cubic AA': lambda: resampler.torch_nn_resize(array, shape, filter='sharpcubic', antialias=True),
+      'torch.nn.interp triangle AA': lambda: resampler.torch_nn_resize(array, shape, filter='triangle', antialias=True),
+      'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(array, shape, filter='lanczos3'),
+      'jax.image.resize triangle': lambda: resampler.jax_image_resize(array, shape, filter='triangle'),
       'cv.resize lanczos4': lambda: resampler.cv_resize(array, shape, filter='lanczos4'),  # Aliased.
       'cv.resize trapezoid': lambda: resampler.cv_resize(array, shape, filter='trapezoid'),
   }
