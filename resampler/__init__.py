@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 __docformat__ = 'google'
-__version__ = '0.4.0'
+__version__ = '0.5.0'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 
@@ -39,17 +39,17 @@ if typing.TYPE_CHECKING:
   _NDArray = npt.NDArray[Any]
   _DTypeLike = npt.DTypeLike
   _ArrayLike = npt.ArrayLike
-  _JaxArray: typing.TypeAlias = jax.numpy.ndarray
   _TensorflowTensor: typing.TypeAlias = tf.Tensor
   _TorchTensor: typing.TypeAlias = torch.Tensor
+  _JaxArray: typing.TypeAlias = jax.numpy.ndarray
 else:
   _DType = Any
   _NDArray = Any
   _DTypeLike = Any  # Else `pdoc` uses a long type expression for documentation.
   _ArrayLike = Any  # Same.
-  _JaxArray = Any
   _TensorflowTensor = Any
   _TorchTensor = Any
+  _JaxArray = Any
 
 _Array = TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
 _AnyArray = Union[_NDArray, _TensorflowTensor, _TorchTensor, _JaxArray]
@@ -295,7 +295,7 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
 
   @staticmethod
   def recognize(array: Any) -> bool:
-    return isinstance(array, (np.ndarray, list, tuple))
+    return isinstance(array, np.ndarray)
 
   def numpy(self) -> _NDArray:
     return self.array
@@ -783,7 +783,7 @@ def _block_shape_with_min_size(shape: tuple[int, ...], min_size: int,
 
 def _array_split(array: _Array, axis: int, num_sections: int) -> list[Any]:
   """Split `array` into `num_sections` along `axis`."""
-  assert 0 <= axis < array.ndim
+  assert 0 <= axis < len(array.shape)
   assert 1 <= num_sections <= array.shape[axis]
 
   if 0:
@@ -808,8 +808,8 @@ def _split_array_into_blocks(array: _Array, block_shape: Sequence[int],
   """Split an array into nested lists of blocks of size at most block_shape."""
   # See https://stackoverflow.com/a/50305924.  (If the block_shape is known to
   # exactly partition the array, see https://stackoverflow.com/a/16858283.)
-  if len(block_shape) > array.ndim:
-    raise ValueError(f'Block ndim {len(block_shape)} > array ndim {array.ndim}.')
+  if len(block_shape) > len(array.shape):
+    raise ValueError(f'Block ndim {len(block_shape)} > array ndim {len(array.shape)}.')
   if start_axis == len(block_shape):
     return array
 
@@ -1831,9 +1831,10 @@ Some example filter kernels:<br/><br/>
 <img src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png" width="100%"/>
 </center>
 
-The
-[notebook](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
-visualizes all filters in 1D and 2D.  See the source code for extensibility.
+<br/>A more extensive set of filters is presented [here](#plots_of_filters) in the
+[notebook](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb),
+together with visualizations and analyses of the filter properties.
+See the source code for extensibility.
 """
 
 
@@ -3020,7 +3021,7 @@ def rotate_image_about_center(image: _NDArray,
 
 
 def pil_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _NDArray:
-  """Invoke `PIL.Image.resize` using the same parameters as `resampler.resize`."""
+  """Invoke `PIL.Image.resize` using the same parameters as `resize`."""
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
   assert np.issubdtype(array.dtype, np.floating)
@@ -3049,7 +3050,7 @@ def pil_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _N
 
 
 def cv_resize(array: _ArrayLike, shape: Iterable[int], filter: str) -> _NDArray:
-  """Invoke `cv.resize` using the same parameters as `resampler.resize`."""
+  """Invoke `cv.resize` using the same parameters as `resize`."""
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
   shape = tuple(shape)
@@ -3079,18 +3080,49 @@ _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
 }
 
 
+def scipy_ndimage_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
+                         boundary: str = 'reflect', cval: float = 0.0) -> _NDArray:
+  """Invoke `scipy.ndimage.map_coordinates` using the same parameters as `resize`."""
+  array = np.asarray(array)
+  shape = tuple(shape)
+  assert 1 <= len(shape) <= array.ndim
+  order = {'box': 0, 'triangle': 1, 'cardinal3': 3, 'cardinal5': 5}[filter]
+  mode = {'reflect': 'reflect', 'wrap': 'grid-wrap', 'clamp': 'nearest',
+          'border': 'constant'}[boundary]
+  shape_all = shape + array.shape[len(shape):]
+  gridscale = np.array([array.shape[dim] / shape[dim] if dim < len(shape) else 1.0
+                       for dim in range(len(shape_all))])
+  coords = ((np.indices(shape_all).T + 0.5) * gridscale - 0.5).T
+  return scipy.ndimage.map_coordinates(array, coords, order=order, mode=mode, cval=cval)
+
+
+def skimage_transform_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
+                             boundary: str = 'reflect', cval: float = 0.0) -> _NDArray:
+  """Invoke `skimage.transform.resize` using the same parameters as `resize`."""
+  import skimage.transform
+  array = np.asarray(array)
+  shape = tuple(shape)
+  assert 1 <= len(shape) <= array.ndim
+  order = {'box': 0, 'triangle': 1, 'cardinal3': 3, 'cardinal5': 5}[filter]
+  mode = {'reflect': 'symmetric', 'wrap': 'wrap', 'clamp': 'edge', 'border': 'constant'}[boundary]
+  shape_all = shape + array.shape[len(shape):]
+  # Default anti_aliasing=None automatically enables Gaussian prefilter if downsampling.
+  return skimage.transform.resize(array, shape_all, order=order, mode=mode, cval=cval, clip=False)
+
+
 def tf_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str = _DEFAULT_FILTER,
                     antialias: bool = True) -> _TensorflowTensor:
-  """Invoke `tf.image.resize` using the same parameters as `resampler.resize`."""
+  """Invoke `tf.image.resize` using the same parameters as `resize`."""
   import tensorflow as tf
   array2 = tf.convert_to_tensor(array)
+  ndim = len(array2.shape)
   del array
-  assert 1 <= array2.ndim <= 3
+  assert 1 <= ndim <= 3
   shape = tuple(shape)
-  _check_eq(len(shape), 2 if array2.ndim >= 2 else 1)
-  if array2.ndim == 1:
+  _check_eq(len(shape), 2 if ndim >= 2 else 1)
+  if ndim == 1:
     return tf_image_resize(array2[None], (1, *shape), filter=filter, antialias=antialias)[0]
-  if array2.ndim == 2:
+  if ndim == 2:
     return tf_image_resize(array2[..., None], shape, filter=filter, antialias=antialias)[..., 0]
   method = _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER[filter]
   return tf.image.resize(array2, shape, method=method, antialias=antialias)
@@ -3106,7 +3138,7 @@ _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
 
 def torch_nn_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
                     antialias: bool = False) -> _TorchTensor:
-  """Invoke `torch.nn.functional.interpolate` using the same parameters as `resampler.resize`."""
+  """Invoke `torch.nn.functional.interpolate` using the same parameters as `resize`."""
   import torch
   a = torch.as_tensor(array)
   del array
@@ -3134,7 +3166,7 @@ def torch_nn_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
 def jax_image_resize(array: _ArrayLike, shape: Iterable[int], filter: str,
                      scale: float | Iterable[float] = 1.0,
                      translate: float | Iterable[float] = 0.0) -> _JaxArray:
-  """Invoke `jax.image.scale_and_translate` using the same parameters as `resampler.resize`."""
+  """Invoke `jax.image.scale_and_translate` using the same parameters as `resize`."""
   assert filter in 'triangle cubic lanczos3 lanczos5'.split(), filter
   import jax.image
   import jax.numpy as jnp
