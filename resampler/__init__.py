@@ -4,10 +4,10 @@
 """
 
 from __future__ import annotations
-__docformat__ = 'google'
-__version__ = '0.5.0'
-__version_info__ = tuple(int(num) for num in __version__.split('.'))
 
+__docformat__ = 'google'
+__version__ = '0.5.1'
+__version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
 import dataclasses
@@ -24,12 +24,10 @@ import scipy.linalg
 import scipy.ndimage
 import scipy.sparse.linalg
 
-
 try:
   import numba
 except ModuleNotFoundError:
   pass
-
 
 if typing.TYPE_CHECKING:
   import jax.numpy
@@ -94,6 +92,9 @@ def _sinc(x: _ArrayLike) -> _NDArray:
 
   >>> _sinc(np.array([-3, -2, -1, 0], dtype=np.float32))
   array([0., 0., 0., 1.], dtype=float32)
+
+  >>> _sinc(np.array([-3, -2, -1, 0]))
+  array([0., 0., 0., 1.])
 
   >>> _sinc(0)
   1.0
@@ -2154,7 +2155,7 @@ def _apply_digital_filter_1d(
       return _apply_digital_filter_1d_numpy(
           grad_output, gridtype, boundary, cval, filter, axis, True)
 
-    @tf.custom_gradient
+    @tf.custom_gradient  # type: ignore[misc]
     def tensorflow_inverse_convolution(x: _TensorflowTensor) -> _TensorflowTensor:
       # Although `forward` accesses parameters gridtype, boundary, etc., it is not stateful
       # because the function is redefined on each invocation of _apply_digital_filter_1d.
@@ -2168,9 +2169,9 @@ def _apply_digital_filter_1d(
     return tensorflow_inverse_convolution(array)
 
   if arraylib == 'torch':
-    import torch
+    import torch.autograd
 
-    class InverseConvolution(torch.autograd.Function):
+    class InverseConvolution(torch.autograd.Function):  # pylint: disable=abstract-method
       """Differentiable wrapper for _apply_digital_filter_1d."""
 
       @staticmethod
@@ -2201,7 +2202,7 @@ def _apply_digital_filter_1d(
     # https://github.com/google/jax/blob/main/docs/notebooks/How_JAX_primitives_work.ipynb  :-(
     # https://github.com/google/jax/issues/5934
 
-    @jax.custom_gradient
+    @jax.custom_gradient  # type: ignore[misc]
     def jax_inverse_convolution(x: _JaxArray) -> _JaxArray:
       # This function is not jax-traceable due to the presence of to_py(), so jit and grad fail.
       y = jnp.asarray(_apply_digital_filter_1d_numpy(
@@ -2761,8 +2762,8 @@ def resample(  # pylint: disable=too-many-branches disable=too-many-statements
     # Sample positions mapped back to source unit domain [0, 1].
     src_float_index = gridtype2[dim].index_from_point(coords_dim, src_size)  # (8, 9)
     src_first_index = (
-        np.floor(src_float_index + (0.5 if num_samples % 2 == 1 else 0.0)).astype(np.int32)
-        - (num_samples - 1) // 2)  # (8, 9)
+        np.floor(src_float_index + (0.5 if num_samples % 2 == 1 else 0.0)).astype(np.int32) -
+        (num_samples - 1) // 2)  # (8, 9)
 
     sample_index = np.arange(num_samples, dtype=np.int32)  # (4,) then (6,)
     src_index[dim] = src_first_index[..., None] + sample_index  # (8, 9, 4) then (8, 9, 6)
