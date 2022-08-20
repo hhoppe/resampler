@@ -732,3 +732,6 @@ modulename
 RenderedMarkdown
 rsplit
 sys
+defs
+qq
+misc

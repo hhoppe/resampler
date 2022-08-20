@@ -17,9 +17,9 @@
 
 The notebook
 [<samp>resampler_notebook.ipynb</samp>](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
-hosts the source code for the
-[<samp>resampler</samp> library](https://pypi.org/project/resampler/),
-interleaved with docs, usage examples, unit tests, and experiments.
+demonstrates the 
+[<samp>resampler</samp> library](https://pypi.org/project/resampler/)
+and contains documentation, usage examples, unit tests, and experiments.
 
 # Overview
 
@@ -51,7 +51,7 @@ It supports:
 - few dependencies (only `scipy`) and **no native code**, yet
 
 - **faster resizing** than C++ implementations
-  in `tf.image`, `torch.nn`, and `torchvision`.
+  in `tf.image` and `torch.nn`.
 
 A key strategy is to leverage existing sparse matrix representations and operations.
 
@@ -87,10 +87,10 @@ array = [3.0, 5.0, 8.0, 7.0]  # 4 source samples in 1D.
 new_dual = resampler.resize(array, (32,))  # (default gridtype='dual') 8x resolution.
 new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
 _, axs = plt.subplots(1, 2, figsize=(7, 1.5))
-axs[0].set_title('gridtype dual')
+axs[0].set_title("gridtype='dual'")
 axs[0].plot((np.arange(len(array)) + 0.5) / len(array), array, 'o')
 axs[0].plot((np.arange(len(new_dual)) + 0.5) / len(new_dual), new_dual, '.')
-axs[1].set_title('gridtype primal')
+axs[1].set_title("gridtype='primal'")
 axs[1].plot(np.arange(len(array)) / (len(array) - 1), array, 'o')
 axs[1].plot(np.arange(len(new_primal)) / (len(new_primal) - 1), new_primal, '.')
 plt.show()

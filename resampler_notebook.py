@@ -95,10 +95,10 @@
 # new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
 #
 # _, axs = plt.subplots(1, 2, figsize=(7, 1.5))
-# axs[0].set_title('gridtype dual')
+# axs[0].set_title("gridtype='dual'")
 # axs[0].plot((np.arange(len(array)) + 0.5) / len(array), array, 'o')
 # axs[0].plot((np.arange(len(new_dual)) + 0.5) / len(new_dual), new_dual, '.')
-# axs[1].set_title('gridtype primal')
+# axs[1].set_title("gridtype='primal'")
 # axs[1].plot(np.arange(len(array)) / (len(array) - 1), array, 'o')
 # axs[1].plot(np.arange(len(new_primal)) / (len(new_primal) - 1), new_primal, '.')
 # plt.show()
@@ -308,6 +308,8 @@
 # %autoreload 2
 
 # %%
+"""Python notebook demonstrating the `resampler` package."""
+
 import copy
 import collections
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -326,11 +328,13 @@ import matplotlib
 import matplotlib.pyplot as plt
 import mediapy as media  # https://github.com/google/mediapy
 import numpy as np
-import resampler
 import scipy.signal
 import skimage.metrics
 
-# pylint: disable=protected-access
+import resampler
+
+# pylint: disable=protected-access disable=missing-function-docstring
+# mypy: allow-incomplete-defs, allow-untyped-defs
 
 _ArrayLike = resampler._ArrayLike
 _NDArray = resampler._NDArray
@@ -410,10 +414,10 @@ EXAMPLE_PHOTO = media.read_image(f'{_URL_BASE}/lillian_640x480.png')  # (480, 64
 def example_tissot_image() -> _NDArray:
   """Return image of shape (1000, 2000, 3) from
   https://commons.wikimedia.org/wiki/File:Tissot_indicatrix_world_map_equirectangular_proj.svg"""
-  _TISSOT_URL = ('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/'
-                 'Tissot_indicatrix_world_map_equirectangular_proj.svg/'
-                 '2000px-Tissot_indicatrix_world_map_equirectangular_proj.svg.png')
-  return media.read_image(_TISSOT_URL)[..., :3]
+  url = ('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/'
+         'Tissot_indicatrix_world_map_equirectangular_proj.svg/'
+         '2000px-Tissot_indicatrix_world_map_equirectangular_proj.svg.png')
+  return media.read_image(url)[..., :3]
 
 
 # %%
@@ -1310,7 +1314,8 @@ def test_apply_digital_filter_1d_quick() -> None:
     shape = 5, 7
     array2_np = np.random.default_rng(0).random(shape, dtype=np.float64)
     array2 = torch.tensor(array2_np, requires_grad=True)
-    assert torch.autograd.gradcheck(inverse_convolution, [array2], rtol=0, atol=1e-6), boundary
+    assert torch.autograd.gradcheck(  # type: ignore[attr-defined]
+        inverse_convolution, [array2], rtol=0, atol=1e-6), boundary
 
 
 if EFFORT >= 1:
@@ -1952,7 +1957,7 @@ test_torch_nn_resize()
 
 # %%
 def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7)) -> None:
-  import torch
+  import torch.autograd
   functions: dict[str, Callable[[_TorchTensor], _TorchTensor]] = {
       'interpolate linear AA': lambda array: torch.nn.functional.interpolate(
           array[None][None], dst_shape, mode='bilinear', align_corners=False, antialias=True),
@@ -1964,7 +1969,8 @@ def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7
   array_np = np.random.default_rng(0).random(src_shape, dtype=np.float64)
   array = torch.tensor(array_np, requires_grad=True)
   for name, function in functions.items():
-    assert torch.autograd.gradcheck(function, [array], rtol=0, atol=1e-6), name
+    assert torch.autograd.gradcheck(  # type: ignore[attr-defined]
+        function, [array], rtol=0, atol=1e-6), name
 
 test_differentiability_of_torch_resizing()
 
@@ -2619,7 +2625,7 @@ if EFFORT >= 1:
 
 # %%
 def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -> None:
-  import torch
+  import torch.autograd
   filters = 'cubic cardinal3'.split()
   for filter in filters:
     coords = np.moveaxis(np.indices(dst_shape) + 0.5, 0, -1) / dst_shape
@@ -2630,7 +2636,8 @@ def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -
     array_np = np.random.default_rng(0).random(src_shape, dtype=np.float64)
     array = torch.tensor(array_np, requires_grad=True)
     for function in functions:
-      assert torch.autograd.gradcheck(function, [array], rtol=0, atol=1e-6)
+      assert torch.autograd.gradcheck(  # type: ignore[attr-defined]
+          function, [array], rtol=0, atol=1e-6)
 
 if EFFORT >= 1:
   test_torch_gradients_using_gradcheck()
@@ -4401,57 +4408,6 @@ visualize_rotational_symmetry_of_gaussian_filter()
 # %% [markdown]
 # # <a name="Creation-of-figure-images"></a>Creation of figure images
 
-# %% [markdown]
-# Images for "Example usage" section:
-
-# %%
-def visualize_example_usage() -> None:
-  array: _ArrayLike
-
-  array = np.random.default_rng(1).random((4, 6, 3))  # 4x6 RGB image.
-  upsampled = resampler.resize(array, (128, 192))  # To 128x192 resolution.
-  media.show_images({'4x6': array, '128x192': upsampled}, height=128)
-
-  image = media.read_image('https://github.com/hhoppe/data/raw/main/image.png')
-  downsampled = resampler.resize(image, (32, 32))
-  media.show_images({'128x128': image, '32x32': downsampled}, height=128)
-
-  array = [3.0, 5.0, 8.0, 7.0]
-  new_dual = resampler.resize(array, (32,))  # (default gridtype='dual') 8x resolution.
-  new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
-  _, axs = plt.subplots(1, 2, figsize=(9, 1.5))
-  axs[0].set_title("gridtype='dual'")
-  axs[0].plot((np.arange(len(array)) + 0.5) / len(array), array, 'o')
-  axs[0].plot((np.arange(len(new_dual)) + 0.5) / len(new_dual), new_dual, '.')
-  axs[1].set_title("gridtype='primal'")
-  axs[1].plot(np.arange(len(array)) / (len(array) - 1), array, 'o')
-  axs[1].plot(np.arange(len(new_primal)) / (len(new_primal) - 1), new_primal, '.')
-  plt.show()
-
-  batch_size = 4
-  batch_of_images = media.moving_circle((16, 16), batch_size)
-  spacer = np.ones((64, 16, 3))
-  upsampled = resampler.resize(batch_of_images, (batch_size, 64, 64))
-  media.show_images([*batch_of_images, spacer, *upsampled], border=True, height=64)
-
-  media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
-
-  new = resampler.resize(
-      image, (128, 512), boundary=('natural', 'reflect'), cval=(0.2, 0.7, 0.3),
-      filter=('lanczos3', 'omoms5'), gamma='identity', scale=(0.8, 0.25), translate=(0.1, 0.35),
-      precision='float64', dtype='float32')
-  media.show_images({'image': image, 'new': new})
-
-  shape = image.shape[:2]
-  yx = ((np.indices(shape).T + 0.5) / shape - 0.5).T  # [-0.5, 0.5]^2
-  radius, angle = np.linalg.norm(yx, axis=0), np.arctan2(*yx)
-  angle += (0.8 - radius).clip(0, 1) * 2.0 - 0.6
-  coords = np.dstack((np.sin(angle) * radius, np.cos(angle) * radius)) + 0.5
-  resampled = resampler.resample(image, coords, boundary='constant')
-  media.show_images({'image': image, 'resampled': resampled})
-
-visualize_example_usage()
-
 
 # %%
 def visualize_resampled_spiral_with_alpha() -> None:
@@ -4953,23 +4909,9 @@ test_downsample_timing()
 # # Export Python
 
 # %%
-def run_doctest(filename: str, debug: bool = False) -> None:
-  """Run tests within the function doc strings."""
-  assert running_in_notebook()
-  hh.run(f'python3 -m doctest{" -v" if debug else ""} {filename}')
-
-if EFFORT >= 1:
-  run_doctest('resampler/__init__.py')
-
-# %%
-if EFFORT >= 2:
-  run_doctest('resampler_notebook.py')
-
-
-# %%
 def run_pytest_command() -> None:  # (This function name cannot end in 'test', else recursion.)
   assert running_in_notebook()
-  hh.run('pytest --doctest-modules --ignore=Old --ignore=Other --ignore=resampler_other.py --ignore=resampler_other_big.py')
+  hh.run('pytest -qq --doctest-modules --ignore=Old --ignore=Other --ignore=resampler_other.py --ignore=resampler_other_big.py')
 
 if EFFORT >= 1:
   run_pytest_command()
@@ -4996,51 +4938,27 @@ if EFFORT >= 1:
 
 
 # %%
-def run_lint(filename: str, strict: bool = False) -> None:
+def run_lint() -> None:
   """Run checks on *.py notebook code (saved using jupytext or from menu)."""
-  if not pathlib.Path(filename).is_file():
+  if not pathlib.Path('resampler_notebook.py').is_file():
     return
-  flake8_args = '--indent-size 2 --max-line-length=1000 --doctests --extend-ignore'
-  flake8_ignore = 'E302,E741' + ('' if strict else ',E131,E305,E402')
-  mypy_args = ('--strict --ignore-missing-imports'
-               r' --config <(echo -e "[mypy]\n[mypy-jax.*]\nfollow_imports = skip")')
-  s = '' if strict else 'type annotation for one or more arguments|'
-  mypy_grep = (f'grep -Ev "{s}gradgradcheck|Untyped decorator| errors? in . file'
+  mypy_grep = ('grep -Ev " errors? in . file'
                '|Any from function declared to return .(ndarray|Tensor)"')
-  autopep8_args = '-aaa --max-line-length 100 --indent-size 2 --diff --ignore'
-  autopep8_ignore = 'E265,E121,E125,E128,E129,E131,E226,E302,E305,E703,E402'  # E501
-  pylint_disabled = ('C0301,C0302,W0125,C0114,R0913,W0301,R0902,W1514,R0914,C0103,C0415'
-                     ',R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412,C0413')
-  pylint_args = f'--indent-string="  " --disable={pylint_disabled}'
-  pylint_grep = (" | grep -Ev 'E1101: Module .(torch|cv2)|Method .(jvp|vjp)"
-                 r"|colab|has been rated at|\*\* Module|(^-*$)'" +
-                 ('' if strict else " | grep -v 'Missing function or method docstring'"))
-  hh.run(f'echo flake8; flake8 {flake8_args} {flake8_ignore} "{filename}"')
-  hh.run(f'echo mypy; bash -c \'mypy {mypy_args} "{filename}" | {mypy_grep} || true\'')
-  hh.run(f'echo autopep8; autopep8 {autopep8_args} {autopep8_ignore} "{filename}"')
-  hh.run(f'echo pylint; pylint {pylint_args} "{filename}" {pylint_grep} || true')
+  hh.run('echo flake8; flake8')
+  hh.run(f'echo mypy; mypy . | {mypy_grep} || true')
+  hh.run('echo autopep8; autopep8 --diff *.py resampler/*.py')
+  # pylint --recursive=y . --ignore=Other
+  hh.run('echo pylint; pylint resampler_notebook.py example_usage.py resampler')
   print('All ran.')
 
-
-# %%
 if EFFORT >= 1:
-  run_lint('resampler_notebook.py')
-
-# %%
-if EFFORT >= 1:
-  run_lint('resampler/__init__.py', strict=True)
+  run_lint()
 
 
 # %% [markdown]
 # In Windows Emacs, `compile` command:
 # ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'f=resampler_notebook.py; echo flake8; flake8 --indent-size 2 --max-line-length=1000 --doctests --extend-ignore E302,E741,E131,E305,E402 "$f"; echo mypy; mypy --strict --ignore-missing-imports --config <(echo -e "[mypy]\n[mypy-jax.*]\nfollow_imports = skip") "$f" | grep -Ev "type annotation for one or more arguments|gradgradcheck|Untyped decorator| errors? in 1 file|Any from function declared to return .(ndarray|Tensor)"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703,E402 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0302,C0415,R0902,R0903,R0913,R0914,W0640,W0125,C0413,W1514 --disable=C0301,C0114,W0301,R0903,W0622,W0640,W0511,C0116,R1726,R1727,C0411,C0412 "$f" | grep -Ev "E1101: Module .(torch|cv2)|Method .(jvp|vjp)|colab|has been rated at|\*\* Module|(^-*$)"; echo All ran.'
-# ```
-
-# %% [markdown]
-# In Windows Emacs, `compile` command:
-# ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'f=resampler/__init__.py; echo flake8; flake8 --indent-size 2 --max-line-length=1000 --doctests --extend-ignore E302,E741 "$f"; echo mypy; mypy --strict --ignore-missing-imports --config <(echo -e "[mypy]\n[mypy-jax.*]\nfollow_imports = skip") "$f" | grep -Ev "gradgradcheck|Untyped decorator| errors? in 1 file|Any from function declared to return .(ndarray|Tensor)"; echo autopep8; autopep8 -aaa --max-line-length 100 --indent-size 2 --ignore E265,E121,E125,E128,E129,E131,E226,E302,E305,E703 --diff "$f"; echo pylint; pylint --indent-string="  " --disable=C0103,C0301,C0302,R0903,R0913,R0914,W0125,W0301,W0511,W0622,W0640 "$f" | grep -Ev "E1101: Module .(torch|cv2)|Method .(jvp|vjp)|W0221.*(forward|backward)|C0415.*(tensorflow|torch|jax|PIL|cv2)|has been rated at|\*\* Module|(^-*$)"; echo All ran.'
+# c:/windows/sysnative/wsl -e bash -lc 'echo flake8; flake8; echo mypy; mypy . | grep -Ev " errors? in . file|Any from function declared to return .(ndarray|Tensor)"; echo autopep8; autopep8 --diff *.py resampler/*.py; echo pylint; pylint resampler_notebook.py example_usage.py resampler; echo All ran.'
 # ```
 
 # %%
