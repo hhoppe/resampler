@@ -6,6 +6,7 @@ import setuptools
 NAME = 'resampler'
 
 def get_version(package=None):
+  """Return the version number (x.y.z) of the package."""
   if package is None:
     package, = setuptools.find_packages()
   path = pathlib.Path(__file__).resolve().parent / package / '__init__.py'
@@ -17,6 +18,7 @@ def get_version(package=None):
 
 
 def get_requirements():
+  """Return the list of external packages required for installation."""
   path = pathlib.Path(NAME) / 'requirements.txt'
   return [line.strip() for line in path.read_text().splitlines()
           if not (line.isspace() or line.startswith('#'))]
