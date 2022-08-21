@@ -4946,9 +4946,8 @@ def run_lint() -> None:
                '|Any from function declared to return .(ndarray|Tensor)"')
   hh.run('echo flake8; flake8')
   hh.run(f'echo mypy; mypy . | {mypy_grep} || true')
-  hh.run('echo autopep8; autopep8 --diff *.py resampler/*.py')
-  # pylint --recursive=y . --ignore=Other
-  hh.run('echo pylint; pylint resampler_notebook.py example_usage.py resampler')
+  hh.run('echo autopep8; autopep8 -j8 -d .')
+  hh.run('echo pylint; pylint -j8 .')
   print('All ran.')
 
 if EFFORT >= 1:
@@ -4958,7 +4957,7 @@ if EFFORT >= 1:
 # %% [markdown]
 # In Windows Emacs, `compile` command:
 # ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'echo flake8; flake8; echo mypy; mypy . | grep -Ev " errors? in . file|Any from function declared to return .(ndarray|Tensor)"; echo autopep8; autopep8 --diff *.py resampler/*.py; echo pylint; pylint resampler_notebook.py example_usage.py resampler; echo All ran.'
+# c:/windows/sysnative/wsl -e bash -lc 'echo flake8; flake8; echo mypy; mypy . | grep -Ev " errors? in . file|Any from function declared to return .(ndarray|Tensor)"; echo autopep8; autopep8 -j8 -d .; echo pylint; pylint -j8 .; echo All ran.'
 # ```
 
 # %%

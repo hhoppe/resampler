@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Create HTML documentation from the source code using `pdoc`."""
 
 # Note: Invoke this script from the parent directory as "pdoc/make.py" !
 
@@ -18,7 +19,8 @@ TEMPLATE_DIRECTORY = pathlib.Path('./pdoc')
 OUTPUT_DIRECTORY = pathlib.Path('./docs')
 
 
-def main1() -> None:
+def main() -> None:
+  """Invoke `pdoc` on the module source files."""
   # See https://github.com/mitmproxy/pdoc/blob/main/pdoc/__main__.py
   pdoc.render.configure(
     docformat='restructuredtext',  # 'google' is inferred from __docformat__.
@@ -41,6 +43,7 @@ def main1() -> None:
 
 
 def main2() -> None:
+  """Invoke `pdoc` on the imported module."""
   import resampler
 
   # Put the README.md text inline; otherwise the README.md file is not found in site-packages/resampler/.
@@ -71,4 +74,4 @@ def main2() -> None:
 
 
 if __name__ == '__main__':
-  main1()
+  main()
