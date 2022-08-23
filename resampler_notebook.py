@@ -1556,7 +1556,7 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
   gammas = 'identity power2'.split()
   sequences = [arraylibs, dtypes, resampler.GRIDTYPES, boundaries, filters, gammas]
   configs = itertools.product(*sequences)  # len(configs) = np.prod([4, 7, 5, 8, 2]) = 2240.
-  step = 1 if EFFORT >= 2 else 37
+  step = 1 if EFFORT >= 2 else 73
   assert step == 1 or all(len(sequence) % step != 0 for sequence in sequences)
   for config in itertools.islice(configs, 0, None, step):
     arraylib, dtype, gridtype, boundary, filter, gamma = config
@@ -4906,7 +4906,7 @@ test_downsample_timing()
 # - `resampler.resize` achieves the fastest downsampling with a Lanczos filter.
 
 # %% [markdown]
-# # Export Python
+# # Run external tools
 
 # %%
 def run_pytest_command() -> None:  # (This function name cannot end in 'test', else recursion.)
@@ -5000,30 +5000,6 @@ def create_documentation_files() -> None:
 
 if 0:
   create_documentation_files()
-
-
-# %%
-def write_copy_of_notebook_without_code(filename: str, output_filename: str) -> None:
-  """Create a copy of the notebook without any code, to examine just the markdown and output."""
-  import nbformat
-  # See https://github.com/jupyter/nbformat/blob/main/nbformat/__init__.py; has no type info.
-  notebook = nbformat.reads(pathlib.Path(filename).read_text(), nbformat.NO_CONVERT)  # type: ignore
-  # https://nbformat.readthedocs.io/en/latest/format_description.html
-  del notebook['metadata']['jupytext']  # Remove pairing 'ipynb,py:percent'.
-  new_cells = []
-  for cell in notebook['cells']:
-    is_code = cell['cell_type'] == 'code'
-    if is_code:
-      if not cell['outputs']:  # (Checks if empty list.)
-        continue  # Omit code cells without any output.
-      cell['source'] = ''
-    new_cells.append(cell)
-  notebook['cells'] = new_cells
-  pathlib.Path(output_filename).write_text(nbformat.writes(notebook))  # type: ignore
-
-if 0:
-  write_copy_of_notebook_without_code('resampler_notebook.ipynb', 'no_code.ipynb')
-  # Remember to run command 'Trust notebook' when opening it.
 
 # %% [markdown]
 # # Epilog
