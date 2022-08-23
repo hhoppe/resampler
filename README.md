@@ -158,3 +158,5 @@ media.show_images({'image': image, 'resampled': resampled})
 - Filters are assumed to be [separable](https://en.wikipedia.org/wiki/Separable_filter).
 - Although `resize` implements prefiltering, `resample` does not yet have it (and therefore
   may have aliased results if downsampling).
+- Differentiability is only with respect to the grid values,
+  not wrt the resize shape, scale, translation, or the resampling coordinates.

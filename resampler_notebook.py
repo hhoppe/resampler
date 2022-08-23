@@ -301,7 +301,7 @@
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q autopep8 flake8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy 'numba>=0.55.1' numpy==1.21 pdoc Pillow pylint resampler scipy scikit-image tensorflow-cpu torch
+# !pip install -q autopep8 flake8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy 'numba>=0.55.1' 'numpy~=1.21.0' pdoc Pillow pylint resampler scipy scikit-image tensorflow-cpu torch
 
 # %%
 # %load_ext autoreload
