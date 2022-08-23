@@ -301,7 +301,7 @@
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q autopep8 flake8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy Pillow pylint resampler scikit-image tensorflow-cpu torch
+# !pip install -q autopep8 flake8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy 'numba>=0.55.1' numpy==1.21 pdoc Pillow pylint resampler scipy scikit-image tensorflow-cpu torch
 
 # %%
 # %load_ext autoreload
@@ -309,6 +309,7 @@
 
 # %%
 """Python notebook demonstrating the `resampler` package."""
+from __future__ import annotations
 
 import copy
 import collections
@@ -4911,7 +4912,7 @@ test_downsample_timing()
 # %%
 def run_pytest_command() -> None:  # (This function name cannot end in 'test', else recursion.)
   assert running_in_notebook()
-  hh.run('pytest -qq --doctest-modules --ignore=Old --ignore=Other --ignore=resampler_other.py --ignore=resampler_other_big.py')
+  hh.run('pytest -qq')
 
 if EFFORT >= 1:
   run_pytest_command()
