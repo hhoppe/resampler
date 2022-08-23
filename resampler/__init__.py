@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.5.3'
+__version__ = '0.5.4'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -2532,7 +2532,7 @@ def _create_jaxjit_resize() -> Callable[..., _Array]:
   import jax
   jitted = jax.jit(_original_resize, static_argnums=(1,),
                    static_argnames=list(_original_resize.__kwdefaults__))
-  return typing.cast(Callable[..., _Array], jitted)
+  return typing.cast(Any, jitted)
 
 
 def jaxjit_resize(array: _Array, *args: Any, **kwargs: Any) -> _Array:
