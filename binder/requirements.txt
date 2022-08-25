@@ -8,11 +8,12 @@ matplotlib
 mediapy
 mypy
 numba>=0.55.1
-numpy~=1.21.0
+numpy>=1.21,<1.22
 opencv-python-headless
 pdoc
 Pillow
 pylint
+pytest
 resampler
 scipy
 scikit-image
