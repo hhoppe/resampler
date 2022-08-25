@@ -168,7 +168,7 @@
 # - Although `resize` implements prefiltering, `resample` does not yet have it (and therefore
 #   may have aliased results if downsampling).
 # - Differentiability is only with respect to the grid values,
-#   not wrt the resize shape, scale, translation, or the resampling coordinates.
+#   not wrt the `resize()` shape, scale, and translation, or wrt the `resample()` coordinates.
 
 
 # %% [markdown]
@@ -298,7 +298,7 @@
 # !command -v ffmpeg >/dev/null || (apt update && apt install -y ffmpeg)
 
 # %%
-# !pip install -qU 'numba>=0.55.1' 'numpy>=1.21,<1.22'
+# !pip install -qU 'numba~=0.56.0' 'numpy~=1.22.0'
 
 # %%
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
@@ -1006,6 +1006,8 @@ test_cached_sampling_of_1d_function()
 
 # %%
 def test_downsample_in_2d_using_box_filter() -> None:
+  if 'numba' not in globals():
+    return
   for shape in [(6, 6), (4, 4)]:
     for ch in [1, 2, 3, 4]:
       array = np.ones((*shape, ch), dtype=np.float32)
@@ -1024,6 +1026,8 @@ if EFFORT >= 1:
 
 # %%
 def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
+  if 'numba' not in globals():
+    return
   array = np.ones((4096, 4096))
   hh.print_time(lambda: resampler._downsample_in_2d_using_box_filter(array, shape), max_time=0.4)
 
