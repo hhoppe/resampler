@@ -8,7 +8,7 @@ matplotlib
 mediapy
 mypy
 numba~=0.56.0
-numpy~=1.22.0
+numpy<1.23
 opencv-python-headless
 pdoc
 Pillow
