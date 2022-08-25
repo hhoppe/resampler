@@ -298,13 +298,13 @@
 # !command -v ffmpeg >/dev/null || (apt update && apt install -y ffmpeg)
 
 # %%
+# !pip install -qU 'numba>=0.55.1' 'numpy>=1.21,<1.22'
+
+# %%
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q autopep8 flake8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy pdoc Pillow pylint resampler scipy scikit-image tensorflow-cpu torch
-
-# %%
-# !pip install -qU 'numba>=0.55.1' 'numpy~=1.21.0'
+# !pip install -q autopep8 flake8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy pdoc Pillow pylint pytest resampler scipy scikit-image tensorflow-cpu torch
 
 # %%
 # %load_ext autoreload
@@ -4915,7 +4915,7 @@ test_downsample_timing()
 # %%
 def run_pytest_command() -> None:  # (This function name cannot end in 'test', else recursion.)
   assert running_in_notebook()
-  hh.run('pytest -qq')
+  hh.run('pytest -qq || true')
 
 if EFFORT >= 1:
   run_pytest_command()
