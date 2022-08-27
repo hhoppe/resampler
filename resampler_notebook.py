@@ -9,7 +9,7 @@
 # [**[Kaggle]**](https://www.kaggle.com/notebooks/welcome?src=https://github.com/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 # &nbsp;
 # [**[MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/main?filepath=resampler_notebook.ipynb)
-# &nbsp;
+# &nbsp; <!-- [**[MyBinder]**](https://mybinder.org/v2/gh/hhoppe/resampler/HEAD?urlpath=lab/tree/resampler_notebook.ipynb) -->
 # [**[DeepNote]**](https://deepnote.com/launch?url=https%3A%2F%2Fgithub.com%2Fhhoppe%2Fresampler%2Fblob%2Fmain%2Fresampler_notebook.ipynb)
 # &nbsp;
 # [**[GitHub source]**](https://github.com/hhoppe/resampler)
@@ -33,7 +33,10 @@
 #
 # - **samples of any shape** (e.g., scalars, colors, motion vectors, Jacobian matrices) and
 #
-# - any **numeric type** (integer, floating, and complex);
+# - any **numeric type** (e.g., `uint8`, `float64`, `complex128`)
+#
+# - within several [**array libraries**](#Array-libraries)
+#   (`numpy`, `tensorflow`, `torch`, and `jax`);
 #
 # - either `'dual'` ("half-integer") or `'primal'` [**grid-type**](#Grid-types--dual-and-primal-)
 #   for each dimension;
@@ -46,9 +49,6 @@
 # - optional [**gamma**](#Gamma-correction) transfer functions for correct linear-space filtering;
 #
 # - prefiltering for accurate **antialiasing** when `resize` downsampling;
-#
-# - processing within several [**array libraries**](#Array-libraries)
-#   (`numpy`, `tensorflow`, `torch`, and `jax`);
 #
 # - efficient backpropagation of [**gradients**](#Gradient-backpropagation)
 #   for `tensorflow`, `torch`, and `jax`;
@@ -298,7 +298,7 @@
 # !command -v ffmpeg >/dev/null || (apt update && apt install -y ffmpeg)
 
 # %%
-# !pip install -qU 'numba~=0.56.0' 'numpy~=1.22.0'
+# !pip install -qU 'numba~=0.56.0' 'numpy<1.23'
 
 # %%
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
@@ -2077,9 +2077,10 @@ def test_best_dimension_ordering_for_resize_timing(dtype=np.float32) -> None:
       if not c_contiguous:
         array = resampler._arr_swapaxes(array, 0, 1)
       args = (array, dst_shape)
-      t0 = hh.get_time(lambda: resampler._original_resize(*args, dim_order=[0, 1]))
-      t1 = hh.get_time(lambda: resampler._original_resize(*args, dim_order=[1, 0]))
-      t2 = hh.get_time(lambda: resampler._original_resize(*args))
+      time_args = dict(max_time=0.5)
+      t0 = hh.get_time(lambda: resampler._original_resize(*args, dim_order=[0, 1]), **time_args)
+      t1 = hh.get_time(lambda: resampler._original_resize(*args, dim_order=[1, 0]), **time_args)
+      t2 = hh.get_time(lambda: resampler._original_resize(*args), **time_args)
       warning = ' !' if t2 > min(t0, t1) * 1.1 and t2 > max(t0, t1) * 0.9 else ''
       print(f'# {arraylib:10} {int(c_contiguous)}  {src_shape!s:>15} -> {dst_shape!s:12}'
             f' {t0:6.3f} {t1:6.3f} {t2:6.3f} s{warning}')
@@ -2128,7 +2129,7 @@ def experiment_with_resize_timing() -> None:
       text = f'# {dtype:7} {src_str:>13}->{dst_str:11}'
       for name, function in functions.items():
         _ = function()  # Possibly pre-compile/jit the function.
-        elapsed = hh.get_time(function)
+        elapsed = hh.get_time(function, max_time=0.5)
         text += f' {name}:{elapsed:5.3f}'
       text += ' s'
       print(text)
@@ -4955,7 +4956,7 @@ def run_lint() -> None:
   hh.run('echo flake8; flake8')
   hh.run(f'echo mypy; mypy . | {mypy_grep} || true')
   hh.run('echo autopep8; autopep8 -j8 -d .')
-  hh.run('echo pylint; pylint -j8 .')
+  hh.run('echo pylint; pylint -j8 . || true')
   print('All ran.')
 
 if EFFORT >= 1:

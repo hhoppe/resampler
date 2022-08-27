@@ -30,7 +30,10 @@ It supports:
 
 - **samples of any shape** (e.g., scalars, colors, motion vectors, Jacobian matrices) and
 
-- any **numeric type** (integer, floating, and complex);
+- any **numeric type** (e.g., `uint8`, `float64`, `complex128`)
+
+- within several **array libraries**]
+  (`numpy`, `tensorflow`, `torch`, and `jax`);
 
 - either `'dual'` ("half-integer") or `'primal'` **grid-type** for each dimension;
 
@@ -41,9 +44,6 @@ It supports:
 - optional **gamma** transfer functions for correct linear-space filtering;
 
 - prefiltering for accurate **antialiasing** when `resize` downsampling;
-
-- processing within several **array libraries**
-  (`numpy`, `tensorflow`, `torch`, and `jax`);
 
 - efficient backpropagation of **gradients**
   for `tensorflow`, `torch`, and `jax`;
