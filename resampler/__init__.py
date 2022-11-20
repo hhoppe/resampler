@@ -763,6 +763,14 @@ def _make_array(array: _ArrayLike, arraylib: str) -> _Array:
   return _DICT_ARRAYLIBS[arraylib](np.asarray(array)).array
 
 
+# Because np.ndarray supports strides, np.moveaxis() and np.permute() are constant-time.
+# However, ndarray.reshape() often creates a copy of the array if the data is non-contiguous,
+# e.g. dim=1 in an RGB image.
+#
+# In contrast, tf.Tensor does not support strides, so tf.transpose() returns a new permuted
+# tensor.  However, tf.reshape() is always efficient.
+
+
 def _block_shape_with_min_size(shape: tuple[int, ...], min_size: int,
                                compact: bool = True) -> tuple[int, ...]:
   """Return shape of block (of size at least `min_size`) to subdivide shape."""
