@@ -62,8 +62,7 @@
 
 # %% [markdown]
 # **Example usage:**
-
-# %% [markdown]
+#
 # ```python
 # !pip install -q mediapy resampler
 # import mediapy as media
@@ -651,21 +650,14 @@ print(resampler.ARRAYLIBS)
 show_docstring('resampler.ARRAYLIBS')
 
 # %%
-# It might be nice to switch to using eagerpy.  Here are features that are currently missing:
+# It might be nice to switch to using eagerpy.
+# Here are features that are currently missing from eagerpy:
 # - support for `einsum()`, using str subscripts argument.
 # - extensibility (subclassing?), for `sparse_resize_matrix` and `sparse_dense_matmul`.
 # - support for `_make_array(array, arraylib)` and `arr_arraylib(array)`; use `ep.get_dummy(str)`?
 # - let `dtype` and `astype()` standardize on `np.dtype`.
-# - implement `moveaxis()` and `swapaxes()` in base class Tensor using `transpose()`.
+# - implement `moveaxis()` and `swapaxes()` in base class eagerpy.Tensor using `transpose()`.
 # - signature for `full(shape, value)` should indicate `value` to be scalar or tensor.
-
-# %%
-# Because np.ndarray supports strides, np.moveaxis() and np.permute() are constant-time.
-# However, ndarray.reshape() often creates a copy of the array if the data is non-contiguous,
-# e.g. dim=1 in an RGB image.
-#
-# In contrast, tf.Tensor does not support strides, so tf.transpose() returns a new permuted
-# tensor.  However, tf.reshape() is always efficient.
 
 # %%
 # Additional candidates for array libraries might be:
@@ -752,16 +744,16 @@ show_docstring('resampler.BOUNDARIES')
 # is a sum of the grid samples $\{a_i\}$ weighted by a reconstruction
 # [*filter kernel*](https://en.wikipedia.org/wiki/Kernel_(statistics))
 # $\phi$.
-# <!-- (A kernel is a # [window function](https://en.wikipedia.org/wiki/Window_function),
+# <!-- (A kernel is a [window function](https://en.wikipedia.org/wiki/Window_function),
 # i.e., it has value zero outside of some some radius.) -->
 #
 # The [Nyquist-Shannon sampling
 # theorem](https://en.wikipedia.org/wiki/Nyquist%E2%80%93Shannon_sampling_theorem)
 # states that a function $f$ is exactly reconstructed
-# from its samples $a_i = f(\frac{i+0.5}{N})$ if # $\phi(x)$ is the
+# from its samples $a_i = f(\frac{i+0.5}{N})$ if $\phi(x)$ is the
 # [*sinc function*](https://en.wikipedia.org/wiki/Sinc_function)
 # $\text{sinc}(x) = \frac{sin(\pi x)}{\pi x}$
-# and $f$ has no frequencies higher than twice the sample rate ($2N$).
+# and $f$ has no frequencies higher than $2N$, i.e., twice the sample rate $N$.
 #
 # Because the sinc function has infinite support,
 # in practice it is approximated by multiplying it with a window function $w(x)$.
@@ -770,7 +762,7 @@ show_docstring('resampler.BOUNDARIES')
 # whose radius parameter trades off speed and accuracy.
 #
 # A filter kernel is also used to prefilter the reconstructed field prior to sampling.
-# By default, in this library we assign this filter to be the same as the reconstruction filter.
+# By default, we assign this filter to be the same as the reconstruction filter.
 
 # %% [markdown]
 # All multidimensional filters are assumed to be separable.
@@ -826,6 +818,9 @@ show_docstring('resampler.GAMMAS')
 # %% [markdown]
 # ## <a name="Resize"></a>Resize
 
+# %%
+# ?resampler.resize
+
 # %% [markdown]
 # Because the reconstruction and prefilter kernels are assumed to be separable functions,
 # we implement multidimensional resizing by iteratively modifying the sampling resolution
@@ -834,7 +829,15 @@ show_docstring('resampler.GAMMAS')
 # (up to machine precision), but it affects total execution time.
 
 # %%
-# Export library: omit.
+# ?resampler.resize_in_arraylib
+
+# %%
+# ?resampler.jaxjit_resize
+
+# %%
+# display_markdown(resampler.resize.__doc__)
+
+# %%
 if 0:  # For testing.
   resampler.resize = typing.cast(
       Any, functools.partial(resampler._resize_possibly_in_arraylib, arraylib='torch'))
@@ -875,6 +878,18 @@ if EFFORT >= 1:
 
 # %% [markdown]
 # ## <a name="Resample"></a>Resample
+
+# %%
+# ?resampler.resample
+
+# %%
+# ?resampler.resample_affine
+
+# %%
+# ?resampler.rotation_about_center_in_2d
+
+# %%
+# ?resampler.rotate_image_about_center
 
 # %%
 # General resample:
@@ -933,7 +948,6 @@ if EFFORT >= 2:
 #         0.094    0.532 numpy.core._multiarray_umath.implement_array_function (built-in)
 
 # %%
-# Export library: omit.
 if 0:  # For testing.
   resampler.resize = typing.cast(
       Any, functools.partial(resampler._resize_using_resample, fallback=True))
@@ -2346,7 +2360,6 @@ experiment_rotate_image_about_center()
 
 
 # %%
-# Export library: omit.
 def overwrite_outside_circle(image: _NDArray, cval: _ArrayLike = 0,
                              margin: float = 0.0) -> _NDArray:
   shape = np.array(image.shape[:2])
@@ -3834,7 +3847,6 @@ if EFFORT >= 1:
 # ## Prefilter convolution
 
 # %%
-# Export library: omit.
 def _torch_symmetric_pad(array: _ArrayLike, padding: Iterable[int]) -> _TorchTensor:
   """Use reflection to pad each dimension."""
   # See https://github.com/pytorch/pytorch/issues/46240 and
@@ -4566,13 +4578,13 @@ def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
                          filters=('box', 'triangle', 'lanczos3', 'cardinal5')) -> None:
     boundaries = resampler._OFTUSED_BOUNDARIES if boundaries is None else boundaries
     color = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
+
     for row_index, filter in enumerate(filters):
       fig, axs = plt.subplots(1, len(boundaries), figsize=(18, 1.5))
       fig.subplots_adjust(wspace=0.1)
       array = np.array([0.6, 0.5, 0.8, 0.9])
+
       for column_index, boundary in enumerate(boundaries):
-        # factor out a single plot??
-        # use it to visualize boundary conditions for tf_image_resize, torch_resize, etc. ??
         ax = axs.flat[column_index]
         for x_value in [0.0, 1.0]:
           ax.axvline(x=x_value, ymin=0.0, ymax=0.77, color='red', linestyle='--', linewidth=1)
@@ -4595,6 +4607,7 @@ def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
           title = f"'{title}'{dagger}"
           title = f'boundary={title}' if column_index == 0 else title
           ax.set_title(title, x=0.5, y=1.05, fontsize=14)
+
       plt.subplots_adjust(left=0.035)
       text = f"filter='{filter}'" if row_index == 0 else f"'{filter}'"
       plt.gcf().text(0.02, 0.55, text, fontsize=14, rotation='vertical', va='center')
@@ -4642,6 +4655,7 @@ def visualize_boundary_rules_in_2d(*, scale=0.6, src_gridtype=('dual', 'primal')
       </style>
     """.replace('FONT-SIZE', 'medium' if hh.in_colab() else 'small')
     display_html(text)
+
   # array = np.array([[1.0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0], [0, 1, 0, 0]])
   # array = np.indices((4, 4), dtype=np.float64).sum(axis=0) / 6.0
   # array = np.dstack((array,) * 3)
@@ -4651,7 +4665,7 @@ def visualize_boundary_rules_in_2d(*, scale=0.6, src_gridtype=('dual', 'primal')
   # array = array * 0.5 + 0.25
   array = array * 0.8 + 0.1
 
-  def show_row(show_titles, scale=scale) -> None:
+  def show_row(*, scale=scale) -> None:
     kwargs = dict(shape=shape, src_gridtype=src_gridtype,
                   dst_gridtype='dual', scale=scale, translate=(1 - scale) / 2)
     images = {}
@@ -4662,7 +4676,7 @@ def visualize_boundary_rules_in_2d(*, scale=0.6, src_gridtype=('dual', 'primal')
     image_samples = resize_showing_domain_boundary(
         array, boundary='constant', cval=0.5, filter='narrowbox', **kwargs)
     images = {'(samples)': image_samples, **images}
-    images2: Any = images if show_titles else images.values()
+    images2: Any = images if row_index == 0 else images.values()
     # Benefit of show_images() over matplotlib.imshow() is no pixel resampling.
     ylabel = f"filter='{filter}'&nbsp;&nbsp;&nbsp" if row_index == 0 else f"'{filter}'"
     media.show_images(images2, ylabel=ylabel, html_class='show_images2')
@@ -4670,11 +4684,12 @@ def visualize_boundary_rules_in_2d(*, scale=0.6, src_gridtype=('dual', 'primal')
   display_markdown("**Upsampling of a 2D grid (`gridtype=('dual', 'primal')`,"
                    " for $y$ and $x$ axes respectively)**")
   for row_index, filter in enumerate('box triangle cubic lanczos3'.split()):
-    show_row(show_titles=(row_index == 0))
+    show_row()
 
   display_markdown('<br/>**Wider view of the same results**')
+  row_index = 0
   filter = 'lanczos3'
-  show_row(show_titles=True, scale=0.25)
+  show_row(scale=0.25)
 
 
 visualize_boundary_rules_in_2d()
@@ -4705,18 +4720,18 @@ visualize_boundary_rules_in_2d()
 # TODO: Compare with my results and verify the assumptions on the parameters.
 
 # %% [markdown]
-# <font size="+1">**Comparison table:**</font>
+# <font size="+1">**Comparison table for `resize` operation:**</font>
 #
 # | Library | `ndim` | Array type | Data type | Grid type | Upsample | Antialiased downsample | Boundary rule | Speed | Native code | Grad &nabla; |
 # |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-# | `resampler.resize` | any | `np`, `tf`, `torch`, `jax` | any | dual, primal | any filter | any filter | many | fast | none | yes |
+# | `resampler.resize` | any | `np`, `tf`, `torch`, `jax` | any | dual, primal | any filter | any filter | many | average | none | yes |
 # | `PIL.Image.resize` | 2D | custom | `float32`, `uint8` | dual | up to `'lanczos3'` | good | `'natural'` | average | C | no |
 # | `cv.resize` | 2D | custom | `float32` | dual | up to `'lanczos4'` | `'trapezoid'` (AREA) | several | fast | C++ | no |
-# | `scipy.ndimage` | any | `np` | any | ~dual, primal | cardinal B-splines | aliased &#9785; | several | slow | C | no |
+# | `scipy.ndimage` | any | `np` | any | dual, primal | cardinal B-splines | aliased &#9785; | several | slow | C | no |
 # | `skimage.transform` | any | `np` | any | dual, primal | cardinal B-splines | Gaussian &#9785; | several | slow | Cython | no |
 # | `tf.image.resize` | 2D | `tf` | `float32` | dual | up to `'lanczos5'` | good | `'natural'` | average | C++ | yes |
-# | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `'trapezoid'`, `'triangle'`, `'cubic'` | `?` | average | C++ | yes |
-# | `torchvision.transforms.`<br/>&nbsp;`functional.resize` | 2D | `tf` | most | dual | up to cubic | `'triangle'`, `'cubic'` | `?` | average | C++ | yes |
+# | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `'trapezoid'`, `'triangle'`, `'cubic'` | `'natural'` | average | C++ | yes |
+# | `jax.image.resize` | any | `jax` | `float`, `complex` | dual | up to `'lanczos5'` | good but no `trapezoid` | `'natural'` | average | none | yes |
 #
 # The `resampler` library does not involve any new native code;
 # it instead leverages existing sparse matrix representations and operations.
@@ -4786,6 +4801,7 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200
     images[name] = image
 
   if 1:  # Optionally crop the images
+    # images = {name: image[:shape[0]//2, :shape[1]//2] for name, image in images.items()}
     images = {name: image[:100, :200] for name, image in images.items()}
   media.set_max_output_height(2000)
   # with media.set_show_save_dir('/tmp'):
