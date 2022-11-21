@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.5.6'
+__version__ = '0.5.7'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
+import abc
 import dataclasses
 import functools
 import itertools
@@ -219,7 +220,6 @@ class _DownsampleIn2dUsingBoxFilter:
 
 _downsample_in_2d_using_box_filter = _DownsampleIn2dUsingBoxFilter()
 
-
 @dataclasses.dataclass
 class _Arraylib(Generic[_Array]):
   """Abstract base class for abstraction of array libraries."""
@@ -230,15 +230,19 @@ class _Arraylib(Generic[_Array]):
   array: _Array
 
   @staticmethod
+  @abc.abstractmethod
   def recognize(array: Any) -> bool:
     """Return True if `array` is recognized by this _Arraylib."""
 
+  @abc.abstractmethod
   def numpy(self) -> _NDArray:
     """Return a `numpy` version of `self.array`."""
 
+  @abc.abstractmethod
   def dtype(self) -> _DType:
     """Return the equivalent of `self.array.dtype` as a `numpy` `dtype`."""
 
+  @abc.abstractmethod
   def astype(self, dtype: _DTypeLike) -> _Array:
     """Return the equivalent of `self.array.astype(dtype, copy=False)` with `numpy` `dtype`."""
 
@@ -250,12 +254,15 @@ class _Arraylib(Generic[_Array]):
     """Return an array which may be a contiguous copy of `self.array`."""
     return self.array
 
+  @abc.abstractmethod
   def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _Array:
     """Return the equivalent of `self.array.clip(low, high, dtype=dtype)` with `numpy` `dtype`."""
 
+  @abc.abstractmethod
   def square(self) -> _Array:
     """Return the equivalent of `np.square(self.array)`."""
 
+  @abc.abstractmethod
   def sqrt(self) -> _Array:
     """Return the equivalent of `np.sqrt(self.array)`."""
 
@@ -263,30 +270,37 @@ class _Arraylib(Generic[_Array]):
     """Return the equivalent of `self.array[indices]` (a "gather" operation)."""
     return self.array[indices]
 
+  @abc.abstractmethod
   def where(self, if_true: Any, if_false: Any) -> _Array:
     """Return the equivalent of `np.where(self.array, if_true, if_false)`."""
 
+  @abc.abstractmethod
   def transpose(self, axes: Sequence[int]) -> _Array:
     """Return the equivalent of `np.transpose(self.array, axes)`."""
 
+  @abc.abstractmethod
   def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     """Return the best order in which to process dims for resizing `self.array` to `dst_shape`."""
 
   @staticmethod
+  @abc.abstractmethod
   def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
     """Return the equivalent of `np.concatenate(arrays, axis)`."""
 
   @staticmethod
+  @abc.abstractmethod
   def einsum(subscripts: str, *operands: _Array) -> _Array:
     """Return the equivalent of `np.einsum(subscripts, *operands, optimize=True)`."""
 
   @staticmethod
+  @abc.abstractmethod
   def make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray,
                          shape: tuple[int, int]) -> _Array:
     """Return the equivalent of `scipy.sparse.csr_matrix(data, (row_ind, col_ind), shape=shape)`.
     However, indices must be ordered and unique."""
 
   @staticmethod
+  @abc.abstractmethod
   def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
     """Return the multiplication of the `sparse` matrix and `dense` matrix."""
 
@@ -663,7 +677,7 @@ def _as_arr(array: _Array) -> _Arraylib[_Array]:
   """Return `array` wrapped as an `_Arraylib` for dispatch of functions."""
   for cls in _DICT_ARRAYLIBS.values():
     if cls.recognize(array):
-      return cls(array)  # type: ignore[arg-type]
+      return cls(array)  # type: ignore[abstract, arg-type]
   raise AssertionError(
       f'{array} {type(array)} {type(array).__module__} unrecognized by {ARRAYLIBS}.')
 
@@ -760,7 +774,7 @@ def _arr_sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
 
 def _make_array(array: _ArrayLike, arraylib: str) -> _Array:
   """Return an array from the library `arraylib` initialized with the `numpy` `array`."""
-  return _DICT_ARRAYLIBS[arraylib](np.asarray(array)).array
+  return _DICT_ARRAYLIBS[arraylib](np.asarray(array)).array  # type: ignore[abstract]
 
 
 # Because np.ndarray supports strides, np.moveaxis() and np.permute() are constant-time.
@@ -864,25 +878,32 @@ class Gridtype:
   name: str
   """Gridtype name."""
 
+  @abc.abstractmethod
   def min_size(self) -> int:
     """Return the necessary minimum number of grid samples."""
 
+  @abc.abstractmethod
   def size_in_samples(self, size: int) -> int:
     """Return the size of the domain in units of inter-sample spacing."""
 
+  @abc.abstractmethod
   def point_from_index(self, index: _NDArray, size: int) -> _NDArray:
     """Return [0.0, 1.0] coordinates given [0, size - 1] indices."""
 
+  @abc.abstractmethod
   def index_from_point(self, point: _NDArray, size: int) -> _NDArray:
     """Return location x given coordinates [0.0, 1.0], where x == 0.0 is the first grid sample
     and x == size - 1.0 is the last grid sample."""
 
+  @abc.abstractmethod
   def reflect(self, index: _NDArray, size: int) -> _NDArray:
     """Map integer sample indices to interior ones using boundary reflection."""
 
+  @abc.abstractmethod
   def wrap(self, index: _NDArray, size: int) -> _NDArray:
     """Map integer sample indices to interior ones using wrapping."""
 
+  @abc.abstractmethod
   def reflect_clamp(self, index: _NDArray, size: int) -> _NDArray:
     """Map integer sample indices to interior ones using reflect-clamp."""
 
@@ -1002,8 +1023,9 @@ class RemapCoordinates:
   """Abstract base class for modifying the specified coordinates prior to evaluating the
   reconstruction kernels."""
 
+  @abc.abstractmethod
   def __call__(self, point: _NDArray) -> _NDArray:
-    pass
+    ...
 
 
 class NoRemapCoordinates(RemapCoordinates):
@@ -1039,6 +1061,7 @@ class ExtendSamples:
   """True if some exterior samples are defined in terms of `cval`, i.e., if the computed weight
   is non-affine."""
 
+  @abc.abstractmethod
   def __call__(self, index: _NDArray, weight: _NDArray, size: int,
                gridtype: Gridtype) -> tuple[_NDArray, _NDArray]:
     """Detect references to exterior samples, i.e., entries of `index` that lie outside the
@@ -1395,6 +1418,7 @@ class Filter:
   requires_digital_filter: bool = False
   """True if the filter needs a pre/post digital filter for interpolation."""
 
+  @abc.abstractmethod
   def __call__(self, x: _ArrayLike) -> _NDArray:
     """Return evaluation of filter kernel at locations x."""
 
@@ -1894,12 +1918,14 @@ class Gamma:
   name: str
   """Name of component transfer function."""
 
+  @abc.abstractmethod
   def decode(self, array: _Array, dtype: _DTypeLike = np.float32) -> _Array:
     """Decode source sample values into floating-point, possibly nonlinearly.
 
     Uint source values are mapped to the range [0.0, 1.0].
     """
 
+  @abc.abstractmethod
   def encode(self, array: _Array, dtype: _DTypeLike) -> _Array:
     """Encode float signal into destination samples, possibly nonlinearly.
 
@@ -2504,8 +2530,7 @@ def resize(  # pylint: disable=too-many-branches disable=too-many-statements
     if is_minification and filter2[dim].requires_digital_filter:  # use prefilter2[dim]?
       array_flat = _apply_digital_filter_1d(
           array_flat, dst_gridtype2[dim], boundary_dim, cval, filter2[dim])
-    array_dim = _arr_reshape(array_flat, (array_flat.shape[0],
-                                          *array_dim.shape[1:]))  # type: ignore[attr-defined]
+    array_dim = _arr_reshape(array_flat, (array_flat.shape[0], *array_dim.shape[1:]))
     array = _arr_moveaxis(array_dim, 0, dim)
 
   array = dst_gamma2.encode(array, dtype=dtype)
