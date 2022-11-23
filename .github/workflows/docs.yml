@@ -36,12 +36,6 @@ jobs:
         with:
           path: docs/
       
-      # - run: tar --directory docs/ -hcf artifact.tar .
-      # - uses: actions/upload-artifact@v3
-      #   with:
-      #     name: github-pages
-      #     path: ./artifact.tar
-  
   # Deploy the artifact to GitHub pages.
   # This is a separate job so that only actions/deploy-pages has the necessary permissions.
   deploy:

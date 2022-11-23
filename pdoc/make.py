@@ -5,6 +5,7 @@
 
 import pathlib
 import pdoc
+import re
 
 if 0:  # https://github.com/mitmproxy/pdoc/issues/420
   pdoc.doc_types.simplify_annotation.replacements['AAAAAA'] = 'B'
@@ -38,8 +39,17 @@ def main() -> None:
   pdoc.pdoc(
     *MODULES,
     output_directory=OUTPUT_DIRECTORY,
-    # format='html',
   )
+
+  if 1:
+    output_file = OUTPUT_DIRECTORY / 'resampler.html'
+    text = output_file.read_text()
+    # collections.abc.Iterable -> Iterable.
+    text = text.replace('<span class="n">collections</span><span class="o">'
+                        '.</span><span class="n">abc</span><span class="o">.</span>', '')
+    # resampler.Filter, resampler.Boundary, etc. -> Filter, Boundary, etc.
+    text = re.sub(r'resampler\.([A-Z][a-z]+)', r'\1', text)
+    output_file.write_text(text)
 
 
 def main2() -> None:
