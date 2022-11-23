@@ -38,7 +38,7 @@ def main() -> None:
   pdoc.pdoc(
     *MODULES,
     output_directory=OUTPUT_DIRECTORY,
-    format='html',
+    # format='html',
   )
 
 

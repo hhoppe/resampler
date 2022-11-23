@@ -5,7 +5,8 @@ name: website
 # build the documentation whenever there are new commits on main
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     # Alternative: only build for tags.
     # tags:
     #   - '*'
@@ -21,18 +22,25 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
 
       # ADJUST THIS: install all dependencies (including pdoc)
       # - run: pip install -e .
       - run: pip install -r resampler/requirements.txt
       - run: pip install pdoc
       # ADJUST THIS: build your documentation into docs/.
-      - run: python3 pdoc/make.py
-      - run: tar --directory docs/ -hcf artifact.tar .
-      - uses: actions/upload-artifact@v3
+      - run: python pdoc/make.py
+
+      - uses: actions/upload-pages-artifact@v1
         with:
-          name: github-pages
-          path: ./artifact.tar
+          path: docs/
+      
+      # - run: tar --directory docs/ -hcf artifact.tar .
+      # - uses: actions/upload-artifact@v3
+      #   with:
+      #     name: github-pages
+      #     path: ./artifact.tar
   
   # Deploy the artifact to GitHub pages.
   # This is a separate job so that only actions/deploy-pages has the necessary permissions.
