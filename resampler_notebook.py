@@ -2090,7 +2090,7 @@ def test_best_dimension_ordering_for_resize_timing(dtype=np.float32) -> None:
       array = resampler._make_array(np.ones(src_shape, dtype=dtype), arraylib)
       if not c_contiguous:
         array = resampler._arr_swapaxes(array, 0, 1)
-      args = (array, dst_shape)
+      args = array, dst_shape
       time_args = dict(max_time=0.5)
       t0 = hh.get_time(lambda: resampler._original_resize(*args, dim_order=[0, 1]), **time_args)
       t1 = hh.get_time(lambda: resampler._original_resize(*args, dim_order=[1, 0]), **time_args)
@@ -3554,7 +3554,7 @@ if EFFORT >= 2:
 
 # %%
 def experiment_gamma_downsample_image() -> None:
-  new_shape = (32, 256)
+  new_shape = 32, 256
   ramp = np.indices((64, 1024))[1] / 2047.0
   num_levels = 2
   dithered = floyd_steinberg_dither(ramp**2.0, num_levels) / (num_levels - 1)
@@ -4450,7 +4450,7 @@ def visualize_resampled_spiral_large() -> None:
   image = EXAMPLE_IMAGE
   image = crop_array(image, ((0, 0, 0), (0, 0, -1)), 255)  # Add alpha channel with value 255.
   shape = image.shape[:2]
-  shape = (1280, 1280)
+  shape = 1280, 1280
   yx = ((np.indices(shape).T + 0.5) / shape - 0.5).T  # [-0.5, 0.5]^2
   radius, angle = np.linalg.norm(yx, axis=0), np.arctan2(*yx)
   angle += (0.8 - radius).clip(0, 1) * 0.8 - 0.3
