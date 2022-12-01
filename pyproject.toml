@@ -1,0 +1,88 @@
+[project]
+name = "resampler"
+description = "Fast differentiable resizing and warping of arbitrary grids"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {file = "LICENSE"}
+authors = [{name = "Hugues Hoppe", email="hhoppe@gmail.com"}]
+classifiers = [
+    'Intended Audience :: Developers',
+    'Intended Audience :: Education',
+    'Intended Audience :: Science/Research',
+    'License :: OSI Approved :: MIT License',
+    'Operating System :: OS Independent',
+    'Programming Language :: Python :: 3',
+    'Topic :: Scientific/Engineering :: Image Processing',
+    'Topic :: Software Development :: Libraries :: Python Modules',
+]
+keywords = []
+
+# pip dependencies of the project
+dependencies = [
+    "numpy",
+    "scipy",
+]
+
+# This is set automatically by flit using `*.__version__`
+dynamic = ["version"]
+
+[project.urls]
+homepage = "https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb"
+repository = "https://github.com/hhoppe/resampler"
+documentation = "https://hhoppe.github.io/resampler/resampler.html"
+# Other: changelog
+
+[project.optional-dependencies]
+# Development deps (unittest, linting, formating,...)
+# Installed through `pip install .[dev]`
+dev = [
+    # "pytest",
+    # "pytest-xdist",
+    # "pylint>=2.6.0",
+]
+
+[build-system]
+requires = ["flit_core >=3.5,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.autopep8]
+indent_size = 2
+max_line_length = 80
+ignore = "E121,E125,E126,E129,E226,E302,E305,E501,W504,E741"
+exclude = "Other,resampler_other*,.ipynb_checkpoints"
+aggressive = 3
+recursive = true
+
+[tool.mypy]
+ignore_missing_imports = true
+strict = true
+exclude = "(^Other|^resampler_other)"
+warn_return_any = false  # numpy typing is buggy.
+# python_version = "3.7"
+
+[[tool.mypy.overrides]]
+module = "jax.*"
+follow_imports = "skip"
+
+[tool.pylint.main]
+disable = [
+    "unspecified-encoding", "fixme", "redefined-builtin", "cell-var-from-loop",
+    "using-constant-test", "simplifiable-condition", "import-outside-toplevel", "line-too-long",
+    "too-many-lines", "too-few-public-methods", "too-many-arguments", "too-many-locals",
+    "no-member",  # Some members unrecognized for 'torch', 'cv2'.
+]
+reports = false
+score = false
+recursive = true
+ignore-paths = ["Other", "resampler_other.*", ".ipynb_checkpoints"]
+# py-version = "3.7"
+
+[tool.pylint.basic]
+good-names-rgxs = "^[a-z][a-z0-9]?|[A-Z]([A-Z_]*[A-Z])?$"
+
+[tool.pylint.format]
+indent-string = "  "
+expected-line-ending-format = "LF"
+
+[tool.pytest.ini_options]
+addopts = "--doctest-modules --ignore Old --ignore Other --ignore resampler_other.py --ignore resampler_other_big.py"
