@@ -4,8 +4,9 @@
 # Note: Invoke this script from the parent directory as "pdoc/make.py" !
 
 import pathlib
-import pdoc
 import re
+
+import pdoc
 
 if 0:  # https://github.com/mitmproxy/pdoc/issues/420
   pdoc.doc_types.simplify_annotation.replacements['AAAAAA'] = 'B'
