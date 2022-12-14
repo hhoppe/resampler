@@ -48,7 +48,7 @@ It supports:
 - efficient backpropagation of **gradients**
   for `tensorflow`, `torch`, and `jax`;
 
-- few dependencies (only `scipy`) and **no native code**, yet
+- few dependencies (only `numpy` and `scipy`) and **no C extension code**, yet
 
 - **faster resizing** than C++ implementations
   in `tf.image` and `torch.nn`.
