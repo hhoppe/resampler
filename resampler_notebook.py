@@ -53,7 +53,7 @@
 # - efficient backpropagation of [**gradients**](#Gradient-backpropagation)
 #   for `tensorflow`, `torch`, and `jax`;
 #
-# - few dependencies (only `scipy`) and **no native code**, yet
+# - few dependencies (only `numpy` and `scipy`) and **no C extension code**, yet
 #
 # - [**faster resizing**](#Test-other-libraries) than C++ implementations
 #   in `tf.image` and `torch.nn`.
@@ -322,7 +322,7 @@ import math
 import os
 import pathlib
 import typing
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 import warnings
 
 import hhoppe_tools as hh  # https://github.com/hhoppe/hhoppe-tools/blob/main/hhoppe_tools/__init__.py
@@ -353,7 +353,7 @@ def running_in_notebook() -> bool:
 
 
 # %%
-EFFORT = 1
+EFFORT: Literal[0, 1, 2, 3] = 1
 """Controls the breadth and precision of the notebook experiments; 0 <= value <= 3."""
 if not running_in_notebook():
   EFFORT = 0  # Otherwise, invocations of doctest or pytest would recurse infinitely.
@@ -398,7 +398,7 @@ def _check_eq(a: Any, b: Any) -> None:
 # %%
 def experiment_preload_arraylibs_for_accurate_timings() -> None:
   for arraylib in resampler.ARRAYLIBS:
-    resampler._make_array(np.ones(1), arraylib=arraylib)
+    resampler._make_array(np.ones(1), arraylib)
 
 if EFFORT >= 1:
   experiment_preload_arraylibs_for_accurate_timings()
@@ -1051,13 +1051,13 @@ test_profile_downsample_in_2d_using_box_filter()
 # %%
 def test_block_shape_with_min_size(debug=False, **kwargs) -> None:
   shape = 2, 3, 4
-  for min_size in range(1, np.prod(shape) + 1):
+  for min_size in range(1, math.prod(shape) + 1):
     block_shape = resampler._block_shape_with_min_size(shape, min_size, **kwargs)
     if debug:
       print(min_size, block_shape)
     assert np.all(np.array(block_shape) >= 1)
     assert np.all(block_shape <= shape)
-    assert min_size <= np.prod(block_shape) <= np.prod(shape)
+    assert min_size <= math.prod(block_shape) <= math.prod(shape)
 
 test_block_shape_with_min_size(compact=True)
 test_block_shape_with_min_size(compact=False)
@@ -1086,7 +1086,7 @@ def test_split_3d() -> None:
 
   for arraylib in resampler.ARRAYLIBS:
     array = resampler._make_array(numpy_array, arraylib)
-    for min_size in range(1, np.prod(shape) + 1):
+    for min_size in range(1, math.prod(shape) + 1):
       block_shape = resampler._block_shape_with_min_size(shape, min_size)
       blocks = resampler._split_array_into_blocks(array, block_shape)
       blocks = resampler._map_function_over_blocks(blocks, lambda x: x**2)
@@ -1107,9 +1107,9 @@ if EFFORT >= 1:
 # %%
 def test_split_prefix_dims() -> None:
   shape = 2, 3, 2
-  array = np.arange(np.prod(shape)).reshape(shape)
+  array = np.arange(math.prod(shape)).reshape(shape)
 
-  for min_size in range(1, np.prod(shape[:2]) + 1):
+  for min_size in range(1, math.prod(shape[:2]) + 1):
     block_shape = resampler._block_shape_with_min_size(shape[:2], min_size)
     blocks = resampler._split_array_into_blocks(array, block_shape)
 
@@ -1395,7 +1395,7 @@ def test_order_of_dimensions_does_not_affect_resize_results(step=3) -> None:
   filters = 'impulse box trapezoid lanczos3'.split()
   sequences: list[Sequence[Any]] = [shapes, shapes, gridtypes, gridtypes, boundaries, filters]
   assert step == 1 or all(len(sequence) % step != 0 for sequence in sequences)
-  configs = itertools.product(*sequences)  # len(configs) = np.prod([4, 4, 2, 2, 5, 4]) = 1280.
+  configs = itertools.product(*sequences)  # len(configs) = math.prod([4, 4, 2, 2, 5, 4]) = 1280.
   for config in itertools.islice(configs, 0, None, step):
     src_shape, dst_shape, src_gridtype, dst_gridtype, boundary, filter = config
     if ((src_gridtype == 'primal' and min(src_shape) < 2) or
@@ -1418,7 +1418,7 @@ if EFFORT >= 1:
 
 # %%
 def test_apply_digital_filter_1d(cval=-10.0, shape=(7, 8)) -> None:
-  original = np.arange(np.prod(shape), dtype=np.float32).reshape(shape) + 10
+  original = np.arange(math.prod(shape), dtype=np.float32).reshape(shape) + 10
   array1 = original.copy()
   filters = 'cardinal3 cardinal5'.split()
   for config in itertools.product(resampler.GRIDTYPES, resampler.BOUNDARIES, filters):
@@ -1459,7 +1459,7 @@ if EFFORT >= 1:
 def test_resample_small_array(arraylib: str) -> None:
   shape = 2, 3
   new_shape = 3, 4
-  array = np.arange(np.prod(shape) * 3, dtype=np.float32).reshape(shape + (3,))
+  array = np.arange(math.prod(shape) * 3, dtype=np.float32).reshape(shape + (3,))
   coords = np.moveaxis(np.indices(new_shape) + 0.5, 0, -1) / new_shape
   array = resampler._make_array(array, arraylib)
   upsampled = resampler.resample(array, coords)
@@ -1577,7 +1577,7 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
   filters = 'box bspline3 impulse lanczos3 narrowbox triangle cardinal3 omoms5'.split()
   gammas = 'identity power2'.split()
   sequences = [arraylibs, dtypes, resampler.GRIDTYPES, boundaries, filters, gammas]
-  configs = itertools.product(*sequences)  # len(configs) = np.prod([4, 7, 5, 8, 2]) = 2240.
+  configs = itertools.product(*sequences)  # len(configs) = math.prod([4, 7, 5, 8, 2]) = 2240.
   step = 1 if EFFORT >= 2 else 73
   assert step == 1 or all(len(sequence) % step != 0 for sequence in sequences)
   for config in itertools.islice(configs, 0, None, step):
@@ -1664,7 +1664,7 @@ def test_resize_using_resample(shape=(3, 2, 5), new_shape=(4, 2, 7), step=37) ->
   gammas = 'identity power2'.split()  # Sublist of resampler.GAMMAS.
   sequences = [resampler.GRIDTYPES, resampler.BOUNDARIES, resampler.FILTERS, gammas]
   assert step == 1 or all(len(sequence) % step != 0 for sequence in sequences)
-  configs = itertools.product(*sequences)  # len(configs) = np.prod([2, 12, 19, 2]) = 912.
+  configs = itertools.product(*sequences)  # len(configs) = math.prod([2, 12, 19, 2]) = 912.
   for config in itertools.islice(configs, 0, None, step):
     gridtype, boundary, filter, gamma = config
     kwargs = dict(gridtype=gridtype, boundary=boundary, filter=filter,
@@ -1933,7 +1933,7 @@ def test_tf_image_resize() -> None:
     # atol=4e-6 works most of the time, but fails intermittently, likely due to parallelism.
     assert np.allclose(tfi_result, reference, rtol=0, atol=1e-5), config
     rms = np.sqrt(np.mean(np.square(tfi_result - reference)))
-    # print(f'{filter:10} antialias={antialias:1}  rms={rms:.2e}')
+    # print(f'{filter:10} {antialias=:1}  {rms=:.2e}')
     assert rms < 1e-6, (config, rms)
 
 if EFFORT >= 1:
@@ -2339,6 +2339,22 @@ if EFFORT >= 2:
 
 # %% [markdown]
 # # Applications and experiments
+
+# %% [markdown]
+# ## Uniform image scaling
+
+# %%
+def experiment_image_uniform_scaling() -> None:
+  source_images = [EXAMPLE_IMAGE[30:-30], EXAMPLE_IMAGE[:, 20:-20]]
+  for image in source_images:
+    images = {f'{image.shape[:2]}': image}
+    for shape in [(250, 250), (250, 100), (100, 250), (100, 40), (30, 80)]:
+      # normal_resized = resampler.resize(image, shape)
+      images[f'uniform {shape}'] = resampler.uniform_resize(image, shape, cval=0.8)
+    media.show_images(images)
+
+experiment_image_uniform_scaling()
+
 
 # %% [markdown]
 # ## <a name="Image-rotation"></a>Image rotation
@@ -2907,7 +2923,7 @@ def experiment_find_the_best_max_block_size(src_size=64, dst_size=4096) -> None:
             max_block_size=max_block_size)
 
       elapsed = hh.get_time(rotate_image)
-      print(f'# max_block_size={max_block_size:10_} {elapsed:.3f} s')
+      print(f'# {max_block_size=:10_} {elapsed:.3f} s')
 
 if EFFORT >= 2:
   experiment_find_the_best_max_block_size()
@@ -2969,10 +2985,8 @@ if EFFORT >= 2:
 # TODO: more..
 
 # %%
-# pylint: disable-next=too-many-statements
 def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
 
-  # pylint: disable-next=too-many-statements
   def analyze_filter(name: str, filter: resampler.Filter, ax: Any = None) -> None:
     footnote = '*' if filter.requires_digital_filter else ''
     if isinstance(filter, resampler.TrapezoidFilter) and filter.radius == 0.0:
@@ -3035,9 +3049,9 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
     ax.set_ylim(-0.25, 1.08)
     ax.yaxis.set_ticks([0.0, 1.0])
     ax.xaxis.set_ticks(np.arange(-6, 7, 2))
-    info = [f'radius={radius:.2f}{footnote}',
-            f'interp_err={interp_err:.4f}',
-            f'integral={integral:.5f}']
+    info = [f'{radius=:.2f}{footnote}',
+            f'{interp_err=:.4f}',
+            f'{integral=:.5f}']
     for i, line in enumerate(info):
       ax.text(0.9, 0.85 - 0.17 * i, line, fontsize=10.5)
     ax.set_title(name)
@@ -3075,7 +3089,7 @@ if EFFORT >= 1:
 # %%
 def visualize_trapezoid_filters() -> None:
   """This shows how the trapezoid filter morphs between the box and triangle filters."""
-  filters = {f'TrapezoidFilter(radius={radius})': resampler.TrapezoidFilter(radius=radius)
+  filters = {f'TrapezoidFilter({radius=})': resampler.TrapezoidFilter(radius=radius)
              for radius in [0.6, 0.7, 0.9]}
   visualize_filters(filters)
 
@@ -3084,7 +3098,7 @@ visualize_trapezoid_filters()
 
 # %%
 def visualize_cardinal_bsplines() -> None:
-  filters = {f'CardinalBsplineFilter(degree={degree})':
+  filters = {f'CardinalBsplineFilter({degree=})':
              resampler.CardinalBsplineFilter(degree=degree)
              for degree in range(6)}
   visualize_filters(filters)
@@ -3094,7 +3108,7 @@ visualize_cardinal_bsplines()
 
 # %%
 def visualize_kaiser_filter_for_various_beta_values(radius=3.0) -> None:
-  filters = {f'KaiserFilter(radius={radius}, beta={beta})':
+  filters = {f'KaiserFilter({radius=}, {beta=})':
              resampler.KaiserFilter(radius=radius, beta=beta)
              for beta in [1.0, 2.0, 4.0, 7.0, 10.0, 20.0]}
   visualize_filters(filters)
@@ -3120,7 +3134,7 @@ def experiment_kaiser_filter_beta_parameters(n: int = 12, s: float = 2.0) -> Non
     beta = (0.1102 * (A - 8.7) if A > 50 else
             0.5842 * (A - 21)**0.4 + 0.07886 * (A - 21) if 21 <= A <= 50 else
             0.0)
-    print(f'f_h={f_h}, delta_f={delta_f}, A={A}, beta={beta}')
+    print(f'{f_h=}, {delta_f=}, {A=}, {beta=}')
 
 experiment_kaiser_filter_beta_parameters()
 
@@ -3138,7 +3152,7 @@ def test_kaiser_filter_fractional_radius(radius=3, s=2.0, n=12, debug=False) -> 
   f3 = resampler.KaiserFilter(radius=L/2, beta=beta)(x)  # L/2 == 2.75
   if debug:
     print(np.i0([0.0, 4.0]))
-    print(f'i={i}, x={x}, L={L}, window={window}, f1={f1}, f2={f2}, f3={f3}')
+    print(f'{i=}, {x=}, {L=}, {window=}, {f1=}, {f2=}, {f3=}')
   assert np.allclose(f1, f3)
 
 test_kaiser_filter_fractional_radius()
@@ -3195,7 +3209,7 @@ def compare_boundary_rules_on_cropped_windows_of_images(
         all_mse[boundary].append(mse)
 
   mean_mse_boundary = sorted([(np.mean(mse), boundary) for boundary, mse in all_mse.items()])
-  print(f'# Best rule for scale={scale:.3f} name={name} (PSNR):')
+  print(f'# Best rule for {scale=:.3f} {name=!s} (PSNR):')
   for mean_mse, boundary in mean_mse_boundary:
     psnr = 10 * np.log10(1.0 / (mean_mse + 1e-20))
     print(f'# {boundary:15} {psnr:5.2f} dB')
@@ -3209,7 +3223,7 @@ def experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(
       'vector1': media.to_float01(example_vector_graphics_image()),  # (3300, 2550)
   }
   for filter in filters:
-    print(f'# Results for num_windows={num_windows} filter={filter}:\n')
+    print(f'# Results for {num_windows=} {filter=!s}:\n')
     for scale in scales:
       kwargs = dict(scale=scale, filter=filter, num_windows=num_windows)
       if combined:
@@ -3630,7 +3644,7 @@ def experiment_visualize_gamma_upsample_image(**kwargs) -> None:
     images = {'original': image, "gamma='identity'": identity, "gamma='power2'": power2}
     images = {name: image[:image.shape[0] * 5 // 9] for name, image in images.items()}
     media.show_images(images, vmin=0, vmax=1, border=True, width=new_shape[1],
-                      ylabel=f'supersample={supersample}<br/>source_pow={source_pow}')
+                      ylabel=f'{supersample=}<br/>{source_pow=}')
 
   try_gamma_upsample(**kwargs)
   try_gamma_upsample(**kwargs, source_pow=0.5)
@@ -3660,7 +3674,7 @@ def experiment_visualize_gamma_upsample_video(shape=(24, 48), source_pow=1) -> N
 
   videos = {'original': original, 'identity': identity, 'power2': power2}
   media.show_videos(videos, border=True, fps=10, height=shape[0]*8,
-                    ylabel=f'source_pow={source_pow}', codec='gif')
+                    ylabel=f'{source_pow=}', codec='gif')
 
 if EFFORT >= 2:
   experiment_visualize_gamma_upsample_video()
@@ -3733,7 +3747,7 @@ def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=21) -> No
   for degree in [0, 5, 45, 90]:
     reference, reconstructed = generate_image_pair(degree)
     psnr = get_psnr(reconstructed, reference)
-    images[f'degree={degree}  psnr={psnr:.2f}'] = reconstructed
+    images[f'{degree=}  {psnr=:.2f}'] = reconstructed
   media.show_images(images, vmin=0, vmax=1, border=True, height=reconstructed.shape[0])
 
   degrees = np.linspace(0.0, 90.0, num_rotations)
@@ -3878,7 +3892,7 @@ def _torch_symmetric_pad(array: _ArrayLike, padding: Iterable[int]) -> _TorchTen
 
 
 # %%
-def experiment_with_convolution() -> None:  # pylint: disable=too-many-statements
+def experiment_with_convolution() -> None:
   # https://laurentperrinet.github.io/sciblog/posts/2017-09-20-the-fastest-2d-convolution-in-the-world.html
 
   def scipy_convolve(array, filter, reflect=False) -> _NDArray:
@@ -4012,7 +4026,7 @@ def experiment_with_convolution() -> None:  # pylint: disable=too-many-statement
 
   if 1:
     shape = 500, 500, 3
-    print(f'For shape = {shape}:')
+    print(f'For {shape = }:')
     array = np.zeros(shape, dtype=np.float32)
     for name, function in functions.items():
       elapsed = hh.get_time(function, max_time=0.2)
@@ -4056,7 +4070,6 @@ if EFFORT >= 1:
 # ## Generalized sampling
 
 # %%
-# pylint: disable-next=too-many-branches disable-next=too-many-statements
 def test_banded(debug=False) -> None:
   # [On band circulant matrices in the periodic spline interpolation theory]:
   # https://www.sciencedirect.com/science/article/pii/0024379585901533
@@ -4208,7 +4221,7 @@ if 1:
 
 
 # %%
-def test_inverse_convolution_2d(  # pylint: disable=too-many-statements
+def test_inverse_convolution_2d(
     gridscale=2.0, degree=3, gridtype='dual', boundary='reflect', dtype=np.float32) -> None:
   filter = resampler.BsplineFilter(degree=degree)
   l = math.ceil(filter.radius) - 1
@@ -4965,15 +4978,10 @@ if EFFORT >= 1:
 # %%
 def run_lint() -> None:
   """Run checks on *.py notebook code (saved using jupytext or from menu)."""
-  if not pathlib.Path('resampler_notebook.py').is_file():
-    return
-  mypy_grep = ('grep -Ev " errors? in . file'
-               '|Any from function declared to return .(ndarray|Tensor)"')
-  hh.run('echo flake8; flake8')
-  hh.run(f'echo mypy; mypy . | {mypy_grep} || true')
-  hh.run('echo autopep8; autopep8 -j8 -d .')
-  hh.run('echo pylint; pylint -j8 . || true')
-  print('All ran.')
+  if pathlib.Path('resampler_notebook.py').is_file():
+    hh.run('echo autopep8; autopep8 -j8 -d .')
+    hh.run('echo mypy; mypy . || true')
+    hh.run('echo pylint; pylint -j8 . || true')
 
 if EFFORT >= 1:
   run_lint()
@@ -5050,7 +5058,7 @@ def show_added_global_variables_sorted_by_type() -> None:
 show_added_global_variables_sorted_by_type()
 
 # %%
-print(f'# EFFORT={EFFORT}')
+print(f'# {EFFORT=}')
 hh.show_notebook_cell_top_times()
 # EFFORT=1:
 # Local: ~48 s.

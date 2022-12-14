@@ -2,7 +2,7 @@
 name = "resampler"
 description = "Fast differentiable resizing and warping of arbitrary grids"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 license = {file = "LICENSE"}
 authors = [{name = "Hugues Hoppe", email="hhoppe@gmail.com"}]
 classifiers = [
@@ -58,7 +58,6 @@ ignore_missing_imports = true
 strict = true
 exclude = "(^Other|^resampler_other)"
 warn_return_any = false  # numpy typing is buggy.
-# python_version = "3.7"
 
 [[tool.mypy.overrides]]
 module = "jax.*"
@@ -69,13 +68,13 @@ disable = [
     "unspecified-encoding", "fixme", "redefined-builtin", "cell-var-from-loop",
     "using-constant-test", "simplifiable-condition", "import-outside-toplevel", "line-too-long",
     "too-many-lines", "too-few-public-methods", "too-many-arguments", "too-many-locals",
+    "too-many-statements", "too-many-branches", "too-many-nested-blocks",
     "no-member",  # Some members unrecognized for 'torch', 'cv2'.
 ]
 reports = false
 score = false
 recursive = true
 ignore-paths = ["Other", "resampler_other.*", ".ipynb_checkpoints"]
-# py-version = "3.7"
 
 [tool.pylint.basic]
 good-names-rgxs = "^[a-z][a-z0-9]?|[A-Z]([A-Z_]*[A-Z])?$"
@@ -85,4 +84,4 @@ indent-string = "  "
 expected-line-ending-format = "LF"
 
 [tool.pytest.ini_options]
-addopts = "--doctest-modules --ignore Old --ignore Other --ignore resampler_other.py --ignore resampler_other_big.py"
+addopts = "--ignore-glob '*.#*' --doctest-modules --ignore Old --ignore Other --ignore resampler_other.py --ignore resampler_other_big.py"
