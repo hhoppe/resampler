@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.6.0'
+__version__ = '0.6.1'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -66,7 +66,7 @@ def _check_eq(a: Any, b: Any, /) -> None:
 
 def _real_precision(dtype: _DTypeLike, /) -> _DType:
   """Return the type of the real part of a complex number."""
-  return np.array([], dtype=dtype).real.dtype
+  return np.array([], dtype).real.dtype
 
 
 def _complex_precision(dtype: _DTypeLike, /) -> _DType:
@@ -94,7 +94,7 @@ def _sinc(x: _ArrayLike, /) -> _NDArray:
   (1) ignore underflow that occurs at 0.0 for np.float32, and
   (2) output exact zero for integer input values.
 
-  >>> _sinc(np.array([-3, -2, -1, 0], dtype=np.float32))
+  >>> _sinc(np.array([-3, -2, -1, 0], np.float32))
   array([0., 0., 0., 1.], dtype=float32)
 
   >>> _sinc(np.array([-3, -2, -1, 0]))
@@ -1158,7 +1158,7 @@ class LinearExtendSamples(ExtendSamples):
     # duplicate index entries.
     low = index < 0
     high = index >= size
-    w = np.empty((*weight.shape[:-1], weight.shape[-1] + 4), dtype=weight.dtype)
+    w = np.empty((*weight.shape[:-1], weight.shape[-1] + 4), weight.dtype)
     x = index
     w[..., -4] = ((1 - x) * weight).sum(where=low, axis=-1)
     w[..., -3] = ((x) * weight).sum(where=low, axis=-1)
@@ -1171,7 +1171,7 @@ class LinearExtendSamples(ExtendSamples):
     index[high] = size - 1
     w[..., :-4] = weight
     weight = w
-    new_index = np.empty(w.shape, dtype=index.dtype)
+    new_index = np.empty(w.shape, index.dtype)
     new_index[..., :-4] = index
     # Let matrix (including zero values) be banded.
     new_index[..., -4:] = np.where(w[..., -4:] != 0.0, [0, 1, size - 2, size - 1], index[..., :1])
@@ -1191,7 +1191,7 @@ class QuadraticExtendSamples(ExtendSamples):
       return index, weight
     low = index < 0
     high = index >= size
-    w = np.empty((*weight.shape[:-1], weight.shape[-1] + 6), dtype=weight.dtype)
+    w = np.empty((*weight.shape[:-1], weight.shape[-1] + 6), weight.dtype)
     x = index
     w[..., -6] = (((0.5 * x - 1.5) * x + 1) * weight).sum(where=low, axis=-1)
     w[..., -5] = (((-x + 2) * x) * weight).sum(where=low, axis=-1)
@@ -1206,7 +1206,7 @@ class QuadraticExtendSamples(ExtendSamples):
     index[high] = size - 1
     w[..., :-6] = weight
     weight = w
-    new_index = np.empty(w.shape, dtype=index.dtype)
+    new_index = np.empty(w.shape, index.dtype)
     new_index[..., :-6] = index
     # Let matrix (including zero values) be banded.
     new_index[..., -6:] = np.where(
@@ -1890,7 +1890,7 @@ def _to_float_01(array: _Array, /, dtype: _DTypeLike) -> _Array:
       return np.multiply(array, 1 / np.iinfo(array_dtype).max, dtype=dtype)
     return _arr_astype(array, dtype) / np.iinfo(array_dtype).max
   assert np.issubdtype(array_dtype, np.floating)
-  return _arr_clip(array, 0.0, 1.0, dtype=dtype)
+  return _arr_clip(array, 0.0, 1.0, dtype)
 
 
 def _from_float(array: _Array, /, dtype: _DTypeLike) -> _Array:
@@ -2129,7 +2129,7 @@ def _create_resize_matrix(
 
   def get_weight_matrix() -> _NDArray:
     if filter.name == 'impulse':
-      return np.ones(src_index.shape, dtype=dtype)
+      return np.ones(src_index.shape, dtype)
     if is_minification:
       x = (src_float_index[:, None] - src_index.astype(dtype)) * scaling
       return filter(x) * scaling
@@ -2153,7 +2153,7 @@ def _create_resize_matrix(
     linearized, values = linearized[nonzero], values[nonzero]
     # Sort and merge the duplicate indices.
     unique, unique_inverse = np.unique(linearized, return_inverse=True)
-    data2 = np.ones(len(linearized), dtype=np.float32)
+    data2 = np.ones(len(linearized), np.float32)
     row_ind2 = unique_inverse
     col_ind2 = np.arange(len(linearized))
     shape2 = len(unique), len(linearized)
@@ -2479,7 +2479,7 @@ def resize(
   if can_use_fast_box_downsampling:
     assert isinstance(array, np.ndarray)  # Help mypy.
     array = _downsample_in_2d_using_box_filter(array, typing.cast(Any, shape))
-    array = dst_gamma2.encode(array, dtype=dtype)
+    array = dst_gamma2.encode(array, dtype)
     return array
 
   # Multidimensional resize can be expressed using einsum() with multiple per-dim resize matrices,
@@ -2534,7 +2534,7 @@ def resize(
     array_dim = _arr_reshape(array_flat, (array_flat.shape[0], *array_dim.shape[1:]))
     array = _arr_moveaxis(array_dim, 0, dim)
 
-  array = dst_gamma2.encode(array, dtype=dtype)
+  array = dst_gamma2.encode(array, dtype)
   return array
 
 
@@ -2871,7 +2871,7 @@ def resample(
       # (It might require changing the filter radius at every sample.)
       raise ValueError('resample() cannot use adaptive `trapezoid` filter.')
     if filter2[dim].name == 'impulse':
-      weight[dim] = np.ones_like(src_index[dim], dtype=weight_precision)
+      weight[dim] = np.ones_like(src_index[dim], weight_precision)
     else:
       x = src_float_index[..., None] - src_index[dim].astype(weight_precision)
       weight[dim] = filter2[dim](x).astype(weight_precision, copy=False)
@@ -2926,7 +2926,7 @@ def resample(
     cval_weight_reshaped = cval_weight.reshape(cval_weight.shape + (1,) * len(sample_shape))
     array += _make_array((cval_weight_reshaped * cval).astype(precision, copy=False), arraylib)
 
-  array = dst_gamma2.encode(array, dtype=dtype)
+  array = dst_gamma2.encode(array, dtype)
   return array
 
 
@@ -3151,11 +3151,11 @@ def pil_image_resize(array: _ArrayLike, /, shape: Iterable[int], *, filter: str)
       'lanczos3': PIL.Image.Resampling.LANCZOS,
   }[filter]
   if array.ndim == 2:
-    return np.array(PIL.Image.fromarray(array).resize(
-        shape[::-1], resample=pil_resample), dtype=array.dtype)
+    return np.array(PIL.Image.fromarray(array).resize(shape[::-1], resample=pil_resample),
+                    array.dtype)
   return np.dstack(
-      [np.array(PIL.Image.fromarray(channel).resize(
-          shape[::-1], resample=pil_resample), dtype=array.dtype)
+      [np.array(PIL.Image.fromarray(channel).resize(shape[::-1], resample=pil_resample),
+                array.dtype)
        for channel in np.moveaxis(array, -1, 0)])
 
 

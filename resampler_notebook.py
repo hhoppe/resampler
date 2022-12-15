@@ -993,7 +993,7 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
 
   shape = 2, 8_000
   rng = np.random.default_rng(0)
-  array = rng.random(shape, dtype=np.float32) * 2 * radius - radius
+  array = rng.random(shape, np.float32) * 2 * radius - radius
   result = {'expected': func(array), 'scipy': scipy_interp(array), 'obtained': func2(array)}
 
   assert all(a.dtype == np.float32 for a in result.values())
@@ -1024,12 +1024,12 @@ def test_downsample_in_2d_using_box_filter() -> None:
     return
   for shape in [(6, 6), (4, 4)]:
     for ch in [1, 2, 3, 4]:
-      array = np.ones((*shape, ch), dtype=np.float32)
+      array = np.ones((*shape, ch), np.float32)
       new = resampler._downsample_in_2d_using_box_filter(array, (2, 2))
       _check_eq(new.shape, (2, 2, ch))
       assert np.allclose(new, 1.0)
   for shape in [(6, 6), (4, 4)]:
-    array = np.ones(shape, dtype=np.float32)
+    array = np.ones(shape, np.float32)
     new = resampler._downsample_in_2d_using_box_filter(array, (2, 2))
     _check_eq(new.shape, (2, 2))
     assert np.allclose(new, 1.0)
@@ -1171,13 +1171,13 @@ def test_gamma() -> None:
     int_max = np.iinfo(dtype).max
     precision = 'float32' if np.iinfo(dtype).bits < 32 else 'float64'
     values = list(range(256)) + list(range(int_max - 255, int_max)) + [int_max]
-    array_numpy = np.array(values, dtype=dtype)
+    array_numpy = np.array(values, dtype)
     array = resampler._make_array(array_numpy, arraylib)
     decoded = gamma.decode(array, np.dtype(precision))
     _check_eq(resampler._arr_dtype(decoded), precision)
     decoded_numpy = resampler._arr_numpy(decoded)
     assert decoded_numpy.min() >= 0.0 and decoded_numpy.max() <= 1.0
-    encoded = gamma.encode(decoded, dtype=dtype)
+    encoded = gamma.encode(decoded, dtype)
     _check_eq(resampler._arr_dtype(encoded), dtype)
     encoded_numpy = resampler._arr_numpy(encoded)
     _check_eq(encoded_numpy, array_numpy)
@@ -1191,7 +1191,7 @@ def test_gamma() -> None:
     array = resampler._make_array(array_numpy, arraylib)
     decoded = gamma.decode(array, np.dtype(precision))
     _check_eq(resampler._arr_dtype(decoded), precision)
-    encoded = gamma.encode(decoded, dtype=dtype)
+    encoded = gamma.encode(decoded, dtype)
     _check_eq(resampler._arr_dtype(encoded), dtype)
     assert np.allclose(resampler._arr_numpy(encoded), array_numpy)
 
@@ -1334,7 +1334,7 @@ def test_apply_digital_filter_1d_quick() -> None:
       assert np.allclose(result, reference)
 
     shape = 5, 7
-    array2_np = np.random.default_rng(0).random(shape, dtype=np.float64)
+    array2_np = np.random.default_rng(0).random(shape, np.float64)
     array2 = torch.tensor(array2_np, requires_grad=True)
     assert torch.autograd.gradcheck(  # type: ignore[attr-defined]
         inverse_convolution, [array2], rtol=0, atol=1e-6), boundary
@@ -1358,10 +1358,10 @@ test_linear_precision_of_1d_primal_upsampling()
 def test_linear_precision_of_2d_primal_upsampling() -> None:
   shape = 3, 5
   new_shape = 5, 9
-  array = np.moveaxis(np.indices(shape, dtype=np.float32), 0, -1) @ [10, 1]
+  array = np.moveaxis(np.indices(shape, np.float32), 0, -1) @ [10, 1]
   new = resampler.resize(array, new_shape, gridtype='primal', filter='triangle')
   with np.printoptions(linewidth=300):
-    expected = np.moveaxis(np.indices(new_shape, dtype=np.float32), 0, -1) @ [10, 1] / 2
+    expected = np.moveaxis(np.indices(new_shape, np.float32), 0, -1) @ [10, 1] / 2
     _check_eq(new, expected)
 
 test_linear_precision_of_2d_primal_upsampling()
@@ -1641,7 +1641,7 @@ def test_resample_using_coords_of_various_shapes(debug=False) -> None:
       [[0, 1], [10, 16]],
       [[0], [1], [6], [6]],
   ]:
-    array = np.array(array, dtype=np.float64)
+    array = np.array(array, np.float64)
     for shape in [(), (1,), (2,), (1, 1), (1, 2), (3, 1), (2, 2)]:
       coords = np.full(shape, 0.4)
       try:
@@ -1739,7 +1739,7 @@ def test_pil_image_resize() -> None:
   for config in itertools.product(at_boundaries, gridscales, filters):
     at_boundary, gridscale, filter = config
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
-    original = np.array(row, dtype=np.float32)
+    original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
     result = resampler.pil_image_resize(original, shape, filter=filter)
     reference = resampler.resize(original, shape, filter=filter, boundary='natural')
@@ -1751,7 +1751,7 @@ test_pil_image_resize()
 
 # %%
 def test_undocumented_lanczos_in_pil_image() -> None:
-  array = np.array([0, 0, 0, 1, 0, 0, 0], dtype=np.float32)
+  array = np.array([0, 0, 0, 1, 0, 0, 0], np.float32)
   new_len = len(array) * 2
   new_array = resampler.pil_image_resize(array, (new_len,), filter='lanczos3')
   lanczos = resampler.resize(array, (new_len,), filter=resampler.LanczosFilter(radius=3),
@@ -1790,7 +1790,7 @@ def test_cv_resize() -> None:
     if gridscale < 1.0 and filter != 'trapezoid':
       continue  # Downsampling is not behaving well except with AREA filter.
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
-    original = np.array(row, dtype=np.float32)
+    original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
     result = resampler.cv_resize(original, shape, filter=filter)
     filter2: str | resampler.Filter = (
@@ -1809,7 +1809,7 @@ def test_sharper_cubic_filter_in_opencv() -> None:
   """Confirm that the OpenCV "cubic" is in fact the 'sharpcubic' filter."""
   # https://github.com/opencv/opencv/blob/master/modules/imgproc/src/resize.cpp#L908
   # const float A = -0.75f;
-  array = np.array([0, 0, 0, 0, 1, 0, 0, 0], dtype=np.float32)
+  array = np.array([0, 0, 0, 0, 1, 0, 0, 0], np.float32)
   new_len = len(array) * 2
   reference = resampler.resize(array, (new_len,), filter='sharpcubic')
   new_array = resampler.cv_resize(array, (new_len,), filter='sharpcubic')
@@ -1856,7 +1856,7 @@ def test_scipy_ndimage_resize() -> None:
     if boundary in ['border'] and filter in ['box', 'triangle']:
       continue  # It produces seemingly incorrect results.
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
-    original = np.array(row, dtype=np.float32)
+    original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
     result = resampler.scipy_ndimage_resize(original, shape, filter=filter, boundary=boundary)
     reference = resampler.resize(original, shape, filter=filter, boundary=boundary)
@@ -1891,7 +1891,7 @@ def test_skimage_transform_resize() -> None:
     if boundary in ['clamp', 'border'] and filter in ['cardinal3', 'cardinal5']:
       continue  # The inverse-convolution prefilter is not well-defined in these cases.
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
-    original = np.array(row, dtype=np.float32)
+    original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
     result = resampler.skimage_transform_resize(original, shape, filter=filter, boundary=boundary)
     reference = resampler.resize(original, shape, filter=filter, boundary=boundary)
@@ -1961,7 +1961,7 @@ def test_torch_nn_resize() -> None:
   for config in itertools.product(at_boundaries, gridscales, filters):
     at_boundary, gridscale, filter = config
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
-    original = np.array(row, dtype=np.float32)
+    original = np.array(row, np.float32)
     if gridscale not in (2.0, 1.0, 0.5):
       continue  # torch.nn code misbehaves for fractional gridscales.
     if filter == 'impulse' and gridscale < 1.0:
@@ -1988,7 +1988,7 @@ def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7
       'interpolate trapezoid/area': lambda array: torch.nn.functional.interpolate(
           array[None][None], dst_shape, mode='area', align_corners=None, antialias=False),
   }
-  array_np = np.random.default_rng(0).random(src_shape, dtype=np.float64)
+  array_np = np.random.default_rng(0).random(src_shape, np.float64)
   array = torch.tensor(array_np, requires_grad=True)
   for name, function in functions.items():
     assert torch.autograd.gradcheck(  # type: ignore[attr-defined]
@@ -2031,7 +2031,7 @@ def test_jax_image_resize() -> None:
       # It seems that they are normalizing weights before setting zero weights outside.
       continue
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
-    original = np.array(row, dtype=np.float32)
+    original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
     kwargs: dict[str, Any] = dict(filter=filter, scale=scale, translate=translate)
     result = resampler.jax_image_resize(original, shape, **kwargs).to_py()
@@ -2071,10 +2071,10 @@ def test_gamma_conversion_from_and_to_uint8_timings() -> None:
     dtype, gamma_name, arraylib = config
     gamma = resampler._get_gamma(gamma_name)
     shape = 2048, 2048, 3
-    array_uint8 = resampler._make_array(np.ones(shape, dtype=np.uint8), arraylib)
-    array_float = resampler._make_array(np.ones(shape, dtype=dtype), arraylib)
-    t0 = hh.get_time(lambda: gamma.decode(array_uint8, dtype=dtype))
-    t1 = hh.get_time(lambda: gamma.encode(array_float, dtype=np.uint8))
+    array_uint8 = resampler._make_array(np.ones(shape, np.uint8), arraylib)
+    array_float = resampler._make_array(np.ones(shape, dtype), arraylib)
+    t0 = hh.get_time(lambda: gamma.decode(array_uint8, dtype))
+    t1 = hh.get_time(lambda: gamma.encode(array_float, np.uint8))
     print(f'# {dtype}  {gamma_name:9} {arraylib:11} decode={t0:5.3f}  encode={t1:5.3f} s')
 
 if EFFORT >= 2:
@@ -2087,7 +2087,7 @@ def test_best_dimension_ordering_for_resize_timing(dtype=np.float32) -> None:
     arraylib, c_contiguous = config
 
     def run(src_shape, dst_shape) -> None:
-      array = resampler._make_array(np.ones(src_shape, dtype=dtype), arraylib)
+      array = resampler._make_array(np.ones(src_shape, dtype), arraylib)
       if not c_contiguous:
         array = resampler._arr_swapaxes(array, 0, 1)
       args = array, dst_shape
@@ -2124,7 +2124,7 @@ def experiment_with_resize_timing() -> None:
 
   def run(src_shape, dst_shape) -> None:
     for dtype in 'uint8 float32 float64'.split():
-      array = np.ones(src_shape, dtype=dtype)
+      array = np.ones(src_shape, dtype)
       args = [dst_shape]
       kwargs: dict[str, Any] = dict(gamma='identity')
       array_for_lib = {arraylib: resampler._make_array(array, arraylib)
@@ -2177,7 +2177,7 @@ if EFFORT >= 2:
 
 # %%
 def test_compare_timing_of_resize_and_media_show_image() -> None:
-  array = np.full((8192, 8192, 3), 0.5, dtype=np.float32)
+  array = np.full((8192, 8192, 3), 0.5, np.float32)
   time_resize = hh.get_time(lambda: resampler.resize(array, (256, 256)))
   time_pil = hh.get_time(lambda: media.show_image(array, height=256))
   print(f'Timing: resize:{time_resize:.1f} media_pil:{time_pil:.1f} s')
@@ -2192,7 +2192,7 @@ if EFFORT >= 2:
 def test_profile_downsampling(shape, new_shape, filter='trapezoid',
                               also_prun=False, dtype='float32') -> None:
   _check_eq(len(shape), 3)
-  array = np.ones(shape, dtype=dtype)
+  array = np.ones(shape, dtype)
   height, width, ch = shape
   new_height, new_width = new_shape
   block_height, block_width = np.array(shape[:2]) // new_shape
@@ -2300,7 +2300,7 @@ if EFFORT >= 2:
 def test_profile_upsampling(shape, new_shape, filter='lanczos3',
                             also_prun=False, dtype='float32') -> None:
   _check_eq(len(shape), 3)
-  array = np.ones(shape, dtype=dtype)
+  array = np.ones(shape, dtype)
 
   functions: dict[str, Callable[[], _AnyArray]] = {
       'resize_in_numpy': lambda: resampler.resize_in_numpy(array, new_shape, filter=filter),
@@ -2536,7 +2536,7 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
     operation='resize', method='gradient_tape', num_steps=30, debug=False,
     src_shape=(8, 8, 3), dst_shape=(16, 16), filter='triangle') -> None:
   import tensorflow as tf
-  array_np = np.full(src_shape, 0.5, dtype=np.float32)
+  array_np = np.full(src_shape, 0.5, np.float32)
   array = tf.Variable(tf.convert_to_tensor(array_np))
   desired = resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=np.float32)
   coords = np.moveaxis(np.indices(dst_shape) + 0.5, 0, -1) / dst_shape
@@ -2621,7 +2621,7 @@ def test_torch_optimize_image_for_desired_upsampling(
   ]
   for config in configs:
     operation, boundary, filter, dtype = config
-    array_np = np.full(src_shape, 0.5, dtype=dtype)
+    array_np = np.full(src_shape, 0.5, dtype)
     array = torch.tensor(array_np, requires_grad=True)
     desired = torch.as_tensor(
         resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=dtype))
@@ -2671,7 +2671,7 @@ def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -
         lambda array: resampler.resize(array, dst_shape, filter=filter),
         lambda array: resampler.resample(array, coords, filter=filter),
     ]
-    array_np = np.random.default_rng(0).random(src_shape, dtype=np.float64)
+    array_np = np.random.default_rng(0).random(src_shape, np.float64)
     array = torch.tensor(array_np, requires_grad=True)
     for function in functions:
       assert torch.autograd.gradcheck(  # type: ignore[attr-defined]
@@ -2705,7 +2705,7 @@ def test_jax_optimize_image_for_desired_upsampling(
     if resampler._get_filter(filter).requires_digital_filter:
       print(f'Skipping {config} because {filter} is not jax-differentiable.')
       continue
-    array_np = np.full(src_shape, 0.5, dtype=dtype)
+    array_np = np.full(src_shape, 0.5, dtype)
     array = jnp.asarray(array_np)
     desired = jnp.asarray(resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=dtype))
     coords = np.moveaxis(np.indices(dst_shape) + 0.5, 0, -1) / dst_shape
@@ -2746,19 +2746,19 @@ if EFFORT >= 1:
 def test_jax0() -> None:  # ??
   import jax
   import jax.numpy as jnp
-  array = jnp.ones((2, 2), dtype='float32')
+  array = jnp.ones((2, 2), 'float32')
   print(array.device_buffer.device())
   print(array, type(array), repr(array))
 
-  array_np = np.ones((2, 2), dtype='float32')
+  array_np = np.ones((2, 2), 'float32')
   array_jax = jax.device_put(array_np)
   print(array_jax.device_buffer.device())
   print(array_jax, type(array_jax), repr(array_jax))
 
-  array_jax = jnp.ones((2000,) * 2, dtype='float32')
+  array_jax = jnp.ones((2000,) * 2, 'float32')
   hh.print_time(lambda: jnp.dot(array_jax, array_jax.T).block_until_ready())
 
-  array_np = np.ones((2000,) * 2, dtype='float32')
+  array_np = np.ones((2000,) * 2, 'float32')
   hh.print_time(lambda: np.dot(array_np, array_np.T))
 
 if 0:
@@ -2805,7 +2805,7 @@ def test_jax() -> None:
   print(jax.default_backend())
   print(jax.devices())
   print(jax.local_devices())
-  array = jnp.ones((2, 2), dtype='float32')
+  array = jnp.ones((2, 2), 'float32')
   if 0:
     print(jax.make_jaxpr(resampler.resize, static_argnums=(1,))(array, (3, 3)))
     print(jax.make_jaxpr(resampler.jaxjit_resize, static_argnums=(1,))(array, (3, 3)))
@@ -2842,7 +2842,7 @@ def experiment_image_optimized_for_spiral_resampling(
     num_steps=30, src_shape=(32, 32, 3), dst_shape=(64, 64),
     regularization_weight=0.0, smoothness_weight=0.0) -> None:
   import tensorflow as tf
-  array_np = np.full(src_shape, 0.5, dtype=np.float32)
+  array_np = np.full(src_shape, 0.5, np.float32)
   array = tf.Variable(tf.convert_to_tensor(array_np))
   desired = resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=np.float32)
 
@@ -3525,11 +3525,11 @@ def dither(image: _NDArray, num_levels: int, offsets: Iterable[tuple[int, int]],
   _check_eq(image.ndim, 2)
   assert np.issubdtype(image.dtype, np.floating)
   offsets = tuple(offsets)
-  weights = np.asarray(weights, dtype=np.float32)
+  weights = np.asarray(weights, np.float32)
   weights = tuple(weights / weights.sum())
   height, width = image.shape
 
-  out = np.zeros_like(image, dtype=np.int32)
+  out = np.zeros_like(image, np.int32)
   for y in range(height):
     for x in range(width):
       # Quantize.
@@ -3673,8 +3673,8 @@ def experiment_visualize_gamma_upsample_video(shape=(24, 48), source_pow=1) -> N
     power2.append(resize_gamma('power2'))
 
   videos = {'original': original, 'identity': identity, 'power2': power2}
-  media.show_videos(videos, border=True, fps=10, height=shape[0]*8,
-                    ylabel=f'{source_pow=}', codec='gif')
+  media.show_videos(videos, codec='gif', fps=10, height=shape[0]*8, border=True,
+                    ylabel=f'{source_pow=}')
 
 if EFFORT >= 2:
   experiment_visualize_gamma_upsample_video()
@@ -3725,7 +3725,7 @@ def rasterize_text(shape: tuple[int, int], text: str, *,
   import PIL.Image
   import PIL.ImageDraw
   pil_font = _get_pil_font(font_size)
-  pil_image = PIL.Image.fromarray(np.full(shape, background, dtype=np.uint8))
+  pil_image = PIL.Image.fromarray(np.full(shape, background, np.uint8))
   draw = PIL.ImageDraw.Draw(pil_image)
   draw.text(pad_xy, text, fill=foreground, spacing=5, font=pil_font)
   return np.array(pil_image)
@@ -3818,7 +3818,7 @@ def visualize_prefiltering_a_discontinuity_in_2D(
   images = {'original': array}
   for filter in filters:
     images[f"'{filter}'"] = resampler.resize(array, new_shape, filter=filter)
-  media.show_images(images, border=True, height=shape[0]*1.25, vmin=0, vmax=1, columns=6)
+  media.show_images(images, vmin=0, vmax=1, height=shape[0]*1.25, border=True, columns=6)
 
 visualize_prefiltering_a_discontinuity_in_2D()
 
@@ -3845,7 +3845,7 @@ def visualize_prefiltering_as_scale_is_varied(
     for scale in np.linspace(0.9, 1.1, 61):
       videos[f"'{filter}'"].append(
           resampler.resize(array, new_shape, scale=scale, filter=filter)[3:-3, 3:-3])
-  media.show_videos(videos, border=True, height=shape[0]*1.5, qp=14, fps=20, columns=4)
+  media.show_videos(videos, qp=14, fps=20, height=shape[0]*1.5, border=True, columns=4)
 
 if EFFORT >= 1:
   visualize_prefiltering_as_scale_is_varied()
@@ -3992,7 +3992,7 @@ def experiment_with_convolution() -> None:
 
   # shape = 17, 17
   shape = 17, 17, 3
-  array = np.zeros(shape, dtype=np.float32)
+  array = np.zeros(shape, np.float32)
   array[tuple(np.array(shape[:2]) // 2)] = 1.0
   array[2, 0] = 1.0
   filter1d = resampler.resize(
@@ -4027,23 +4027,23 @@ def experiment_with_convolution() -> None:
   if 1:
     shape = 500, 500, 3
     print(f'For {shape = }:')
-    array = np.zeros(shape, dtype=np.float32)
+    array = np.zeros(shape, np.float32)
     for name, function in functions.items():
       elapsed = hh.get_time(function, max_time=0.2)
       print(f'{name:25}: {elapsed:.3f} s')
 
   if EFFORT >= 2:  # For 10x downsampling, convolution on source grid is 10x slower.
-    array = np.ones((1000, 2000, 3), dtype=np.float32)
-    filter = np.ones((61, 61), dtype=np.float32)
+    array = np.ones((1000, 2000, 3), np.float32)
+    filter = np.ones((61, 61), np.float32)
     # (resize to (100, 200) lanczos3 39 ms)
     # (resample to (100, 200) lanczos3 30 ms but aliased)
     hh.print_time(lambda: scipy_convolve(array, filter, reflect=False))  # 309 ms
     hh.print_time(lambda: scipy_convolve(array, filter, reflect=True))  # 325 ms
 
   if EFFORT >= 2:  # Convolution on source grid is 8-12x slower than resampler.resize().
-    array = np.ones((2000, 2000, 3), dtype=np.float32)
+    array = np.ones((2000, 2000, 3), np.float32)
     for downsample in [1, 2, 3, 4, 8]:
-      filter = np.ones((2 * 3 * downsample + 1,) * 2, dtype=np.float32)
+      filter = np.ones((2 * 3 * downsample + 1,) * 2, np.float32)
       print(array.shape, filter.shape)
       # hh.print_time(lambda: scipy_convolve(array, filter, reflect=False))
       hh.print_time(lambda: scipy_convolve(array, filter, reflect=True))
@@ -4172,7 +4172,7 @@ def test_banded(debug=False) -> None:
     # https://www.dsprelated.com/showthread/comp.dsp/368362-2.php
     # a = [1 2-sqrt(3)]; b = sum(a);
     # c = filtfilt(f,b,a);
-    a = np.array([1.0, 2.0 - math.sqrt(3)])
+    a = np.array([1.0, 2.0 - 3**0.5])
     b = a.sum()
     new = scipy.signal.filtfilt(b, a, array, axis=0, method='gust')
     if debug:
@@ -4247,7 +4247,7 @@ def test_inverse_convolution_2d(
       array_dim = np.moveaxis(array, dim, 0)
       size = array_dim.shape[0]
       src_index = np.arange(size)[:, None] + np.arange(len(values)) - l
-      weight = np.full((size, len(values)), values, dtype=array.dtype)
+      weight = np.full((size, len(values)), values, array.dtype)
       src_position = np.broadcast_to(0.5, len(values))
       src_gridtype = resampler._get_gridtype(gridtype)
       src_index, weight = resampler._get_boundary(boundary).apply(
@@ -4281,7 +4281,7 @@ def test_inverse_convolution_2d(
     for dim in range(2):
       array_dim = np.moveaxis(array, dim, 0)
       size = array_dim.shape[0]
-      ab = np.empty((l + 1, size), dtype=array.dtype)
+      ab = np.empty((l + 1, size), array.dtype)
       ab[:] = values[:l+1, None]
       ab[1, 0] = ab[1, 0] + ab[0, 0]
       ab[0, 0] = UNDEFINED
@@ -4295,7 +4295,7 @@ def test_inverse_convolution_2d(
     for dim in range(2):
       array_dim = np.moveaxis(array, dim, 0)
       size = array_dim.shape[0]
-      ab = np.empty((2 * l + 1, size), dtype=array.dtype)
+      ab = np.empty((2 * l + 1, size), array.dtype)
       ab[:] = values[:, None]
       ab[1, 0] = ab[1, 0] + ab[0, 0]
       ab[0, 0] = UNDEFINED
@@ -4315,7 +4315,7 @@ def test_inverse_convolution_2d(
     # would likely support complex values but it defines temporaries using untyped np.zeros().
     assert not np.issubdtype(array.dtype, np.complexfloating)
     for dim in range(2):
-      a = np.array([1.0, 2.0 - math.sqrt(3)], dtype=array.dtype)
+      a = np.array([1.0, 2.0 - 3**0.5], array.dtype)
       b = a.sum()
       with np.errstate(under='ignore'):
         array = scipy.signal.filtfilt(b, a, array, axis=dim, method='gust')
@@ -4670,7 +4670,7 @@ def visualize_boundary_rules_in_2d(*, scale=0.6, src_gridtype=('dual', 'primal')
     display_html(text)
 
   # array = np.array([[1.0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0], [0, 1, 0, 0]])
-  # array = np.indices((4, 4), dtype=np.float64).sum(axis=0) / 6.0
+  # array = np.indices((4, 4), np.float64).sum(axis=0) / 6.0
   # array = np.dstack((array,) * 3)
   o, a, b, c = (0.0, 0.0, 0.0), (1.0, 0.3, 0.2), (0.4, 1.0, 0.2), (0.8, 0.7, 0.1)
   o, a, b, c = (1.0, 1.0, 1.0), (0.9, 0.2, 0.1), (0.3, 0.8, 0.1), (0.9, 0.8, 0.1)
@@ -4820,7 +4820,7 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200
   # with media.set_show_save_dir('/tmp'):
   show_args: Any = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
   media.show_images(images, **show_args)
-  # media.show_video([upsampled3, upsampled4], fps=1, height=400, codec='gif')
+  # media.show_video([upsampled3, upsampled4], codec='gif', fps=1, height=400)
 
 if EFFORT >= 1:
   experiment_compare_upsampling_with_other_libraries()
