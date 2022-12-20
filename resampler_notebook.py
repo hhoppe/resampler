@@ -1020,7 +1020,9 @@ test_cached_sampling_of_1d_function()
 
 # %%
 def test_downsample_in_2d_using_box_filter() -> None:
-  if 'numba' not in globals():
+  try:
+    import numba
+  except ModuleNotFoundError:
     return
   for shape in [(6, 6), (4, 4)]:
     for ch in [1, 2, 3, 4]:
@@ -1040,7 +1042,9 @@ if EFFORT >= 1:
 
 # %%
 def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
-  if 'numba' not in globals():
+  try:
+    import numba
+  except ModuleNotFoundError:
     return
   array = np.ones((4096, 4096))
   hh.print_time(lambda: resampler._downsample_in_2d_using_box_filter(array, shape), max_time=0.4)
