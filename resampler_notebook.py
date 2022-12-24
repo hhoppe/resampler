@@ -567,8 +567,7 @@ def show_grid_values(array, figsize=(14, 4), cmap='gray', **kwargs) -> None:
   _check_eq(array.ndim, 2)
   _, ax = plt.subplots(figsize=figsize)
   ax.matshow(array, cmap=cmap, **kwargs)
-  for yx in np.ndindex(array.shape):
-    value = array[yx]
+  for yx, value in np.ndenumerate(array):
     text = f'{value}' if np.issubdtype(array.dtype, np.integer) else f'{value:.3f}'
     # https://matplotlib.org/stable/api/_as_gen/matplotlib.patches.FancyBboxPatch.html
     ax.text(*yx[::-1], text, va='center', ha='center',
