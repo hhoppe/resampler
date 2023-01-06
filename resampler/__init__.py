@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.6.1'
+__version__ = '0.6.2'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -2146,8 +2146,8 @@ def _create_resize_matrix(
   shape = dst_size, src_size
 
   def prepare_sparse_resize_matrix() -> tuple[_NDArray, _NDArray, _NDArray]:
-    linearized = (src_index + np.indices(src_index.shape)[0] * src_size).reshape(-1)
-    values = weight.reshape(-1)
+    linearized = (src_index + np.indices(src_index.shape)[0] * src_size).ravel()
+    values = weight.ravel()
     # Remove the zero weights.
     nonzero = values != 0.0
     linearized, values = linearized[nonzero], values[nonzero]
