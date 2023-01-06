@@ -336,7 +336,7 @@ import skimage.metrics
 
 import resampler
 
-# pylint: disable=protected-access disable=missing-function-docstring
+# pylint: disable=protected-access, missing-function-docstring
 # mypy: allow-incomplete-defs, allow-untyped-defs
 
 _ArrayLike = resampler._ArrayLike
@@ -1020,7 +1020,7 @@ test_cached_sampling_of_1d_function()
 # %%
 def test_downsample_in_2d_using_box_filter() -> None:
   try:
-    import numba
+    import numba  # pylint: disable=unused-import
   except ModuleNotFoundError:
     return
   for shape in [(6, 6), (4, 4)]:
@@ -1042,7 +1042,7 @@ if EFFORT >= 1:
 # %%
 def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
   try:
-    import numba
+    import numba  # pylint: disable=unused-import
   except ModuleNotFoundError:
     return
   array = np.ones((4096, 4096))
@@ -1272,7 +1272,7 @@ def test_that_resize_combinations_are_affine() -> None:
         boundary=resampler._get_boundary(boundary), filter=resampler.TriangleFilter(),
         scale=0.5, translate=0.3)
     if cval_weight is None:
-      row_sum = np.asarray(resize_matrix.sum(axis=1)).reshape(-1)
+      row_sum = np.asarray(resize_matrix.sum(axis=1)).ravel()
       assert np.allclose(row_sum, 1.0, rtol=0, atol=1e-6), (
           config, resize_matrix.todense(), row_sum)
 
@@ -2437,9 +2437,7 @@ def experiment_plot_psnr_for_num_rotations(filter='lanczos5') -> None:
         original, math.tau / num_rotations, num_rotations=num_rotations, filter=filter)
     psnrs.append(get_psnr(overwrite_outside_circle(image), overwrite_outside_circle(original)))
   ax.scatter(x, psnrs)
-  ax.set_xlim(left=2, right=14)
-  ax.set_xlabel('Number of image rotations')
-  ax.set_ylabel('Reconstruction PSNR (dB)')
+  ax.set(xlim=(2, 14), xlabel='Number of image rotations', ylabel='Reconstruction PSNR (dB)')
 
 experiment_plot_psnr_for_num_rotations()
 
@@ -3048,8 +3046,7 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
       _, ax = plt.subplots(figsize=(5, 3))
 
     ax.plot(x, y)
-    ax.set_xlim(-6.0, 6.0)
-    ax.set_ylim(-0.25, 1.08)
+    ax.set(title=name, xlim=(-6.0, 6.0), ylim=(-0.25, 1.08))
     ax.yaxis.set_ticks([0.0, 1.0])
     ax.xaxis.set_ticks(np.arange(-6, 7, 2))
     info = [f'{radius=:.2f}{footnote}',
@@ -3057,7 +3054,6 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
             f'{integral=:.5f}']
     for i, line in enumerate(info):
       ax.text(0.9, 0.85 - 0.17 * i, line, fontsize=10.5)
-    ax.set_title(name)
 
   media.set_max_output_height(2000)
   num_columns = 3
@@ -3065,7 +3061,7 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
   fig, axs = plt.subplots(num_rows, num_columns, figsize=(4.0 * num_columns, 2.5 * num_rows))
   for i, (name, filter) in enumerate(filters.items()):
     analyze_filter(name, filter, ax=axs.flat[i])
-  for i in range(len(filters), len(axs.flat)):
+  for i in range(len(filters), axs.size):
     fig.delaxes(axs.flat[i])  # Or: axs.flat[i].axis('off').
   fig.tight_layout()
   plt.show()
@@ -3757,8 +3753,7 @@ def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=21) -> No
   psnrs = [get_psnr(*generate_image_pair(degree)) for degree in degrees]
   _, ax = plt.subplots(figsize=(5, 3))
   ax.plot(degrees, psnrs, '.')
-  ax.set_xlabel('Grid rotation (degrees)')
-  ax.set_ylabel('Reconstruction PSNR (dB)')
+  ax.set(xlabel='Grid rotation (degrees)', ylabel='Reconstruction PSNR (dB)')
 
 if EFFORT >= 1:
   experiment_rotated_grid_has_higher_fidelity_for_text()
@@ -3792,7 +3787,7 @@ def visualize_prefiltering_a_discontinuity_in_1D(size=400, x_step=0.5) -> None:
       ax = axs[row_index][col_index]
       ax.plot(x, array, '-', linewidth=0.7)
       ax.plot(downsample(x), downsample(array), 'o-')
-      _ = ax.set_xlim(0.0, 1.0), ax.set_ylim(-0.17, 1.17)
+      ax.set(xlim=(0.0, 1.0), ylim=(-0.17, 1.17))
       _ = ax.xaxis.set_ticks([]), ax.yaxis.set_ticks([])
       ax.set_ylabel(f'new size {new_size}' if col_index == 0 else None)
       ax.set_title(f"'{filter}'" if row_index == 0 else None)
@@ -4569,14 +4564,12 @@ def visualize_example_filters(filters: Sequence[str], num=1_001) -> None:
       y = (np.arange(num) == num // 2) * 100.0
 
     ax.plot(x, y)
-    ax.set_xlim(-6.0, 6.0)
-    ax.set_ylim(-0.30, 1.1)
+    title = f"'{filter_name}'"
+    title = title + ' (def.)' if filter_name == resampler._DEFAULT_FILTER else title
+    ax.set(title=title, xlim=(-6.0, 6.0), ylim(-0.30, 1.1))
     ax.yaxis.set_ticks([0.0, 1.0] if index == 0 else [])
     ax.xaxis.set_ticks(np.arange(-6, 7, 1))
     ax.tick_params(axis='x', labelbottom=False, direction='in')
-    title = f"'{filter_name}'"
-    title = title + ' (def.)' if filter_name == resampler._DEFAULT_FILTER else title
-    ax.set_title(title)
 
   fig.tight_layout()
 
@@ -4613,10 +4606,7 @@ def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
         x = np.arange(len(array))
         x = resampler._get_gridtype(gridtype).point_from_index(x, len(array))
         ax.plot(x, array, 'o', color=color)
-        ax.set_xlim(-offset, 1.0 + offset)
-        ax.set_ylim(0.4, 1.2)
-        ax.set_xticks([0, 1])
-        ax.set_yticks([])
+        ax.set(xlim=(-offset, 1.0 + offset), ylim=(0.4, 1.2), xticks=[0, 1], yticks=[])
         if row_index == 0:
           dagger = r'$^\dagger$' if gridtype == 'primal' and boundary == 'wrap' else ''
           title = {'quadratic_constant': 'quadratic_const.'}.get(boundary, boundary)
