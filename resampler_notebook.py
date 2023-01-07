@@ -4566,7 +4566,7 @@ def visualize_example_filters(filters: Sequence[str], num=1_001) -> None:
     ax.plot(x, y)
     title = f"'{filter_name}'"
     title = title + ' (def.)' if filter_name == resampler._DEFAULT_FILTER else title
-    ax.set(title=title, xlim=(-6.0, 6.0), ylim(-0.30, 1.1))
+    ax.set(title=title, xlim=(-6.0, 6.0), ylim=(-0.30, 1.1))
     ax.yaxis.set_ticks([0.0, 1.0] if index == 0 else [])
     ax.xaxis.set_ticks(np.arange(-6, 7, 1))
     ax.tick_params(axis='x', labelbottom=False, direction='in')
@@ -4983,7 +4983,7 @@ if EFFORT >= 1:
 # %% [markdown]
 # In Windows Emacs, `compile` command:
 # ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'echo flake8; flake8; echo mypy; mypy . | grep -Ev " errors? in . file|Any from function declared to return .(ndarray|Tensor)"; echo autopep8; autopep8 -j8 -d .; echo pylint; pylint -j8 .; echo All ran.'
+# c:/windows/sysnative/wsl -e bash -lc 'echo flake8; flake8 --indent-size=2 --ignore E121,E125,E126,E129,E226,E302,E305,E501,W504,E741,E704 --exclude .ipynb_checkpoints .; echo mypy; mypy .; echo autopep8; autopep8 -j8 -d .; echo pylint; pylint -j8 .; echo All ran.'
 # ```
 
 # %%

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.6.2'
+__version__ = '0.6.3'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -2459,6 +2459,15 @@ def resize(
        src_gamma, dst_gamma, scale, translate)
   precision = _get_precision(precision, [array_dtype, dtype], [])
   weight_precision = _real_precision(precision)
+
+  is_noop = (all(src == dst for src, dst in zip(src_shape, shape)) and
+             all(gt1 == gt2 for gt1, gt2 in zip(src_gridtype2, dst_gridtype2)) and
+             all(f.interpolating for f in prefilter2) and
+             np.all(scale2 == 1.0) and np.all(translate2 == 0.0) and
+             src_gamma2 == dst_gamma2)
+  if is_noop:
+    return array
+
   if dim_order is None:
     dim_order = _arr_best_dims_order_for_resize(array, shape)
   else:
