@@ -3730,6 +3730,7 @@ def rasterize_text(shape: tuple[int, int], text: str, *,
   return np.array(pil_image)
 
 def get_text_image(shape=(200,) * 2) -> _NDArray:
+  # Replace by hh.rasterized_text() -- requires introducing `spacing` parameter??
   return rasterize_text(shape, 'Hlllllmm\n' * 4)
 
 def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=21) -> None:
