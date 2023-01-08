@@ -456,6 +456,7 @@ def show_docstring(module_dot_name: str) -> None:
   text = pdoc.doc_ast.walk_tree(module).docstrings.get(name, '')
   text = f'**`{name}`** = {getattr(module, name)}<br/>{text}'
   display_markdown(text)
+  media.set_max_output_height(3000)
 
 
 # %%
@@ -818,6 +819,9 @@ show_docstring('resampler.GAMMAS')
 # ## <a name="Resize"></a>Resize
 
 # %%
+# hh.display_html(IPython.core.oinspect.Inspector()._get_info(resampler.resize)['text/html'])
+
+# %%
 # ?resampler.resize
 
 # %% [markdown]
@@ -1020,7 +1024,7 @@ test_cached_sampling_of_1d_function()
 # %%
 def test_downsample_in_2d_using_box_filter() -> None:
   try:
-    import numba  # pylint: disable=unused-import
+    import numba  # pylint: disable=unused-import # noqa
   except ModuleNotFoundError:
     return
   for shape in [(6, 6), (4, 4)]:
@@ -1042,7 +1046,7 @@ if EFFORT >= 1:
 # %%
 def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
   try:
-    import numba  # pylint: disable=unused-import
+    import numba  # pylint: disable=unused-import # noqa
   except ModuleNotFoundError:
     return
   array = np.ones((4096, 4096))
