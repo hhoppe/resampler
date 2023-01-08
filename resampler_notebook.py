@@ -819,9 +819,6 @@ show_docstring('resampler.GAMMAS')
 # ## <a name="Resize"></a>Resize
 
 # %%
-# hh.display_html(IPython.core.oinspect.Inspector()._get_info(resampler.resize)['text/html'])
-
-# %%
 # ?resampler.resize
 
 # %% [markdown]
