@@ -85,9 +85,17 @@ media.show_videos({'original': batch_of_images, 'upsampled': upsampled}, fps=1)
 
 # %%
 new = resampler.resize(
-    image, (128, 512), boundary=('natural', 'reflect'), cval=(0.2, 0.7, 0.3),
-    filter=('lanczos3', 'omoms5'), gamma='identity', scale=(0.8, 0.25), translate=(0.1, 0.35),
-    precision='float64', dtype='float32')
+    image,
+    (128, 512),
+    boundary=('natural', 'reflect'),
+    cval=(0.2, 0.7, 0.3),
+    filter=('lanczos3', 'omoms5'),
+    gamma='identity',
+    scale=(0.8, 0.25),
+    translate=(0.1, 0.35),
+    precision='float64',
+    dtype='float32',
+)
 media.show_images({'image': image, 'new': new})
 
 # %% [markdown]
@@ -99,7 +107,8 @@ for filter in ['impulse', 'triangle', 'lanczos3']:
   for angle in np.linspace(0.0, 2 * np.pi, 20, endpoint=False):
     translate = np.array([np.cos(angle), np.sin(angle)]) * (0.6 / image.shape[0])
     videos[f"filter='{filter}'"].append(
-        resampler.resize(image, image.shape[:2], filter=filter, translate=translate))
+        resampler.resize(image, image.shape[:2], filter=filter, translate=translate)
+    )
 
 media.show_videos(videos, fps=20)
 
@@ -113,7 +122,8 @@ for filter in ['impulse', 'triangle', 'lanczos3']:
     translate = np.array([np.cos(angle), np.sin(angle)]) * (0.6 / image.shape[0]) + [-0.4, 0.0]
     scale = 2.0
     videos[f"filter='{filter}'"].append(
-        resampler.resize(image, image.shape[:2], filter=filter, translate=translate, scale=scale))
+        resampler.resize(image, image.shape[:2], filter=filter, translate=translate, scale=scale)
+    )
 
 media.show_videos(videos, fps=20)
 
@@ -124,10 +134,11 @@ media.show_videos(videos, fps=20)
 videos = collections.defaultdict(list)
 for filter in ['impulse', 'triangle', 'trapezoid', 'lanczos3']:
   for angle in np.linspace(0.0, 2 * np.pi, 20, endpoint=False):
-    translate = np.array([np.cos(angle), np.sin(angle)]) * (0.6 / image.shape[0]) + [0., 0.0]
+    translate = np.array([np.cos(angle), np.sin(angle)]) * (0.6 / image.shape[0]) + [0.0, 0.0]
     new_shape = np.array(image.shape[:2]) // 2
     videos[f"filter='{filter}'"].append(
-        resampler.resize(image, new_shape, filter=filter, translate=translate))
+        resampler.resize(image, new_shape, filter=filter, translate=translate)
+    )
 
 media.show_videos(videos, fps=20, height=image.shape[0])
 
