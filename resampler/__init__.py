@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.6.3'
+__version__ = '0.7.0'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -1676,10 +1676,10 @@ class LanczosFilter(Filter):
       window = _sinc(x / radius)  # Zero-phase function w_0(x).
       return np.where(x < radius, _sinc(x) * window, 0.0)
 
-    self.function = _eval
+    self._function = _eval
 
   def __call__(self, x: _ArrayLike, /) -> _NDArray:
-    return self.function(x)
+    return self._function(x)
 
 
 class GeneralizedHammingFilter(Filter):
@@ -1744,10 +1744,10 @@ class KaiserFilter(Filter):
       window = np.i0(beta * np.sqrt((1.0 - np.square(x / radius)).clip(0.0, 1.0))) / np.i0(beta)
       return np.where(x <= radius + 1e-6, _sinc(x) * window, 0.0)
 
-    self.function = _eval
+    self._function = _eval
 
   def __call__(self, x: _ArrayLike, /) -> _NDArray:
-    return self.function(x)
+    return self._function(x)
 
 
 class BsplineFilter(Filter):
@@ -1769,11 +1769,11 @@ class BsplineFilter(Filter):
     radius = (degree + 1) / 2
     super().__init__(name=f'bspline{degree}', radius=radius, interpolating=(degree <= 1))
     t = list(range(degree + 2))
-    self.bspline = scipy.interpolate.BSpline.basis_element(t)
+    self._bspline = scipy.interpolate.BSpline.basis_element(t)
 
   def __call__(self, x: _ArrayLike, /) -> _NDArray:
     x = np.abs(x)
-    return np.where(x < self.radius, self.bspline(x + self.radius), 0.0)
+    return np.where(x < self.radius, self._bspline(x + self.radius), 0.0)
 
 
 class CardinalBsplineFilter(Filter):
@@ -1807,10 +1807,10 @@ class CardinalBsplineFilter(Filter):
       x = np.abs(x)
       return np.where(x < radius, bspline(x + radius), 0.0)
 
-    self.function = _eval
+    self._function = _eval
 
   def __call__(self, x: _ArrayLike, /) -> _NDArray:
-    return self.function(x)
+    return self._function(x)
 
 
 class OmomsFilter(Filter):
