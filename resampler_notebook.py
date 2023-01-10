@@ -349,11 +349,11 @@ _AnyArray = resampler._AnyArray
 
 # %%
 def running_in_notebook() -> bool:
-  return IPython.get_ipython() is not None
+  return IPython.get_ipython() is not None  # type: ignore[attr-defined]
 
 
 # %%
-EFFORT: Literal[0, 1, 2, 3] = 1
+EFFORT: Literal[0, 1, 2, 3] = 2  # ??1
 """Controls the breadth and precision of the notebook experiments; 0 <= value <= 3."""
 if not running_in_notebook():
   EFFORT = 0  # Otherwise, invocations of doctest or pytest would recurse infinitely.
@@ -384,7 +384,9 @@ matplotlib.rcParams['figure.max_open_warning'] = 0
 def enable_jax_float64() -> None:
   """Enable use of double-precision float in Jax; this only works at startup."""
   import jax.config
+
   jax.config.update('jax_enable_x64', True)
+
 
 enable_jax_float64()
 
@@ -395,10 +397,12 @@ def _check_eq(a: Any, b: Any) -> None:
   if not are_equal:
     raise AssertionError(f'{a!r} == {b!r}')
 
+
 # %%
 def experiment_preload_arraylibs_for_accurate_timings() -> None:
   for arraylib in resampler.ARRAYLIBS:
     resampler._make_array(np.ones(1), arraylib)
+
 
 if EFFORT >= 1:
   experiment_preload_arraylibs_for_accurate_timings()
@@ -417,9 +421,11 @@ EXAMPLE_PHOTO = media.read_image(f'{_URL_BASE}/lillian_640x480.png')  # (480, 64
 def example_tissot_image() -> _NDArray:
   """Return image of shape (1000, 2000, 3) from
   https://commons.wikimedia.org/wiki/File:Tissot_indicatrix_world_map_equirectangular_proj.svg"""
-  url = ('https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/'
-         'Tissot_indicatrix_world_map_equirectangular_proj.svg/'
-         '2000px-Tissot_indicatrix_world_map_equirectangular_proj.svg.png')
+  url = (
+      'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/'
+      'Tissot_indicatrix_world_map_equirectangular_proj.svg/'
+      '2000px-Tissot_indicatrix_world_map_equirectangular_proj.svg.png'
+  )
   return media.read_image(url)[..., :3]
 
 
@@ -434,23 +440,19 @@ def example_vector_graphics_image() -> _NDArray:
 
 # %%
 def display_markdown(text: str) -> None:
-  IPython.display.display(IPython.display.Markdown(text))
-
-
-# %%
-def display_html(text: str) -> None:
-  IPython.display.display(IPython.display.HTML(text))
+  IPython.display.display(IPython.display.Markdown(text))  # type: ignore
 
 
 # %%
 # Set Markdown width in Jupyterlab similar to Colab; https://stackoverflow.com/a/66278615.
-display_html('<style>.jp-RenderedMarkdown { max-width: 950px!important; }</style>')
+hh.display_html('<style>.jp-RenderedMarkdown { max-width: 950px!important; }</style>')
 
 
 # %%
 def show_docstring(module_dot_name: str) -> None:
   import pdoc
   import sys
+
   modulename, name = module_dot_name.rsplit('.', 1)
   module = sys.modules[modulename]
   text = pdoc.doc_ast.walk_tree(module).docstrings.get(name, '')
@@ -466,6 +468,7 @@ def must_be_int(x: _ArrayLike) -> _NDArray:
   _check_eq(result, x)
   return result
 
+
 _check_eq(must_be_int(6 / 2), 3)
 
 
@@ -477,6 +480,7 @@ def get_rms(a: _ArrayLike, b: _ArrayLike) -> float:
   rms: float = np.sqrt(np.mean(np.square(a2 - b2))).item()
   return rms
 
+
 assert math.isclose(get_rms(0.2, 0.3), 0.1)
 
 
@@ -486,6 +490,7 @@ def get_psnr(a: _ArrayLike, b: _ArrayLike) -> float:
   rms = get_rms(a, b)
   psnr: float = 20 * np.log10(1.0 / (rms + 1e-10)).item()
   return psnr
+
 
 assert math.isclose(get_psnr(0.2, 0.3), 20.0)
 
@@ -518,6 +523,7 @@ def test_ssim() -> None:
   image3 = scipy.ndimage.convolve(image1, filter, mode='reflect')
   ssim = get_ssim(image1, image3)
   assert 0.75 < ssim < 0.9  # Blurring causes loss of structural detail.
+
 
 if EFFORT >= 1:
   test_ssim()
@@ -554,8 +560,10 @@ def crop_array(array: _ArrayLike, width: _ArrayLike, cval: _ArrayLike = 0) -> _N
   array = np.asarray(array)
   width = np.broadcast_to(width, (2, array.ndim))
   if (width > 0).any():
-    array = array[tuple(slice(before, (-after if after else None))
-                        for (before, after) in np.maximum(width, 0).T)]
+    slices = tuple(
+        slice(before, (-after if after else None)) for (before, after) in np.maximum(width, 0).T
+    )
+    array = array[slices]
   if (width < 0).any():
     array = np.pad(array, -np.minimum(width, 0).T, constant_values=cval)
   return array
@@ -571,8 +579,8 @@ def show_grid_values(array, figsize=(14, 4), cmap='gray', **kwargs) -> None:
   for yx, value in np.ndenumerate(array):
     text = f'{value}' if np.issubdtype(array.dtype, np.integer) else f'{value:.3f}'
     # https://matplotlib.org/stable/api/_as_gen/matplotlib.patches.FancyBboxPatch.html
-    ax.text(*yx[::-1], text, va='center', ha='center',
-            bbox=dict(boxstyle='square,pad=0.1', fc='white', lw=0))
+    bbox = dict(boxstyle='square,pad=0.1', fc='white', lw=0)
+    ax.text(*yx[::-1], text, va='center', ha='center', bbox=bbox)
   _ = ax.xaxis.set_ticks([]), ax.yaxis.set_ticks([])
   plt.show()
 
@@ -583,13 +591,15 @@ def test_show_grid_values() -> None:
   show_grid_values(rng.integers(0, 256, size=(4, 16)), figsize=(14, 2), vmin=0, vmax=255)
   show_grid_values(rng.random((2, 7)), figsize=(8, 1.3))
 
+
 if EFFORT >= 1:
   test_show_grid_values()
 
 
 # %%
-def create_checkerboard(output_shape: tuple[int, ...],
-                        block_shape=(1, 1), dtype=np.float32) -> _NDArray:
+def create_checkerboard(
+    output_shape: tuple[int, ...], block_shape=(1, 1), dtype=np.float32
+) -> _NDArray:
   """Return a grid of alternating blocks of 0 and 1 values.
 
   >>> array = create_checkerboard((5, 7))
@@ -835,26 +845,30 @@ show_docstring('resampler.GAMMAS')
 # ?resampler.jaxjit_resize
 
 # %%
-# display_markdown(resampler.resize.__doc__)
+# display_markdown(resampler.resize.__doc__)  # It does not show parameter types and defaults.
 
 # %%
 if 0:  # For testing.
   resampler.resize = typing.cast(
-      Any, functools.partial(resampler._resize_possibly_in_arraylib, arraylib='torch'))
+      Any, functools.partial(resampler._resize_possibly_in_arraylib, arraylib='torch')
+  )
   # Note: resize() in jax may return a non-writable np.ndarray, and consequently torch may warn
   # "The given NumPy array is not writable, and PyTorch does not support non-writable tensors".
 
 
 # %%
-def resize_showing_domain_boundary(array: _NDArray, shape, *,
-                                   scale=0.6, translate=0.2, **kwargs) -> _NDArray:
+def resize_showing_domain_boundary(
+    array: _NDArray, shape, *, scale=0.6, translate=0.2, **kwargs
+) -> _NDArray:
   array = np.asarray(resampler.resize(array, shape, scale=scale, translate=translate, **kwargs))
   yx_low = (np.array(shape) * translate + 0.5).astype(int)
   yx_high = (np.array(shape) * (translate + scale) + 0.5).astype(int)
   yx = np.indices(shape)
-  on_boundary = np.logical_or.reduce(
-      [((t == l) | (t == h)) & (t2 >= l2) & (t2 <= h2)
-       for t, l, h, t2, l2, h2 in zip(yx, yx_low, yx_high, yx[::-1], yx_low[::-1], yx_high[::-1])])
+  conditions = [
+      ((t == l) | (t == h)) & (t2 >= l2) & (t2 <= h2)
+      for t, l, h, t2, l2, h2 in zip(yx, yx_low, yx_high, yx[::-1], yx_low[::-1], yx_high[::-1])
+  ]
+  on_boundary = np.logical_or.reduce(conditions)
   line_color = np.mod(yx.sum(axis=0), 8) < 4  # Dashed black-and-white line.
   array = np.where(on_boundary, line_color.T, array.T).T
   return array
@@ -865,12 +879,17 @@ def visualize_filters_on_checkerboard(src_shape=(12, 8), boundary='wrap') -> Non
   original = create_checkerboard(src_shape)
   for dst_shape in [(11, 7), (9, 6), (7, 5), (6, 4), (5, 3), (15, 14)]:
     filters = 'impulse box trapezoid triangle cubic lanczos3 lanczos5 lanczos10'.split()
-    display_markdown(f'Resizing checkerboard from shape `{src_shape}`'
-                     f" to `{dst_shape}` with boundary=`'{boundary}'`:")
-    images = {f"'{filter}'": resampler.resize(original, dst_shape, filter=filter, boundary=boundary)
-              for filter in filters}
+    display_markdown(
+        f'Resizing checkerboard from shape `{src_shape}`'
+        f" to `{dst_shape}` with boundary=`'{boundary}'`:"
+    )
+    images = {
+        f"'{filter}'": resampler.resize(original, dst_shape, filter=filter, boundary=boundary)
+        for filter in filters
+    }
     images = {'original': original, **images}
     media.show_images(images, border=True, vmin=0, vmax=1, width=64)
+
 
 if EFFORT >= 1:
   visualize_filters_on_checkerboard()
@@ -950,7 +969,8 @@ if EFFORT >= 2:
 # %%
 if 0:  # For testing.
   resampler.resize = typing.cast(
-      Any, functools.partial(resampler._resize_using_resample, fallback=True))
+      Any, functools.partial(resampler._resize_using_resample, fallback=True)
+  )
 
 
 # %% [markdown]
@@ -963,15 +983,17 @@ def test_precision() -> None:
   _check_eq(resampler._real_precision(np.dtype(np.complex64)), np.float32)
   _check_eq(resampler._real_precision(np.dtype(np.complex128)), np.float64)
 
-  _check_eq(resampler._get_precision(None, [np.dtype(np.complex64)], [np.dtype(np.float64)]),
-            np.complex128)
+  _check_eq(
+      resampler._get_precision(None, [np.dtype(np.complex64)], [np.dtype(np.float64)]),
+      np.complex128,
+  )
+
 
 test_precision()
 
 
 # %%
 def test_cached_sampling_of_1d_function(radius=2.0) -> None:
-
   def func(x: _ArrayLike) -> _NDArray:  # Lanczos kernel
     x = np.abs(x)
     return np.where(x < radius, resampler._sinc(x) * resampler._sinc(x / radius), 0.0)
@@ -980,13 +1002,15 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
   def func2(x: _ArrayLike) -> _NDArray:
     return func(x)
 
-  def create_scipy_interpolant(func, xmin, xmax,
-                               num_samples=3_600) -> Callable[[_NDArray], _NDArray]:
+  def create_scipy_interpolant(
+      func, xmin, xmax, num_samples=3_600
+  ) -> Callable[[_NDArray], _NDArray]:
     samples_x = np.linspace(xmin, xmax, num_samples + 1, dtype=np.float32)
     samples_func = func(samples_x)
     assert np.all(samples_func[[0, -1]] == 0.0)
     interpolator: Callable[[_NDArray], _NDArray] = scipy.interpolate.interp1d(
-        samples_x, samples_func, kind='linear', bounds_error=False, fill_value=0)
+        samples_x, samples_func, kind='linear', bounds_error=False, fill_value=0
+    )
     return interpolator
 
   scipy_interp = create_scipy_interpolant(func, -radius, radius)
@@ -1015,6 +1039,7 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
     #         0.003    0.003 numpy.ndarray.astype
     #         0.000    0.000 _clip_dep_is_scalar_nan (numpy/core/_methods.py:91)
 
+
 test_cached_sampling_of_1d_function()
 
 
@@ -1036,6 +1061,7 @@ def test_downsample_in_2d_using_box_filter() -> None:
     _check_eq(new.shape, (2, 2))
     assert np.allclose(new, 1.0)
 
+
 if EFFORT >= 1:
   test_downsample_in_2d_using_box_filter()
 
@@ -1048,6 +1074,7 @@ def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
     return
   array = np.ones((4096, 4096))
   hh.print_time(lambda: resampler._downsample_in_2d_using_box_filter(array, shape), max_time=0.4)
+
 
 test_profile_downsample_in_2d_using_box_filter()
 # 8.9 ms
@@ -1062,6 +1089,7 @@ def test_block_shape_with_min_size(debug=False, **kwargs) -> None:
     assert np.all(np.array(block_shape) >= 1)
     assert np.all(block_shape <= shape)
     assert min_size <= math.prod(block_shape) <= math.prod(shape)
+
 
 test_block_shape_with_min_size(compact=True)
 test_block_shape_with_min_size(compact=False)
@@ -1078,6 +1106,7 @@ def test_split_2d() -> None:
     _check_eq(resampler._arr_arraylib(new), arraylib)
     _check_eq(np.sum(resampler._map_function_over_blocks(blocks, lambda _: 1)), 9)
     _check_eq(resampler._arr_numpy(new), 2 * numpy_array)
+
 
 if EFFORT >= 1:
   test_split_2d()
@@ -1104,6 +1133,7 @@ def test_split_3d() -> None:
 
       resampler._map_function_over_blocks(blocks, check_block_shape)
 
+
 if EFFORT >= 1:
   test_split_3d()
 
@@ -1125,13 +1155,14 @@ def test_split_prefix_dims() -> None:
     new = resampler._merge_array_from_blocks(new_blocks)
     _check_eq(new, array.sum(axis=-1))
 
+
 test_split_prefix_dims()
 
 
 # %%
 def test_linear_boundary() -> None:
   index = np.array([[-3], [-2], [-1], [0], [1], [2], [3], [2], [3]])
-  weight = np.array([[1.], [1.], [1.], [1.], [1.], [1.], [1.], [0.], [0.]])
+  weight = np.array([[1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [0.0], [0.0]])
   size = 2
   index, weight = resampler.LinearExtendSamples()(index, weight, size, resampler.DualGridtype())
   assert np.allclose(
@@ -1146,10 +1177,11 @@ def test_linear_boundary() -> None:
           [0, 0, 0, -2, 3],
           [0, 0, 0, 0, 0],
           [0, 0, 0, 0, 0],
-      ])
+      ],
+  )
   assert np.all(
-      index ==
-      [
+      index
+      == [
           [0, 0, 1, 0, 0],
           [0, 0, 1, 0, 0],
           [0, 0, 1, 0, 0],
@@ -1159,7 +1191,9 @@ def test_linear_boundary() -> None:
           [1, 1, 1, 0, 1],
           [1, 1, 1, 1, 1],
           [1, 1, 1, 1, 1],
-      ])
+      ]
+  )
+
 
 test_linear_boundary()
 
@@ -1199,6 +1233,7 @@ def test_gamma() -> None:
     _check_eq(resampler._arr_dtype(encoded), dtype)
     assert np.allclose(resampler._arr_numpy(encoded), array_numpy)
 
+
 if EFFORT >= 1:
   test_gamma()
 
@@ -1212,9 +1247,13 @@ def test_create_resize_matrix_for_trapezoid_filter(src_size, dst_size, debug=Fal
     print(radius)
     filter = resampler.TrapezoidFilter(radius=radius)
   resize_matrix, unused_cval_weight = resampler._create_resize_matrix(
-      src_size, dst_size,
-      src_gridtype=resampler.DualGridtype(), dst_gridtype=resampler.DualGridtype(),
-      boundary=resampler._get_boundary('reflect'), filter=filter)
+      src_size,
+      dst_size,
+      src_gridtype=resampler.DualGridtype(),
+      dst_gridtype=resampler.DualGridtype(),
+      boundary=resampler._get_boundary('reflect'),
+      filter=filter,
+  )
   resize_matrix = resize_matrix.toarray()
   if debug:
     print(resize_matrix)
@@ -1222,6 +1261,7 @@ def test_create_resize_matrix_for_trapezoid_filter(src_size, dst_size, debug=Fal
     print(resize_matrix.sum(axis=1))
   assert resize_matrix.sum(axis=0).var() < 1e-10
   assert resize_matrix.sum(axis=1).var() < 1e-10
+
 
 if 1:
   test_create_resize_matrix_for_trapezoid_filter(src_size=6, dst_size=2)
@@ -1238,6 +1278,7 @@ if 1:
 # %%
 def test_that_resize_matrices_are_equal_across_arraylib() -> None:
   import tensorflow as tf
+
   src_sizes = range(1, 6)
   dst_sizes = range(1, 6)
   for config in itertools.product(src_sizes, dst_sizes):
@@ -1245,18 +1286,25 @@ def test_that_resize_matrices_are_equal_across_arraylib() -> None:
 
     def resize_matrix(arraylib: str) -> _TensorflowTensor:
       return resampler._create_resize_matrix(
-          src_size, dst_size,
-          src_gridtype=resampler.DualGridtype(), dst_gridtype=resampler.DualGridtype(),
-          boundary=resampler._get_boundary('reflect'), filter=resampler._get_filter('lanczos3'),
-          translate=0.8, dtype=np.float32, arraylib=arraylib)[0]
+          src_size,
+          dst_size,
+          src_gridtype=resampler.DualGridtype(),
+          dst_gridtype=resampler.DualGridtype(),
+          boundary=resampler._get_boundary('reflect'),
+          filter=resampler._get_filter('lanczos3'),
+          translate=0.8,
+          dtype=np.float32,
+          arraylib=arraylib,
+      )[0]
 
     numpy_array = resize_matrix('numpy').toarray()
     tensorflow_array = tf.sparse.to_dense(resize_matrix('tensorflow')).numpy()
     torch_array = resize_matrix('torch').to_dense().numpy()
-    jax_array = resize_matrix('jax').todense().to_py()
+    jax_array = np.asarray(resize_matrix('jax').todense())  # to_py() deprecated.
     assert np.allclose(tensorflow_array, numpy_array)
     assert np.allclose(torch_array, numpy_array)
     assert np.allclose(jax_array, numpy_array)
+
 
 if EFFORT >= 1:
   test_that_resize_matrices_are_equal_across_arraylib()
@@ -1268,14 +1316,23 @@ def test_that_resize_combinations_are_affine() -> None:
   for config in itertools.product(resampler.BOUNDARIES, dst_sizes):
     boundary, dst_size = config
     resize_matrix, cval_weight = resampler._create_resize_matrix(
-        21, dst_size,
-        src_gridtype=resampler.DualGridtype(), dst_gridtype=resampler.DualGridtype(),
-        boundary=resampler._get_boundary(boundary), filter=resampler.TriangleFilter(),
-        scale=0.5, translate=0.3)
+        21,
+        dst_size,
+        src_gridtype=resampler.DualGridtype(),
+        dst_gridtype=resampler.DualGridtype(),
+        boundary=resampler._get_boundary(boundary),
+        filter=resampler.TriangleFilter(),
+        scale=0.5,
+        translate=0.3,
+    )
     if cval_weight is None:
       row_sum = np.asarray(resize_matrix.sum(axis=1)).ravel()
       assert np.allclose(row_sum, 1.0, rtol=0, atol=1e-6), (
-          config, resize_matrix.todense(), row_sum)
+          config,
+          resize_matrix.todense(),
+          row_sum,
+      )
+
 
 test_that_resize_combinations_are_affine()
 
@@ -1283,13 +1340,19 @@ test_that_resize_combinations_are_affine()
 # %%
 def test_that_very_large_cval_causes_numerical_noise_to_appear(debug: bool = False) -> None:
   resize_matrix, _ = resampler._create_resize_matrix(
-      2, 3, src_gridtype=resampler.DualGridtype(), dst_gridtype=resampler.DualGridtype(),
-      boundary=resampler._get_boundary('linear_constant'), filter=resampler.CatmullRomFilter())
+      2,
+      3,
+      src_gridtype=resampler.DualGridtype(),
+      dst_gridtype=resampler.DualGridtype(),
+      boundary=resampler._get_boundary('linear_constant'),
+      filter=resampler.CatmullRomFilter(),
+  )
   diff = resize_matrix.toarray().sum(axis=-1) - 1.0
   if debug:
     print(diff)  # [8.8817842e-16 0.0000000e+00 8.8817842e-16]
   assert 1e-17 < abs(diff).max() < 1e-15
   # Note that setting cval=1e20 will cause this numerical noise to appear!
+
 
 test_that_very_large_cval_causes_numerical_noise_to_appear()
 
@@ -1302,6 +1365,7 @@ def test_sparse_csr_matrix_duplicate_entries_are_summed() -> None:
   new = scipy.sparse.csr_matrix((data, indices, indptr), shape=(3, 3)).toarray()
   _check_eq(new, [[1, 0, 2], [0, 0, 3], [7, 5, 0]])
 
+
 test_sparse_csr_matrix_duplicate_entries_are_summed()
 
 
@@ -1309,11 +1373,18 @@ test_sparse_csr_matrix_duplicate_entries_are_summed()
 def test_jax_jit_digital_filter() -> None:
   import jax
   import jax.numpy as jnp
+
   jitted = jax.jit(resampler._apply_digital_filter_1d, static_argnums=(1, 2, 3, 4, 5, 6))
   array = jnp.ones((5,))
-  result = jitted(array, resampler._get_gridtype('dual'), resampler._get_boundary('reflect'),
-                  0.0, resampler._get_filter('cardinal3'))
+  result = jitted(
+      array,
+      resampler._get_gridtype('dual'),
+      resampler._get_boundary('reflect'),
+      0.0,
+      resampler._get_filter('cardinal3'),
+  )
   del result
+
 
 if 0:  # Fails because resampler._apply_digital_filter_1d() is not jax-traceable.
   test_jax_jit_digital_filter()
@@ -1322,12 +1393,17 @@ if 0:  # Fails because resampler._apply_digital_filter_1d() is not jax-traceable
 # %%
 def test_apply_digital_filter_1d_quick() -> None:
   import torch.autograd
+
   for boundary in 'reflect linear border'.split():
 
     def inverse_convolution(array: resampler._Array) -> resampler._Array:
       return resampler._apply_digital_filter_1d(
-          array, resampler._get_gridtype('dual'), resampler._get_boundary(boundary), 20.0,
-          resampler._get_filter('cardinal3'))
+          array,
+          resampler._get_gridtype('dual'),
+          resampler._get_boundary(boundary),
+          20.0,
+          resampler._get_filter('cardinal3'),
+      )
 
     array_np = np.array([1.0, 2.0, 5.0, 7.0], np.float32)
     reference = inverse_convolution(array_np)
@@ -1341,7 +1417,8 @@ def test_apply_digital_filter_1d_quick() -> None:
     array2_np = np.random.default_rng(0).random(shape, np.float64)
     array2 = torch.tensor(array2_np, requires_grad=True)
     assert torch.autograd.gradcheck(  # type: ignore[attr-defined]
-        inverse_convolution, [array2], rtol=0, atol=1e-6), boundary
+        inverse_convolution, [array2], rtol=0, atol=1e-6
+    ), boundary
 
 
 if EFFORT >= 1:
@@ -1354,6 +1431,7 @@ def test_linear_precision_of_1d_primal_upsampling() -> None:
   new = resampler.resize(array, (13,), gridtype='primal', filter='triangle')
   with np.printoptions(linewidth=300):
     _check_eq(new, np.arange(13) / 2)
+
 
 test_linear_precision_of_1d_primal_upsampling()
 
@@ -1368,6 +1446,7 @@ def test_linear_precision_of_2d_primal_upsampling() -> None:
     expected = np.moveaxis(np.indices(new_shape, np.float32), 0, -1) @ [10, 1] / 2
     _check_eq(new, expected)
 
+
 test_linear_precision_of_2d_primal_upsampling()
 
 
@@ -1378,6 +1457,7 @@ def test_resize_of_complex_value_type() -> None:
     new = resampler._original_resize(array, (4,), filter='triangle')
     assert np.allclose(new, [1 + 2j, 1.5 + 3j, 2.5 + 5j, 3 + 6j])
 
+
 if EFFORT >= 1:
   test_resize_of_complex_value_type()
 
@@ -1387,6 +1467,7 @@ def test_resize_of_integer_type() -> None:
   array = np.array([1, 6])
   new = resampler.resize(array, (4,), filter='triangle')
   assert np.allclose(new, [1, 2, 5, 6])
+
 
 test_resize_of_integer_type()
 
@@ -1402,19 +1483,27 @@ def test_order_of_dimensions_does_not_affect_resize_results(step=3) -> None:
   configs = itertools.product(*sequences)  # len(configs) = math.prod([4, 4, 2, 2, 5, 4]) = 1280.
   for config in itertools.islice(configs, 0, None, step):
     src_shape, dst_shape, src_gridtype, dst_gridtype, boundary, filter = config
-    if ((src_gridtype == 'primal' and min(src_shape) < 2) or
-        (dst_gridtype == 'primal' and min(dst_shape) < 2)):
+    if (src_gridtype == 'primal' and min(src_shape) < 2) or (
+        dst_gridtype == 'primal' and min(dst_shape) < 2
+    ):
       continue
     array = np.random.default_rng(0).random(src_shape)
     reference = None
     for dim_order in itertools.permutations(range(3)):
       result = resampler.resize(
-          array, dst_shape, src_gridtype=src_gridtype, dst_gridtype=dst_gridtype,
-          boundary=boundary, filter=filter, dim_order=dim_order)
+          array,
+          dst_shape,
+          src_gridtype=src_gridtype,
+          dst_gridtype=dst_gridtype,
+          boundary=boundary,
+          filter=filter,
+          dim_order=dim_order,
+      )
       if reference is None:
         reference = result
       else:
         assert np.allclose(result, reference), config
+
 
 if EFFORT >= 1:
   test_order_of_dimensions_does_not_affect_resize_results()
@@ -1432,28 +1521,38 @@ def test_apply_digital_filter_1d(cval=-10.0, shape=(7, 8)) -> None:
     array2 = array1
     for dim in range(array2.ndim):
       array2 = resampler._apply_digital_filter_1d(
-          array2, resampler._get_gridtype(gridtype), resampler._get_boundary(boundary), cval,
-          resampler._get_filter(filter), axis=dim)
+          array2,
+          resampler._get_gridtype(gridtype),
+          resampler._get_boundary(boundary),
+          cval,
+          resampler._get_filter(filter),
+          axis=dim,
+      )
     bspline = resampler.BsplineFilter(degree=int(filter[-1:]))
-    array3 = resampler.resize(array2, array2.shape, gridtype=gridtype, boundary=boundary,
-                              cval=cval, filter=bspline)
+    array3 = resampler.resize(
+        array2, array2.shape, gridtype=gridtype, boundary=boundary, cval=cval, filter=bspline
+    )
     assert np.allclose(array3, original), config
+
 
 test_apply_digital_filter_1d()
 
 
 # %%
-def test_apply_resize_to_batch_of_images(num_images=10, shape=(32, 32), new_shape=(128, 128),
-                                         debug=False) -> None:
+def test_apply_resize_to_batch_of_images(
+    num_images=10, shape=(32, 32), new_shape=(128, 128), debug=False
+) -> None:
   for arraylib in resampler.ARRAYLIBS:
     batch_of_images = media.moving_circle(shape, num_images=num_images)
     batch_of_images = resampler._make_array(batch_of_images, arraylib)
     _check_eq(batch_of_images.shape, (num_images, *shape, 3))
     new_batch = resampler._arr_numpy(
-        resampler._original_resize(batch_of_images, (num_images, *new_shape)))
+        resampler._original_resize(batch_of_images, (num_images, *new_shape))
+    )
     _check_eq(new_batch.shape, (num_images, *new_shape, 3))
     if debug:
       media.show_video(new_batch, fps=5)
+
 
 if EFFORT >= 1:
   test_apply_resize_to_batch_of_images()
@@ -1473,9 +1572,11 @@ def test_resample_small_array(arraylib: str) -> None:
   rms = get_rms(array, downsampled)
   assert 0.07 <= rms <= 0.08, rms
 
+
 def test_resample_small_arrays() -> None:
   for arraylib in resampler.ARRAYLIBS:
     test_resample_small_array(arraylib=arraylib)
+
 
 if EFFORT >= 1:
   test_resample_small_arrays()
@@ -1489,6 +1590,7 @@ def test_identity_resampling_with_many_boundary_rules(filter: resampler.Filter) 
     new_array = resampler.resample(array, coords, boundary=boundary, cval=10000, filter=filter)
     assert np.allclose(new_array, array), boundary
 
+
 test_identity_resampling_with_many_boundary_rules(resampler.LanczosFilter(radius=5, sampled=False))
 
 
@@ -1501,38 +1603,43 @@ def test_resample_scenario1() -> None:
   new = resampler.resample(array, coords, filter='triangle')
   assert np.allclose(new, [[25, 38, 63, 75]] * 4)
 
+
 test_resample_scenario1()
+
 
 def test_resample_scenario2() -> None:
   """Resample an RGB image with `array.shape = height, width, 3` onto a new RGB image with
   `new.shape = height2, width2, 3` by using `coords.shape = height2, width2, 2`."""
-  array = [[[25, 125, 225], [75, 175, 275]],
-           [[25, 125, 225], [75, 175, 275]]]
+  array = [[[25, 125, 225], [75, 175, 275]], [[25, 125, 225], [75, 175, 275]]]  #
   coords = (np.moveaxis(np.indices((4, 4)), 0, -1) + 0.5) / 4
   new = resampler.resample(array, coords, filter='triangle')
   assert np.allclose(new, [[[25, 125, 225], [38, 138, 238], [63, 163, 263], [75, 175, 275]]] * 4)
 
+
 test_resample_scenario2()
+
 
 def test_resample_scenario3() -> None:
   """Sample an RGB image at `num` 2D points along a line segment by using
   `coords.shape = num, 2`."""
-  array = [[[10, 10, 10], [100, 10, 10]],
-           [[20, 200, 20], [80, 80, 80]]]
+  array = [[[10, 10, 10], [100, 10, 10]], [[20, 200, 20], [80, 80, 80]]]  #
   coords = [[0.2, 0.2], [0.3, 0.5], [0.4, 0.8]]
   new = resampler.resample(array, coords, filter='triangle')
   assert np.allclose(new, [[10, 10, 10], [55, 23, 14], [94, 31, 31]])
 
+
 test_resample_scenario3()
+
 
 def test_resample_scenario4() -> None:
   """Sample an RGB image at a single 2D point by using `coords.shape = (2,)`."""
-  array = [[[10, 10, 10], [100, 10, 10]],
-           [[20, 200, 20], [80, 80, 80]]]
+  array = [[[10, 10, 10], [100, 10, 10]], [[20, 200, 20], [80, 80, 80]]]  #
   new = resampler.resample(array, (0.25, 0.25))
   assert np.allclose(new, [10, 10, 10])
 
+
 test_resample_scenario4()
+
 
 def test_resample_scenario5() -> None:
   """Sample a 3D grid of 3x3 Jacobians with `array.shape = nz, ny, nx, 3, 3` along a 2D plane
@@ -1542,16 +1649,18 @@ def test_resample_scenario5() -> None:
   new = resampler.resample(array, coords)
   _check_eq(new.shape, (2, 2, 3, 3))
 
+
 test_resample_scenario5()
+
 
 def test_resample_scenario6() -> None:
   """Map a grayscale image through a color map by using `array.shape = 256, 3` and
   `coords.shape = height, width`."""
   array = [1000, 1100, 1400, 2000]
-  coords = [[[0.1], [0.3]],
-            [[0.7], [0.9]]]
+  coords = [[[0.1], [0.3]], [[0.7], [0.9]]]  #
   new = resampler.resample(array, coords)
   assert np.allclose(new, [[998, 1060], [1583, 2040]])
+
 
 test_resample_scenario6()
 
@@ -1565,6 +1674,7 @@ def test_identity_resampling() -> None:
   assert np.allclose(new, array, rtol=0, atol=1e-6)
   new = resampler.resample(array, coords, filter=resampler.LanczosFilter(radius=3, sampled=False))
   assert np.allclose(new, array)
+
 
 test_identity_resampling()
 
@@ -1586,17 +1696,28 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
   assert step == 1 or all(len(sequence) % step != 0 for sequence in sequences)
   for config in itertools.islice(configs, 0, None, step):
     arraylib, dtype, gridtype, boundary, filter, gamma = config
-    if gamma != 'identity' and not (dtype in ['float32', 'uint8'] and
-                                    boundary == 'reflect' and filter == 'lanczos3'):
+    if gamma != 'identity' and not (
+        dtype in ['float32', 'uint8'] and boundary == 'reflect' and filter == 'lanczos3'
+    ):
       continue
     if arraylib == 'torch' and dtype == 'uint32':
       continue  # "The only supported types are: ..., int64, int32, int16, int8, uint8, and bool."
-    atol = {'float32': 2e-5, 'float64': 1e-12, 'complex64': 2e-5, 'complex128': 1e-12,
-            'uint8': 1, 'uint32': 1, 'int32': 1}[dtype]
+    atol = {
+        'float32': 2e-5,
+        'float64': 1e-12,
+        'complex64': 2e-5,
+        'complex128': 1e-12,
+        'uint8': 1,
+        'uint32': 1,
+        'int32': 1,
+    }[dtype]
     dtype = np.dtype(dtype)
     rng = np.random.default_rng(0)
-    array = (rng.integers(256, size=shape, dtype=dtype) if np.issubdtype(dtype, np.integer) else
-             rng.random(shape).astype(dtype))
+    array = (
+        rng.integers(256, size=shape, dtype=dtype)
+        if np.issubdtype(dtype, np.integer)
+        else rng.random(shape).astype(dtype)
+    )
     yx = np.moveaxis(np.indices(new_shape), 0, -1)
     coords = (yx + 0.5) / new_shape if gridtype == 'dual' else yx / (np.array(new_shape) - 1)
     coords = (coords - translate) / scale
@@ -1608,10 +1729,12 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
     resampled2 = resampler.resample(array2, coords, **kwargs)
     _check_eq(resampler._arr_arraylib(resized), 'numpy')
     assert resampler._arr_arraylib(resized2) == resampler._arr_arraylib(resampled2) == arraylib
-    assert (resized.dtype == resampler._arr_dtype(resized2) ==
-            resampler._arr_dtype(resampled2) == dtype)
+    assert (
+        resized.dtype == resampler._arr_dtype(resized2) == resampler._arr_dtype(resampled2) == dtype
+    )
     assert np.allclose(resized2, resized, rtol=0, atol=atol), config
     assert np.allclose(resampled2, resized, rtol=0, atol=atol), config
+
 
 if EFFORT >= 1:
   # hh.prun(lambda: test_that_all_resize_and_resample_agree(), mode='full')
@@ -1621,8 +1744,9 @@ if EFFORT >= 1:
 # %%
 def test_resample_of_complex_value_type() -> None:
   array = np.array([1 + 2j, 3 + 6j])
-  new = resampler.resample(array, (0.125, 0.375, 0.625, 0.875,), filter='triangle')
+  new = resampler.resample(array, (0.125, 0.375, 0.625, 0.875), filter='triangle')
   assert np.allclose(new, [1 + 2j, 1.5 + 3j, 2.5 + 5j, 3 + 6j])
+
 
 test_resample_of_complex_value_type()
 
@@ -1630,8 +1754,9 @@ test_resample_of_complex_value_type()
 # %%
 def test_resample_of_integer_type() -> None:
   array = np.array([1, 6])
-  new = resampler.resample(array, (0.125, 0.375, 0.625, 0.875,), filter='triangle')
+  new = resampler.resample(array, (0.125, 0.375, 0.625, 0.875), filter='triangle')
   assert np.allclose(new, [1, 2, 5, 6])
+
 
 test_resample_of_integer_type()
 
@@ -1656,6 +1781,7 @@ def test_resample_using_coords_of_various_shapes(debug=False) -> None:
         print(f'{array.tolist()!s:30} {coords.shape!s:8} {new!s}')
       _check_eq(new is None, coords.ndim >= 2 and coords.shape[-1] > max(array.ndim, 1))
 
+
 test_resample_using_coords_of_various_shapes()
 
 
@@ -1671,11 +1797,18 @@ def test_resize_using_resample(shape=(3, 2, 5), new_shape=(4, 2, 7), step=37) ->
   configs = itertools.product(*sequences)  # len(configs) = math.prod([2, 12, 19, 2]) = 912.
   for config in itertools.islice(configs, 0, None, step):
     gridtype, boundary, filter, gamma = config
-    kwargs = dict(gridtype=gridtype, boundary=boundary, filter=filter,
-                  gamma=gamma, scale=scale, translate=translate)
+    kwargs = dict(
+        gridtype=gridtype,
+        boundary=boundary,
+        filter=filter,
+        gamma=gamma,
+        scale=scale,
+        translate=translate,
+    )
     expected = resampler._original_resize(array, new_shape, **kwargs)
     new_array = resampler._resize_using_resample(array, new_shape, **kwargs)
     assert np.allclose(new_array, expected, rtol=0, atol=1e-7), config
+
 
 test_resize_using_resample()
 
@@ -1686,17 +1819,16 @@ def test_resize_using_resample_of_complex_value_type() -> None:
   new = resampler._resize_using_resample(array, (4,), filter='triangle')
   assert np.allclose(new, [1 + 2j, 1.5 + 3j, 2.5 + 5j, 3 + 6j])
 
+
 test_resize_using_resample_of_complex_value_type()
 
 
 # %%
 def test_resizer_produces_correct_shape(resizer, filter: str = 'lanczos3') -> None:
-  np.allclose(resizer(np.ones((11,)), (13,), filter=filter),
-              np.ones((13,)), rtol=0, atol=1e-7)
-  np.allclose(resizer(np.ones((8, 8)), (5, 20), filter=filter),
-              np.ones((5, 20)), rtol=0, atol=1e-7)
-  np.allclose(resizer(np.ones((11, 10, 3)), (13, 7), filter=filter),
-              np.ones((13, 7, 3)), rtol=0, atol=1e-7)
+  tol: Any = dict(rtol=0, atol=1e-7)
+  np.allclose(resizer(np.ones((11,)), (13,), filter=filter), np.ones((13,)), **tol)
+  np.allclose(resizer(np.ones((8, 8)), (5, 20), filter=filter), np.ones((5, 20)), **tol)
+  np.allclose(resizer(np.ones((11, 10, 3)), (13, 7), filter=filter), np.ones((13, 7, 3)), **tol)
 
 
 # %%
@@ -1705,6 +1837,7 @@ def test_resizers_produce_correct_shape() -> None:
   for arraylib in resampler.ARRAYLIBS:
     resizer = functools.partial(resampler.resize_in_arraylib, arraylib=arraylib)
     test_resizer_produces_correct_shape(resizer)
+
 
 if EFFORT >= 1:
   test_resizers_produce_correct_shape()
@@ -1750,6 +1883,7 @@ def test_pil_image_resize() -> None:
     atol = 2e-7 if gridscale in (2.0, 1.0, 0.5) else 3e-6
     assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
 
+
 test_pil_image_resize()
 
 
@@ -1758,13 +1892,15 @@ def test_undocumented_lanczos_in_pil_image() -> None:
   array = np.array([0, 0, 0, 1, 0, 0, 0], np.float32)
   new_len = len(array) * 2
   new_array = resampler.pil_image_resize(array, (new_len,), filter='lanczos3')
-  lanczos = resampler.resize(array, (new_len,), filter=resampler.LanczosFilter(radius=3),
-                             boundary='natural')
+  lanczos = resampler.resize(
+      array, (new_len,), filter=resampler.LanczosFilter(radius=3), boundary='natural'
+  )
   assert np.allclose(new_array, lanczos)
 
   new_array = resampler.pil_image_resize(array, (new_len,), filter='cubic')
   cubic = resampler.resize(array, (new_len,), filter='cubic', boundary='natural')
   assert np.allclose(new_array, cubic)
+
 
 if EFFORT >= 1:
   test_undocumented_lanczos_in_pil_image()
@@ -1798,12 +1934,21 @@ def test_cv_resize() -> None:
     shape = (int(original.shape[0] * gridscale),)
     result = resampler.cv_resize(original, shape, filter=filter)
     filter2: str | resampler.Filter = (
-        resampler.LanczosFilter(radius=4) if filter == 'lanczos4' else filter)
+        resampler.LanczosFilter(radius=4) if filter == 'lanczos4' else filter
+    )
     reference = resampler.resize(original, shape, filter=filter2, boundary='natural')
     # Many discrepancies; perhaps due to different renormalization of weights at boundaries.
-    atol = (0.15 if at_boundary else 1e-2 if filter == 'lanczos4' else
-            3e-6 if gridscale not in (2.0, 1.0, 0.5) else 2e-7)
+    atol = (
+        0.15
+        if at_boundary
+        else 1e-2
+        if filter == 'lanczos4'
+        else 3e-6
+        if gridscale not in (2.0, 1.0, 0.5)
+        else 2e-7
+    )
     assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
+
 
 test_cv_resize()
 
@@ -1821,6 +1966,7 @@ def test_sharper_cubic_filter_in_opencv() -> None:
     with np.printoptions(linewidth=300):
       print(np.vstack([reference, new_array]))
   assert np.allclose(new_array, reference, rtol=0, atol=1e-7)
+
 
 if EFFORT >= 2:
   test_sharper_cubic_filter_in_opencv()
@@ -1866,6 +2012,7 @@ def test_scipy_ndimage_resize() -> None:
     reference = resampler.resize(original, shape, filter=filter, boundary=boundary)
     assert np.allclose(result, reference, rtol=0, atol=2e-6), (config, result, reference)
 
+
 test_scipy_ndimage_resize()
 
 
@@ -1900,6 +2047,7 @@ def test_skimage_transform_resize() -> None:
     result = resampler.skimage_transform_resize(original, shape, filter=filter, boundary=boundary)
     reference = resampler.resize(original, shape, filter=filter, boundary=boundary)
     assert np.allclose(result, reference, rtol=0, atol=2e-6), (config, result, reference)
+
 
 test_skimage_transform_resize()
 
@@ -1940,6 +2088,7 @@ def test_tf_image_resize() -> None:
     # print(f'{filter:10} {antialias=:1}  {rms=:.2e}')
     assert rms < 1e-6, (config, rms)
 
+
 if EFFORT >= 1:
   test_tf_image_resize()
 
@@ -1978,25 +2127,32 @@ def test_torch_nn_resize() -> None:
     atol = 7e-2 if at_boundary else 0.0  # The boundary behavior is unexpected.
     assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
 
+
 test_torch_nn_resize()
 
 
 # %%
 def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7)) -> None:
   import torch.autograd
+
   functions: dict[str, Callable[[_TorchTensor], _TorchTensor]] = {
       'interpolate linear AA': lambda array: torch.nn.functional.interpolate(
-          array[None][None], dst_shape, mode='bilinear', align_corners=False, antialias=True),
+          array[None][None], dst_shape, mode='bilinear', align_corners=False, antialias=True
+      ),
       'interpolate cubic AA': lambda array: torch.nn.functional.interpolate(
-          array[None][None], dst_shape, mode='bicubic', align_corners=None, antialias=True),
+          array[None][None], dst_shape, mode='bicubic', align_corners=None, antialias=True
+      ),
       'interpolate trapezoid/area': lambda array: torch.nn.functional.interpolate(
-          array[None][None], dst_shape, mode='area', align_corners=None, antialias=False),
+          array[None][None], dst_shape, mode='area', align_corners=None, antialias=False
+      ),
   }
   array_np = np.random.default_rng(0).random(src_shape, np.float64)
   array = torch.tensor(array_np, requires_grad=True)
   for name, function in functions.items():
     assert torch.autograd.gradcheck(  # type: ignore[attr-defined]
-        function, [array], rtol=0, atol=1e-6), name
+        function, [array], rtol=0, atol=1e-6
+    ), name
+
 
 test_differentiability_of_torch_resizing()
 
@@ -2029,8 +2185,9 @@ def test_jax_image_resize() -> None:
   step = 1 if EFFORT >= 1 else 13  # len(configs) = 5 * 4 * 3 * 2 = 120
   for config in itertools.islice(configs, 0, None, step):
     at_boundary, gridscale, filter, scale, translate = config
-    if ((scale != 1.0 or translate != 0.0) and
-        (at_boundary or filter == 'lanczos5' or gridscale < 1.0)):
+    if (scale != 1.0 or translate != 0.0) and (
+        at_boundary or filter == 'lanczos5' or gridscale < 1.0
+    ):
       # print(f'skipping {config} which seems buggy.')
       # It seems that they are normalizing weights before setting zero weights outside.
       continue
@@ -2038,9 +2195,11 @@ def test_jax_image_resize() -> None:
     original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
     kwargs: dict[str, Any] = dict(filter=filter, scale=scale, translate=translate)
-    result = resampler.jax_image_resize(original, shape, **kwargs).to_py()
+    # to_py() deprecated.
+    result = np.asarray(resampler.jax_image_resize(original, shape, **kwargs))
     reference = resampler.resize(original, shape, **kwargs, boundary='natural')
     assert np.allclose(result, reference, rtol=0, atol=1e-5), (config, result, reference)
+
 
 if EFFORT >= 1:
   test_jax_image_resize()
@@ -2081,6 +2240,7 @@ def test_gamma_conversion_from_and_to_uint8_timings() -> None:
     t1 = hh.get_time(lambda: gamma.encode(array_float, np.uint8))
     print(f'# {dtype}  {gamma_name:9} {arraylib:11} decode={t0:5.3f}  encode={t1:5.3f} s')
 
+
 if EFFORT >= 2:
   test_gamma_conversion_from_and_to_uint8_timings()
 
@@ -2100,24 +2260,27 @@ def test_best_dimension_ordering_for_resize_timing(dtype=np.float32) -> None:
       t1 = hh.get_time(lambda: resampler._original_resize(*args, dim_order=[1, 0]), **time_args)
       t2 = hh.get_time(lambda: resampler._original_resize(*args), **time_args)
       warning = ' !' if t2 > min(t0, t1) * 1.1 and t2 > max(t0, t1) * 0.9 else ''
-      print(f'# {arraylib:10} {int(c_contiguous)}  {src_shape!s:>15} -> {dst_shape!s:12}'
-            f' {t0:6.3f} {t1:6.3f} {t2:6.3f} s{warning}')
+      print(
+          f'# {arraylib:10} {int(c_contiguous)}  {src_shape!s:>15} -> {dst_shape!s:12}'
+          f' {t0:6.3f} {t1:6.3f} {t2:6.3f} s{warning}'
+      )
 
     for args in [
-      ((1024, 1024, 1), (4096, 4096)),
-      ((4096, 4096, 3), (2048, 2048)),
-      ((8192, 8192, 3), (512, 512)),
-      ((2048, 2048, 3), (4096, 4096)),
-      # ((2048, 2048), (4096, 4096)),
-      ((2048, 2048), (4096, 1024)),
-      ((2048, 2048), (1024, 4096)),
-      ((1024, 1024), (4096, 8192)),
-      ((1024, 1024), (8192, 4096)),
-      ((4096, 4096), (2048, 1024)),
-      ((4096, 4096), (1024, 2048)),
+        ((1024, 1024, 1), (4096, 4096)),
+        ((4096, 4096, 3), (2048, 2048)),
+        ((8192, 8192, 3), (512, 512)),
+        ((2048, 2048, 3), (4096, 4096)),
+        # ((2048, 2048), (4096, 4096)),
+        ((2048, 2048), (4096, 1024)),
+        ((2048, 2048), (1024, 4096)),
+        ((1024, 1024), (4096, 8192)),
+        ((1024, 1024), (8192, 4096)),
+        ((4096, 4096), (2048, 1024)),
+        ((4096, 4096), (1024, 2048)),
     ]:
       run(*args)
     print()
+
 
 if EFFORT >= 2:
   test_best_dimension_ordering_for_resize_timing()
@@ -2125,22 +2288,23 @@ if EFFORT >= 2:
 
 # %%
 def experiment_with_resize_timing() -> None:
-
   def run(src_shape, dst_shape) -> None:
     for dtype in 'uint8 float32 float64'.split():
       array = np.ones(src_shape, dtype)
       args = [dst_shape]
       kwargs: dict[str, Any] = dict(gamma='identity')
-      array_for_lib = {arraylib: resampler._make_array(array, arraylib)
-                       for arraylib in resampler.ARRAYLIBS}
+      array_for_lib = {
+          arraylib: resampler._make_array(array, arraylib) for arraylib in resampler.ARRAYLIBS
+      }
       functions: dict[str, Callable[[], _AnyArray]] = {
-        'np': lambda: resampler.resize(array_for_lib['numpy'], *args, **kwargs),
-        'tf': lambda: resampler.resize(array_for_lib['tensorflow'], *args, **kwargs),
-        'to': lambda: resampler.resize(array_for_lib['torch'], *args, **kwargs),
-        'jax': lambda: resampler.resize(array_for_lib['jax'], *args, **kwargs),
-        'jj': lambda: resampler.jaxjit_resize(array_for_lib['jax'], *args, **kwargs),
-        'tfi': lambda: resampler.tf_image_resize(array_for_lib['tensorflow'], *args,
-                                                 filter=resampler._DEFAULT_FILTER),
+          'np': lambda: resampler.resize(array_for_lib['numpy'], *args, **kwargs),
+          'tf': lambda: resampler.resize(array_for_lib['tensorflow'], *args, **kwargs),
+          'to': lambda: resampler.resize(array_for_lib['torch'], *args, **kwargs),
+          'jax': lambda: resampler.resize(array_for_lib['jax'], *args, **kwargs),
+          'jj': lambda: resampler.jaxjit_resize(array_for_lib['jax'], *args, **kwargs),
+          'tfi': lambda: resampler.tf_image_resize(
+              array_for_lib['tensorflow'], *args, filter=resampler._DEFAULT_FILTER
+          ),
       }
       src_str = str(src_shape).replace(' ', '')
       dst_str = str(dst_shape).replace(' ', '')
@@ -2154,12 +2318,13 @@ def experiment_with_resize_timing() -> None:
     print()
 
   for args in [
-    ((1024,) * 2 + (1,), (4096,) * 2),
-    ((1024,) * 2 + (3,), (4096,) * 2),
-    ((1000, 2000, 3), (100, 200)),
-    ((8192,) * 2 + (3,), (2048,) * 2),
+      ((1024,) * 2 + (1,), (4096,) * 2),
+      ((1024,) * 2 + (3,), (4096,) * 2),
+      ((1000, 2000, 3), (100, 200)),
+      ((8192,) * 2 + (3,), (2048,) * 2),
   ]:
     run(*args)
+
 
 if EFFORT >= 2:
   experiment_with_resize_timing()
@@ -2188,13 +2353,15 @@ def test_compare_timing_of_resize_and_media_show_image() -> None:
   # Timing: resize:0.8 media_pil:4.0 s
   assert 0.05 < time_resize / time_pil < 0.5
 
+
 if EFFORT >= 2:
   test_compare_timing_of_resize_and_media_show_image()
 # Conclusion: media.show_image() should use resampler.resize() instead of PIL!
 
 # %%
-def test_profile_downsampling(shape, new_shape, filter='trapezoid',
-                              also_prun=False, dtype='float32') -> None:
+def test_profile_downsampling(
+    shape, new_shape, filter='trapezoid', also_prun=False, dtype='float32'
+) -> None:
   _check_eq(len(shape), 3)
   array = np.ones(shape, dtype)
   height, width, ch = shape
@@ -2209,8 +2376,14 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
   def reshape2() -> _NDArray:
     shape1 = height, new_width, block_width, ch
     shape2 = new_height, block_height, new_width, ch
-    return array.reshape(shape1).transpose([0, 1, 3, 2]).mean(axis=-1).reshape(shape2).transpose(
-        [0, 2, 3, 1]).mean(axis=-1)
+    return (
+        array.reshape(shape1)
+        .transpose([0, 1, 3, 2])
+        .mean(axis=-1)
+        .reshape(shape2)
+        .transpose([0, 2, 3, 1])
+        .mean(axis=-1)
+    )
 
   def reshape3() -> _NDArray:
     shape1 = new_height, block_height, new_width, block_width * ch
@@ -2233,8 +2406,9 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
   def reshape4() -> _NDArray:
     shape1 = new_height, block_height, new_width, block_width, ch
     shape2 = ch, new_height, new_width, block_height * block_width
-    return np.moveaxis(array.reshape(shape1).transpose([4, 0, 2, 1, 3]).reshape(shape2).mean(
-        axis=-1), 0, -1)
+    return np.moveaxis(
+        array.reshape(shape1).transpose([4, 0, 2, 1, 3]).reshape(shape2).mean(axis=-1), 0, -1
+    )
 
   def reshape5() -> _NDArray:
     shape1 = new_height, block_height, new_width, block_width, ch
@@ -2243,16 +2417,17 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
 
   def reduceat() -> _NDArray:
     # https://www.w3resource.com/python-exercises/numpy/python-numpy-exercise-191.php
-    return np.add.reduceat(np.add.reduceat(array, np.arange(0, width, block_width), axis=1),
-                           np.arange(0, height, block_height), axis=0) * factor
+    a = np.add.reduceat(array, np.arange(0, width, block_width), axis=1)
+    return np.add.reduceat(a, np.arange(0, height, block_height), axis=0) * factor
 
+  a = array, new_shape
   functions: dict[str, Callable[[], Any]] = {
-      'resize_in_numpy': lambda: resampler.resize_in_numpy(array, new_shape, filter=filter),
-      'resize_in_tensorflow': lambda: resampler.resize_in_tensorflow(array, new_shape, filter=filter),
-      'resize_in_torch': lambda: resampler.resize_in_torch(array, new_shape, filter=filter),
-      'resize_in_jax': lambda: resampler.resize_in_jax(array, new_shape, filter=filter),
-      'jaxjit_resize': lambda: resampler.jaxjit_resize(array, new_shape, filter=filter),
-      'tf_image_resize': lambda: resampler.tf_image_resize(array, new_shape, filter=filter),
+      'resize_in_numpy': lambda: resampler.resize_in_numpy(*a, filter=filter),
+      'resize_in_tensorflow': lambda: resampler.resize_in_tensorflow(*a, filter=filter),
+      'resize_in_torch': lambda: resampler.resize_in_torch(*a, filter=filter),
+      'resize_in_jax': lambda: resampler.resize_in_jax(*a, filter=filter),
+      'jaxjit_resize': lambda: resampler.jaxjit_resize(*a, filter=filter),
+      'tf_image_resize': lambda: resampler.tf_image_resize(*a, filter=filter),
   }
   if filter == 'trapezoid':
     functions = {
@@ -2280,6 +2455,7 @@ def test_profile_downsampling(shape, new_shape, filter='trapezoid',
     if also_prun:
       hh.prun(function, top=2)
 
+
 if EFFORT >= 1:
   test_profile_downsampling((2000, 4000, 3), (100, 200))
 if EFFORT >= 2:
@@ -2301,18 +2477,19 @@ if EFFORT >= 2:
 # - For `'lanczos3'` downsampling, `resampler.resize_in_numpy` is slightly faster than `tf.image.resize`.
 
 # %%
-def test_profile_upsampling(shape, new_shape, filter='lanczos3',
-                            also_prun=False, dtype='float32') -> None:
+def test_profile_upsampling(
+    shape, new_shape, filter='lanczos3', also_prun=False, dtype='float32'
+) -> None:
   _check_eq(len(shape), 3)
   array = np.ones(shape, dtype)
-
+  a = array, new_shape
   functions: dict[str, Callable[[], _AnyArray]] = {
-      'resize_in_numpy': lambda: resampler.resize_in_numpy(array, new_shape, filter=filter),
-      'resize_in_tensorflow': lambda: resampler.resize_in_tensorflow(array, new_shape, filter=filter),
-      'resize_in_torch': lambda: resampler.resize_in_torch(array, new_shape, filter=filter),
-      'resize_in_jax': lambda: resampler.resize_in_jax(array, new_shape, filter=filter),
-      'jaxjit_resize': lambda: resampler.jaxjit_resize(array, new_shape, filter=filter),
-      'tf_image_resize': lambda: resampler.tf_image_resize(array, new_shape, filter=filter, antialias=False),
+      'resize_in_numpy': lambda: resampler.resize_in_numpy(*a, filter=filter),
+      'resize_in_tensorflow': lambda: resampler.resize_in_tensorflow(*a, filter=filter),
+      'resize_in_torch': lambda: resampler.resize_in_torch(*a, filter=filter),
+      'resize_in_jax': lambda: resampler.resize_in_jax(*a, filter=filter),
+      'jaxjit_resize': lambda: resampler.jaxjit_resize(*a, filter=filter),
+      'tf_image_resize': lambda: resampler.tf_image_resize(*a, filter=filter, antialias=False),
   }
   print(f'** {shape} -> {new_shape} {filter} {dtype}:')
   expected = resampler.resize_in_numpy(array, new_shape, filter=filter)
@@ -2325,6 +2502,7 @@ def test_profile_upsampling(shape, new_shape, filter='lanczos3',
     _check_eq(result.dtype, dtype)
     if also_prun:
       hh.prun(function, top=2)
+
 
 if EFFORT >= 1:
   test_profile_upsampling((1024, 1024, 1), (2048, 2048), also_prun=True)
@@ -2357,6 +2535,7 @@ def experiment_image_uniform_scaling() -> None:
       images[f'uniform {shape}'] = resampler.uniform_resize(image, shape, cval=0.8)
     media.show_images(images)
 
+
 experiment_image_uniform_scaling()
 
 
@@ -2370,18 +2549,21 @@ def experiment_rotate_image_about_center(scale=1.0) -> None:
     new_shapes = [original.shape[:2], image.shape[:2], (100, 200), (100, 50)]
     images = {
         f'{i}: {new_shape}': resampler.rotate_image_about_center(
-            image, np.radians(10), new_shape=new_shape, scale=scale, boundary='constant')
+            image, np.radians(10), new_shape=new_shape, scale=scale, boundary='constant'
+        )
         for i, new_shape in enumerate(new_shapes)
     }
     images = {'image': image, **images}
     media.show_images(images)
 
+
 experiment_rotate_image_about_center()
 
 
 # %%
-def overwrite_outside_circle(image: _NDArray, cval: _ArrayLike = 0,
-                             margin: float = 0.0) -> _NDArray:
+def overwrite_outside_circle(
+    image: _NDArray, cval: _ArrayLike = 0, margin: float = 0.0
+) -> _NDArray:
   shape = np.array(image.shape[:2])
   cval = np.broadcast_to(cval, image.shape[2])
   radius = min(shape) / 2 - margin
@@ -2396,6 +2578,7 @@ def overwrite_outside_circle(image: _NDArray, cval: _ArrayLike = 0,
 def test_overwrite_outside_circle() -> None:
   media.show_image(overwrite_outside_circle(EXAMPLE_IMAGE))
 
+
 if 0:
   test_overwrite_outside_circle()
 
@@ -2409,7 +2592,8 @@ def experiment_compare_successive_rotations(num_rotations=7, gamma='identity') -
   filters = [f for f in resampler.FILTERS if f not in 'box trapezoid narrowbox'.split()]
   for filter in filters:
     image = resampler.rotate_image_about_center(
-        original, math.tau / num_rotations, num_rotations=num_rotations, filter=filter, gamma=gamma)
+        original, math.tau / num_rotations, num_rotations=num_rotations, filter=filter, gamma=gamma
+    )
     image = overwrite_outside_circle(image)
     psnr = get_psnr(image, original_cropped)
     if 1:
@@ -2417,6 +2601,7 @@ def experiment_compare_successive_rotations(num_rotations=7, gamma='identity') -
       image = np.subtract(image, original_cropped) * 5 + 0.5  # Help mypy.
     images[f"'{filter}': {psnr:.1f} dB"] = image
   media.show_images(images, columns=6, ylabel=f"gamma='{gamma}'", height=original.shape[0] * 2)
+
 
 experiment_compare_successive_rotations(gamma='identity')
 
@@ -2435,28 +2620,34 @@ def experiment_plot_psnr_for_num_rotations(filter='lanczos5') -> None:
   psnrs = []
   for num_rotations in x:
     image = resampler.rotate_image_about_center(
-        original, math.tau / num_rotations, num_rotations=num_rotations, filter=filter)
+        original, math.tau / num_rotations, num_rotations=num_rotations, filter=filter
+    )
     psnrs.append(get_psnr(overwrite_outside_circle(image), overwrite_outside_circle(original)))
   ax.scatter(x, psnrs)
   ax.set(xlim=(2, 14), xlabel='Number of image rotations', ylabel='Reconstruction PSNR (dB)')
+
 
 experiment_plot_psnr_for_num_rotations()
 
 
 # %%
 def experiment_visualize_rotation_boundaries(
-    degrees=8, scale=2.2, src_size=60, dst_size=180) -> None:
+    degrees=8, scale=2.2, src_size=60, dst_size=180
+) -> None:
   original_image = resampler.resize(EXAMPLE_IMAGE, (src_size,) * 2)
   matrix = resampler.rotation_about_center_in_2d(
-      original_image.shape[:2], np.radians(degrees), scale=scale)
+      original_image.shape[:2], np.radians(degrees), scale=scale
+  )
   images = {
       f"'{boundary}'": resampler.resample_affine(
-          original_image, (dst_size,) * 2, matrix[:-1], boundary=boundary)
+          original_image, (dst_size,) * 2, matrix[:-1], boundary=boundary
+      )
       for boundary in resampler.BOUNDARIES
   }
   images = {'original image': original_image, **images}
   assert all(image.dtype == np.uint8 for image in images.values())
   media.show_images(images, height=180, columns=5)
+
 
 experiment_visualize_rotation_boundaries()
 
@@ -2465,15 +2656,21 @@ experiment_visualize_rotation_boundaries()
 def experiment_with_boundary_antialiasing(degrees=8, scale=1.5, src_size=64, dst_size=128) -> None:
   original_image = resampler.resize(EXAMPLE_IMAGE, (src_size,) * 2)
   matrix = resampler.rotation_about_center_in_2d(
-      original_image.shape[:2], np.radians(degrees), scale=scale)
+      original_image.shape[:2], np.radians(degrees), scale=scale
+  )
   images = {}
   for boundary_antialiasing, gamma in [(False, 'power2'), (True, 'power2'), (True, 'identity')]:
     title = f"boundary_antialiasing={boundary_antialiasing} &nbsp; '{gamma}'"
-    boundary = resampler.Boundary(override_value=resampler.UnitDomainOverrideExteriorValue(
-        boundary_antialiasing=boundary_antialiasing))
+    boundary = resampler.Boundary(
+        override_value=resampler.UnitDomainOverrideExteriorValue(
+            boundary_antialiasing=boundary_antialiasing
+        )
+    )
     images[title] = resampler.resample_affine(
-        original_image, (dst_size,) * 2, matrix[:-1], boundary=boundary, gamma=gamma)[:80]
+        original_image, (dst_size,) * 2, matrix[:-1], boundary=boundary, gamma=gamma
+    )[:80]
   media.show_images(images, height=160)
+
 
 experiment_with_boundary_antialiasing()
 
@@ -2488,18 +2685,26 @@ def experiment_zoom_image(original_image, num_frames=60) -> None:
   videos = collections.defaultdict(list)
   for frame_index in range(num_frames):
     # scale = 0.7 + 0.35 * (frame_index + 0.5) / num_frames
-    scale = 0.7 * (1.1 / 0.7)**((frame_index + 0.5) / num_frames)
+    scale = 0.7 * (1.1 / 0.7) ** ((frame_index + 0.5) / num_frames)
     for filter in 'box trapezoid lanczos3'.split():
       new_image = resampler.resize(
-          original_image, original_image.shape,
-          translate=(1 - scale) / 2, scale=scale, prefilter=filter)
+          original_image,
+          original_image.shape,
+          translate=(1 - scale) / 2,
+          scale=scale,
+          prefilter=filter,
+      )
       videos[f"resize filter='{filter}'"].append(new_image)
   media.show_videos(videos, height=original_image.shape[0] * 2, border=True, fps=10)
 
+
 if EFFORT >= 1:
   experiment_zoom_image(resampler.resize(EXAMPLE_IMAGE, (128, 128)))
-  experiment_zoom_image(0.1 + 0.8 * media.to_float01(
-      example_vector_graphics_image())[220:980, 210:1240][490:, 470:][:80, :128])
+
+  def create_graphics_image() -> _NDArray:
+    return 0.1 + 0.8 * media.to_float01(example_vector_graphics_image())
+
+  experiment_zoom_image(create_graphics_image()[220:980, 210:1240][490:, 470:][:80, :128])
 
 # - minifying with 'box' has terrible temporal behavior!
 # - 'trapezoid' is much better; however, for photos, 'lanczos3' is still best.
@@ -2514,14 +2719,17 @@ def experiment_zoom_rotate_image(src_size=128, dst_size=128, num_frames=60) -> N
     angle = (frame_index + 0.5) / num_frames * (0.02 * math.tau)
     # scale = 0.7 + 0.35 * (frame_index + 0.5) / num_frames
     # scale = 0.4 + 0.9 * (frame_index + 0.5) / num_frames
-    scale = 0.4 * (1.4 / 0.4)**((frame_index + 0.5) / num_frames)
+    scale = 0.4 * (1.4 / 0.4) ** ((frame_index + 0.5) / num_frames)
     matrix = resampler.rotation_about_center_in_2d(
-        original_image.shape[:2], angle, scale=1.0 / scale)
+        original_image.shape[:2], angle, scale=1.0 / scale
+    )
     for filter in 'box lanczos3'.split():  # no 'trapezoid'
       new_image = resampler.resample_affine(
-          original_image, (dst_size,) * 2, matrix[:-1], filter=filter, boundary='wrap')
+          original_image, (dst_size,) * 2, matrix[:-1], filter=filter, boundary='wrap'
+      )
       videos[f"resample filter='{filter}'"].append(new_image)
   media.show_videos(videos, height=dst_size * 2, border=True, fps=10)
+
 
 if EFFORT >= 1:
   experiment_zoom_rotate_image()
@@ -2535,9 +2743,16 @@ if EFFORT >= 1:
 
 # %%
 def test_tensorflow_optimize_image_for_desired_upsampling(
-    operation='resize', method='gradient_tape', num_steps=30, debug=False,
-    src_shape=(8, 8, 3), dst_shape=(16, 16), filter='triangle') -> None:
+    operation='resize',
+    method='gradient_tape',
+    num_steps=30,
+    debug=False,
+    src_shape=(8, 8, 3),
+    dst_shape=(16, 16),
+    filter='triangle',
+) -> None:
   import tensorflow as tf
+
   array_np = np.full(src_shape, 0.5, np.float32)
   array = tf.Variable(tf.convert_to_tensor(array_np))
   desired = resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=np.float32)
@@ -2545,8 +2760,11 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
 
   def get_keras_resize_model() -> tf.keras.Model:
     x_in = tf.keras.Input(shape=src_shape, batch_size=1)
-    x = tf.keras.layers.Lambda(
-        lambda x: resampler.resize(x, (x.shape[0], *dst_shape), filter=filter))(x_in)
+
+    def func(x):
+      return resampler.resize(x, (x.shape[0], *dst_shape), filter=filter)
+
+    x = tf.keras.layers.Lambda(func)(x_in)
     return tf.keras.Model(inputs=x_in, outputs=x)
 
   keras_resize_model = get_keras_resize_model()
@@ -2589,6 +2807,7 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
     media.show_images(images, height=80, border=True)
   assert rms < 0.08, (operation, method)
 
+
 def test_tensorflow_optimize_image_for_desired_upsamplings() -> None:
   operations = 'resize resample keras_resize'.split()
   methods = 'gradient_tape adam'.split()
@@ -2596,7 +2815,9 @@ def test_tensorflow_optimize_image_for_desired_upsamplings() -> None:
   for config in itertools.product(operations, methods, filters):
     operation, method, filter = config
     test_tensorflow_optimize_image_for_desired_upsampling(
-        operation=operation, method=method, filter=filter)
+        operation=operation, method=method, filter=filter
+    )
+
 
 if EFFORT >= 1:
   test_tensorflow_optimize_image_for_desired_upsampling(debug=True)
@@ -2608,7 +2829,8 @@ if EFFORT >= 1:
 
 # %%
 def test_torch_optimize_image_for_desired_upsampling(
-    src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=30) -> None:
+    src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=30
+) -> None:
   import torch
 
   configs = [
@@ -2626,7 +2848,8 @@ def test_torch_optimize_image_for_desired_upsampling(
     array_np = np.full(src_shape, 0.5, dtype)
     array = torch.tensor(array_np, requires_grad=True)
     desired = torch.as_tensor(
-        resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=dtype))
+        resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=dtype)
+    )
     coords = np.moveaxis(np.indices(dst_shape) + 0.5, 0, -1) / dst_shape
 
     def model(array) -> _TorchTensor:
@@ -2666,6 +2889,7 @@ if EFFORT >= 1:
 # %%
 def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -> None:
   import torch.autograd
+
   filters = 'cubic cardinal3'.split()
   for filter in filters:
     coords = np.moveaxis(np.indices(dst_shape) + 0.5, 0, -1) / dst_shape
@@ -2676,8 +2900,8 @@ def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -
     array_np = np.random.default_rng(0).random(src_shape, np.float64)
     array = torch.tensor(array_np, requires_grad=True)
     for function in functions:
-      assert torch.autograd.gradcheck(  # type: ignore[attr-defined]
-          function, [array], rtol=0, atol=1e-6)
+      assert torch.autograd.gradcheck(function, [array], rtol=0, atol=1e-6)  # type: ignore[attr-defined]
+
 
 if EFFORT >= 1:
   test_torch_gradients_using_gradcheck()
@@ -2688,7 +2912,8 @@ if EFFORT >= 1:
 
 # %%
 def test_jax_optimize_image_for_desired_upsampling(
-    src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=30) -> None:
+    src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=30
+) -> None:
   import jax
   import jax.numpy as jnp
 
@@ -2748,6 +2973,7 @@ if EFFORT >= 1:
 def test_jax0() -> None:  # ??
   import jax
   import jax.numpy as jnp
+
   array = jnp.ones((2, 2), 'float32')
   print(array.device_buffer.device())
   print(array, type(array), repr(array))
@@ -2763,6 +2989,7 @@ def test_jax0() -> None:  # ??
   array_np = np.ones((2000,) * 2, 'float32')
   hh.print_time(lambda: np.dot(array_np, array_np.T))
 
+
 if 0:
   test_jax0()
 
@@ -2770,6 +2997,7 @@ if 0:
 # %%
 def test_jax1(filter='cubic') -> None:
   import jax.numpy as jnp
+
   array = jnp.ones((4_000,) * 2)
   hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_repeat=1)
   hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_repeat=1)
@@ -2778,9 +3006,10 @@ def test_jax1(filter='cubic') -> None:
   hh.print_time(lambda: resampler.jaxjit_resize(array, (3, 3), filter=filter), max_repeat=1)
   hh.print_time(lambda: resampler.jaxjit_resize(array, (3, 3), filter=filter), max_repeat=1)
 
+
 if EFFORT >= 1:
   test_jax1()
-if 0:
+if 0:  # What is the error now, given that to_py() is removed??
   test_jax1(filter='cardinal3')  # Not traceable; 'ShapedArray' object has no attribute 'to_py'.
 
 
@@ -2796,6 +3025,7 @@ def test_jax2() -> None:
   new = jax.grad(resized_sum)(array)
   print(new)
 
+
 if EFFORT >= 1:
   test_jax2()
 
@@ -2804,6 +3034,7 @@ if EFFORT >= 1:
 def test_jax() -> None:
   import jax
   import jax.numpy as jnp
+
   print(jax.default_backend())
   print(jax.devices())
   print(jax.local_devices())
@@ -2819,6 +3050,7 @@ def test_jax() -> None:
     _ = resize2
     # print(jax.make_jaxpr(resize2, static_argnums=(1,))(array, (3, 3)))
     # print(jax.make_jaxpr(_immediately_jaxjit_resize(resize2), static_argnums=(1,))(array, (3, 3)))
+
 
 if 0:
   test_jax()
@@ -2841,9 +3073,14 @@ if 0:
 
 # %%
 def experiment_image_optimized_for_spiral_resampling(
-    num_steps=30, src_shape=(32, 32, 3), dst_shape=(64, 64),
-    regularization_weight=0.0, smoothness_weight=0.0) -> None:
+    num_steps=30,
+    src_shape=(32, 32, 3),
+    dst_shape=(64, 64),
+    regularization_weight=0.0,
+    smoothness_weight=0.0,
+) -> None:
   import tensorflow as tf
+
   array_np = np.full(src_shape, 0.5, np.float32)
   array = tf.Variable(tf.convert_to_tensor(array_np))
   desired = resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=np.float32)
@@ -2859,8 +3096,11 @@ def experiment_image_optimized_for_spiral_resampling(
   def compute_loss(array, upsampled) -> tf.Tensor:
     data_loss = tf.math.reduce_mean(tf.math.squared_difference(upsampled, desired))
     regularization_loss = regularization_weight * tf.math.reduce_mean(tf.norm(array, axis=-1))
-    smoothness_loss = smoothness_weight * tf.image.total_variation(array) / (
-        tf.size(array, out_type=tf.float32) / 3)
+    smoothness_loss = (
+        smoothness_weight
+        * tf.image.total_variation(array)
+        / (tf.size(array, out_type=tf.float32) / 3)
+    )
     return data_loss + regularization_loss + smoothness_loss
 
   learning_rate = 1e-1  # rms_loss=0.0622 after 100 steps
@@ -2874,10 +3114,10 @@ def experiment_image_optimized_for_spiral_resampling(
 
 
 if EFFORT >= 1:
-  display_html('Regularization fills unconstrained regions with small values (black):')
+  hh.display_html('Regularization fills unconstrained regions with small values (black):')
   experiment_image_optimized_for_spiral_resampling(regularization_weight=1e-3)
 
-  display_html('Smoothness fills unconstrained regions with diffused content:')
+  hh.display_html('Smoothness fills unconstrained regions with diffused content:')
   experiment_image_optimized_for_spiral_resampling(smoothness_weight=1e-4)
 
 
@@ -2888,18 +3128,22 @@ if EFFORT >= 1:
 def test_blocking_using_image_rotation(max_block_size, src_size=64, dst_size=256) -> None:
   for arraylib in resampler.ARRAYLIBS:
     original_image = resampler._make_array(
-        resampler.resize(EXAMPLE_IMAGE, (src_size,) * 2), arraylib)
+        resampler.resize(EXAMPLE_IMAGE, (src_size,) * 2), arraylib
+    )
 
     def rotate_image(degrees=8, scale=2.2, **kwargs) -> resampler._Array:
       matrix = resampler.rotation_about_center_in_2d(
-          original_image.shape[:2], np.radians(degrees), scale=scale)
+          original_image.shape[:2], np.radians(degrees), scale=scale
+      )
       return resampler.resample_affine(
-          original_image, (dst_size,) * 2, matrix[:-1], boundary='reflect', **kwargs)
+          original_image, (dst_size,) * 2, matrix[:-1], boundary='reflect', **kwargs
+      )
 
     reference = rotate_image()
     _check_eq(resampler._arr_arraylib(reference), arraylib)
     result = rotate_image(max_block_size=max_block_size)
     _check_eq(resampler._arr_numpy(result), resampler._arr_numpy(reference))
+
 
 if EFFORT >= 1:
   test_blocking_using_image_rotation(max_block_size=1_000)
@@ -2919,13 +3163,19 @@ def experiment_find_the_best_max_block_size(src_size=64, dst_size=4096) -> None:
 
       def rotate_image(degrees=8, scale=2.2) -> resampler._Array:
         matrix = resampler.rotation_about_center_in_2d(
-            original_image.shape[:2], np.radians(degrees), scale=scale)
+            original_image.shape[:2], np.radians(degrees), scale=scale
+        )
         return resampler.resample_affine(
-            original_image, (dst_size,) * 2, matrix[:-1], boundary='reflect',
-            max_block_size=max_block_size)
+            original_image,
+            (dst_size,) * 2,
+            matrix[:-1],
+            boundary='reflect',
+            max_block_size=max_block_size,
+        )
 
       elapsed = hh.get_time(rotate_image)
       print(f'# {max_block_size=:10_} {elapsed:.3f} s')
+
 
 if EFFORT >= 2:
   experiment_find_the_best_max_block_size()
@@ -2988,7 +3238,6 @@ if EFFORT >= 2:
 
 # %%
 def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
-
   def analyze_filter(name: str, filter: resampler.Filter, ax: Any = None) -> None:
     footnote = '*' if filter.requires_digital_filter else ''
     if isinstance(filter, resampler.TrapezoidFilter) and filter.radius == 0.0:
@@ -3050,9 +3299,7 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
     ax.set(title=name, xlim=(-6.0, 6.0), ylim=(-0.25, 1.08))
     ax.yaxis.set_ticks([0.0, 1.0])
     ax.xaxis.set_ticks(np.arange(-6, 7, 2))
-    info = [f'{radius=:.2f}{footnote}',
-            f'{interp_err=:.4f}',
-            f'{integral=:.5f}']
+    info = [f'{radius=:.2f}{footnote}', f'{interp_err=:.4f}', f'{integral=:.5f}']
     for i, line in enumerate(info):
       ax.text(0.9, 0.85 - 0.17 * i, line, fontsize=10.5)
 
@@ -3067,11 +3314,15 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
   fig.tight_layout()
   plt.show()
   if any(filter.requires_digital_filter for filter in filters.values()):
-    display_markdown(r'\* The effective radius is actually infinite due to the inverse convolution'
-                     ' of the digital filter.')
-  if any(isinstance(filter, resampler.TrapezoidFilter) and filter.radius == 0.0
-         for filter in filters.values()):
-    display_markdown("\u2020 The radius for `trapezoid` is adjusted based on the scaling factor.")
+    display_markdown(
+        r'\* The effective radius is actually infinite due to the inverse convolution'
+        ' of the digital filter.'
+    )
+  if any(
+      isinstance(filter, resampler.TrapezoidFilter) and filter.radius == 0.0
+      for filter in filters.values()
+  ):
+    display_markdown('\u2020 The radius for `trapezoid` is adjusted based on the scaling factor.')
 
 
 # %%
@@ -3089,29 +3340,36 @@ if EFFORT >= 1:
 # %%
 def visualize_trapezoid_filters() -> None:
   """This shows how the trapezoid filter morphs between the box and triangle filters."""
-  filters = {f'TrapezoidFilter({radius=})': resampler.TrapezoidFilter(radius=radius)
-             for radius in [0.6, 0.7, 0.9]}
+  filters = {
+      f'TrapezoidFilter({radius=})': resampler.TrapezoidFilter(radius=radius)
+      for radius in [0.6, 0.7, 0.9]
+  }
   visualize_filters(filters)
+
 
 visualize_trapezoid_filters()
 
 
 # %%
 def visualize_cardinal_bsplines() -> None:
-  filters = {f'CardinalBsplineFilter({degree=})':
-             resampler.CardinalBsplineFilter(degree=degree)
-             for degree in range(6)}
+  filters = {
+      f'CardinalBsplineFilter({degree=})': resampler.CardinalBsplineFilter(degree=degree)
+      for degree in range(6)
+  }
   visualize_filters(filters)
+
 
 visualize_cardinal_bsplines()
 
 
 # %%
 def visualize_kaiser_filter_for_various_beta_values(radius=3.0) -> None:
-  filters = {f'KaiserFilter({radius=}, {beta=})':
-             resampler.KaiserFilter(radius=radius, beta=beta)
-             for beta in [1.0, 2.0, 4.0, 7.0, 10.0, 20.0]}
+  filters = {
+      f'KaiserFilter({radius=}, {beta=})': resampler.KaiserFilter(radius=radius, beta=beta)
+      for beta in [1.0, 2.0, 4.0, 7.0, 10.0, 20.0]
+  }
   visualize_filters(filters)
+
 
 visualize_kaiser_filter_for_various_beta_values()
 
@@ -3131,10 +3389,15 @@ def experiment_kaiser_filter_beta_parameters(n: int = 12, s: float = 2.0) -> Non
     # Width of the transition band expressed as a fraction of s:
     delta_f = 2 * f_h / (s / 2)
     A = 2.285 * (n - 1) * np.pi * delta_f + 7.9  # Attenuation in dB.
-    beta = (0.1102 * (A - 8.7) if A > 50 else
-            0.5842 * (A - 21)**0.4 + 0.07886 * (A - 21) if 21 <= A <= 50 else
-            0.0)
+    beta = (
+        0.1102 * (A - 8.7)
+        if A > 50
+        else 0.5842 * (A - 21) ** 0.4 + 0.07886 * (A - 21)
+        if 21 <= A <= 50
+        else 0.0
+    )
     print(f'{f_h=}, {delta_f=}, {A=}, {beta=}')
+
 
 experiment_kaiser_filter_beta_parameters()
 
@@ -3149,11 +3412,12 @@ def test_kaiser_filter_fractional_radius(radius=3, s=2.0, n=12, debug=False) -> 
   window = np.i0(beta * np.sqrt((1.0 - np.square(x / (L / 2))).clip(0.0, 1.0))) / np.i0(beta)
   f1 = np.where(x < radius, resampler._sinc(x) * window, 0.0)
   f2 = resampler.KaiserFilter(radius=3, beta=beta)(x)
-  f3 = resampler.KaiserFilter(radius=L/2, beta=beta)(x)  # L/2 == 2.75
+  f3 = resampler.KaiserFilter(radius=L / 2, beta=beta)(x)  # L/2 == 2.75
   if debug:
     print(np.i0([0.0, 4.0]))
     print(f'{i=}, {x=}, {L=}, {window=}, {f1=}, {f2=}, {f3=}')
   assert np.allclose(f1, f3)
+
 
 test_kaiser_filter_fractional_radius()
 
@@ -3163,7 +3427,8 @@ test_kaiser_filter_fractional_radius()
 
 # %%
 def compare_boundary_rules_on_cropped_windows_of_images(
-    images, scale, filter, num_windows, reference_filter='lanczos5', name='') -> None:
+    images, scale, filter, num_windows, reference_filter='lanczos5', name=''
+) -> None:
   """Determine the best boundary rule for resizing windows within images.
 
   The approach is to generate many random cropped windows from each image,
@@ -3175,35 +3440,49 @@ def compare_boundary_rules_on_cropped_windows_of_images(
   rng = np.random.default_rng(0)
   # Note: 'linear' and 'linear_constant' are identical for resampler.resize() because the evaluated
   # coordinate is never outside the domain (even though the filter kernel does extend outside).
-  boundaries = [b for b in resampler.BOUNDARIES
-                if 'constant' not in b and b not in 'wrap tile reflect_clamp border'.split()]
+  boundaries = [
+      boundary
+      for boundary in resampler.BOUNDARIES
+      if 'constant' not in boundary and boundary not in 'wrap tile reflect_clamp border'.split()
+  ]
 
   all_mse = collections.defaultdict(list)
   for image in images:
     for _ in range(num_windows):
       shape = 24, 48
-      pad = 6 if scale == 5/6 else int(math.ceil(6 / min(scale, 1.0)))
+      pad = 6 if scale == 5 / 6 else int(math.ceil(6 / min(scale, 1.0)))
       scaled_pad = must_be_int(pad * scale).item()
       broad_shape = shape[0] + pad * 2, shape[1] + pad * 2
-      yx = (rng.integers(image.shape[0] - broad_shape[0]),
-            rng.integers(image.shape[1] - broad_shape[1]))
-      broad_window = image[tuple(slice(start, start + size)
-                                 for start, size in zip(yx, broad_shape))]
+      yx = (
+          rng.integers(image.shape[0] - broad_shape[0]),
+          rng.integers(image.shape[1] - broad_shape[1]),
+      )
+      broad_window = image[
+          tuple(slice(start, start + size) for start, size in zip(yx, broad_shape))
+      ]
       window = broad_window[pad:-pad, pad:-pad]
       pixel_offset = 0 if scale != 1 else 0.25  # Quarter-pixel translation.
 
       new_broad_shape = must_be_int(np.array(broad_window.shape[:2]) * scale)
       reference = resampler.resize(
-          broad_window, new_broad_shape, boundary='clamp', filter=reference_filter,
-          translate=(pixel_offset / new_broad_shape))
+          broad_window,
+          new_broad_shape,
+          boundary='clamp',
+          filter=reference_filter,
+          translate=(pixel_offset / new_broad_shape),
+      )
       reference = reference[scaled_pad:-scaled_pad, scaled_pad:-scaled_pad]
 
       images = {}
       for boundary in boundaries:
         new_shape = must_be_int(np.array(window.shape[:2]) * scale)
         resized = resampler.resize(
-            window, new_shape, boundary=boundary, filter=filter,
-            translate=(pixel_offset / new_shape))
+            window,
+            new_shape,
+            boundary=boundary,
+            filter=filter,
+            translate=(pixel_offset / new_shape),
+        )
         with np.errstate(under='ignore'):
           mse = np.square(resized - reference).mean()
         all_mse[boundary].append(mse)
@@ -3216,8 +3495,11 @@ def compare_boundary_rules_on_cropped_windows_of_images(
 
 
 def experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(
-    filters=('lanczos3',), num_windows=1_000, combined=True,
-    scales=(2, 7/6, 1, 5/6, 1/2, 1/6)) -> None:
+    filters=('lanczos3',),
+    num_windows=1_000,
+    combined=True,
+    scales=(2, 7 / 6, 1, 5 / 6, 1 / 2, 1 / 6),
+) -> None:
   images = {
       'photo1': media.to_float01(EXAMPLE_PHOTO),  # (480, 640)
       'vector1': media.to_float01(example_vector_graphics_image()),  # (3300, 2550)
@@ -3235,11 +3517,11 @@ def experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(
 
 
 if EFFORT >= 2:
-  experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(
-      filters=['lanczos3', 'cubic'])
+  experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(filters=['lanczos3', 'cubic'])
 elif EFFORT >= 1:
   experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(
-      num_windows=40, scales=[2, 7/6, 1, 5/6, 1/2])
+      num_windows=40, scales=[2, 7 / 6, 1, 5 / 6, 1 / 2]
+  )
 
 
 # %% [markdown]
@@ -3364,8 +3646,9 @@ def experiment_best_downsampling_filter(scale=0.4, clip=False, debug=False) -> N
       # (3300, 2550) -> (760, 1030) -> (760, 500)
   ]
   crop = [np.s_[100:120, 141:161], np.s_[531:551, 143:163]]
-  filters = ('box trapezoid triangle mitchell cubic hamming3 '
-             'cardinal3 lanczos3 omoms5 lanczos10').split()
+  filters = (
+      'box trapezoid triangle mitchell cubic hamming3 cardinal3 lanczos3 omoms5 lanczos10'
+  ).split()
   cropped: list[dict[str, _NDArray]] = [{} for _ in range(len(images))]
   print('# PSNR and SSIM results for (1) natural photos and (2) vector graphics:')
   for filter in filters:
@@ -3389,8 +3672,10 @@ def experiment_best_downsampling_filter(scale=0.4, clip=False, debug=False) -> N
     mean_psnr = 10 * np.log10(1.0 / (mean_mse + 1e-20))
     str_ssim = ' '.join(f'{ssim:5.3f}' for ssim in all_ssim)
     mean_ssim = np.mean(all_ssim)
-    print(f'# {filter:10} PSNR:({str_mse}) mean={mean_psnr:5.2f}'
-          f'  SSIM:({str_ssim}) mean={mean_ssim:5.3f}')
+    print(
+        f'# {filter:10} PSNR:({str_mse}) mean={mean_psnr:5.2f}'
+        f'  SSIM:({str_ssim}) mean={mean_ssim:5.3f}'
+    )
 
   for image_dict in cropped:
     media.show_images(image_dict, border=True, height=100)
@@ -3398,6 +3683,7 @@ def experiment_best_downsampling_filter(scale=0.4, clip=False, debug=False) -> N
     GRAY_FROM_RGB = [0.2989, 0.5870, 0.1140]
     array = media.to_uint8(cropped[1]['lanczos10'] @ GRAY_FROM_RGB)
     show_grid_values(array, figsize=(10, 14))
+
 
 if EFFORT >= 1:
   experiment_best_downsampling_filter()
@@ -3473,6 +3759,7 @@ def experiment_best_upsampling_filter(scale=2.0, clip=False, debug=False) -> Non
     array = media.to_uint8(cropped[1]['lanczos10'] @ GRAY_FROM_RGB)
     show_grid_values(array, figsize=(10, 14))
 
+
 if EFFORT >= 1:
   experiment_best_upsampling_filter()
 
@@ -3505,8 +3792,9 @@ if EFFORT >= 1:
 # ## Best gamma for resampling
 
 # %%
-def dither(image: _NDArray, num_levels: int, offsets: Iterable[tuple[int, int]],
-           weights: Iterable[float]) -> _NDArray:
+def dither(
+    image: _NDArray, num_levels: int, offsets: Iterable[tuple[int, int]], weights: Iterable[float]
+) -> _NDArray:
   """Dither an image.
 
   From https://github.com/scikit-image/skimage-demos/blob/main/dither.py and
@@ -3543,16 +3831,19 @@ def dither(image: _NDArray, num_levels: int, offsets: Iterable[tuple[int, int]],
 
   return out
 
+
 def floyd_steinberg_dither(image: _NDArray, num_levels: int) -> _NDArray:
   offsets = [(0, 1), (1, -1), (1, 0), (1, 1)]
   weights = [7, 3, 5, 1]
   return dither(image, num_levels, offsets, weights)
+
 
 def filter_lite_dither(image: _NDArray, num_levels: int) -> _NDArray:
   """Evaluate Sierra's "Filter Lite"."""
   offsets = [(0, 1), (1, -1), (1, 0)]
   weights = [2, 1, 1]
   return dither(image, num_levels, offsets, weights)
+
 
 def experiment_visualize_dither() -> None:
   image = np.indices((64, 256))[1] / 255.0
@@ -3561,6 +3852,7 @@ def experiment_visualize_dither() -> None:
   floyd = floyd_steinberg_dither(image, num_levels) / (num_levels - 1)
   images = {'original': image, 'sierra': sierra, 'floyd': floyd}
   media.show_images(images, vmin=0, vmax=1, border=True)
+
 
 if EFFORT >= 2:
   experiment_visualize_dither()
@@ -3581,6 +3873,7 @@ def experiment_gamma_downsample_image() -> None:
   }
   media.show_images(images, vmin=0, vmax=1, border=True)
 
+
 experiment_gamma_downsample_image()
 
 
@@ -3596,15 +3889,22 @@ def radial1(shape=(24, 48), frame_center=(0.75, 0.5), reference_shape=None) -> _
   value = np.cos((radius + 0.1) ** 0.5 * 70.0) * 0.5 + 0.5
   return value  # linear space
 
+
 def visualize_radial1() -> None:
   media.show_image(radial1(), height=200)
+
 
 visualize_radial1()
 
 
 # %%
-def chirp(shape=(65, 65), frame_center=(0.5, 0.5),
-          period_at_center=2.0, period_at_border=4.0, reference_shape=None) -> _NDArray:
+def chirp(
+    shape=(65, 65),
+    frame_center=(0.5, 0.5),
+    period_at_center=2.0,
+    period_at_border=4.0,
+    reference_shape=None,
+) -> _NDArray:
   reference_shape = reference_shape or shape
   yx = (np.moveaxis(np.indices(shape), 0, -1) + (0.5, 0.5)) / max(shape)
   radius = np.linalg.norm(yx - frame_center, axis=-1)
@@ -3613,6 +3913,7 @@ def chirp(shape=(65, 65), frame_center=(0.5, 0.5),
   value = np.cos(radius / period * math.tau * max(reference_shape)) * 0.5 + 0.5
   return value  # linear space
 
+
 def visualize_chirps() -> None:
   images = {
       'chirp defined in lightness space': chirp(),
@@ -3620,20 +3921,21 @@ def visualize_chirps() -> None:
       'higher resolution': chirp(shape=(260, 260), reference_shape=(65, 65)),
       '25x50 off-center': chirp(shape=(25, 50), frame_center=(0.37, 0.25)),
   }
-  media.show_images(images, height=65*3)
+  media.show_images(images, height=65 * 3)
+
 
 visualize_chirps()
 
 
 # %%
 def experiment_visualize_gamma_upsample_image(**kwargs) -> None:
-
   def try_gamma_upsample(func, shape, frame_center, supersample=1, source_pow=1) -> None:
     supersample_shape = np.array(shape) * supersample
-    supersampled = func(supersample_shape, frame_center, reference_shape=shape)**source_pow
+    supersampled = func(supersample_shape, frame_center, reference_shape=shape) ** source_pow
     # or: supersampled = resampler.PowerGamma(2).encode(supersampled, supersampled.dtype)
     image = resampler.resize(
-        supersampled, shape, filter='lanczos10', src_gamma='power2', dst_gamma='power2')
+        supersampled, shape, filter='lanczos10', src_gamma='power2', dst_gamma='power2'
+    )
     new_shape = np.array(shape) * 4  # Or, "* 8".
 
     def resize_gamma(gamma: str) -> _NDArray:
@@ -3642,14 +3944,15 @@ def experiment_visualize_gamma_upsample_image(**kwargs) -> None:
     identity = resize_gamma('identity')
     power2 = resize_gamma('power2')
     images = {'original': image, "gamma='identity'": identity, "gamma='power2'": power2}
-    images = {name: image[:image.shape[0] * 5 // 9] for name, image in images.items()}
-    media.show_images(images, vmin=0, vmax=1, border=True, width=new_shape[1],
-                      ylabel=f'{supersample=}<br/>{source_pow=}')
+    images = {name: image[: image.shape[0] * 5 // 9] for name, image in images.items()}
+    ylabel = f'{supersample=}<br/>{source_pow=}'
+    media.show_images(images, vmin=0, vmax=1, border=True, width=new_shape[1], ylabel=ylabel)
 
   try_gamma_upsample(**kwargs)
   try_gamma_upsample(**kwargs, source_pow=0.5)
   try_gamma_upsample(**kwargs, supersample=32)
   try_gamma_upsample(**kwargs, supersample=32, source_pow=0.5)
+
 
 media.set_max_output_height(3000)
 experiment_visualize_gamma_upsample_image(func=chirp, shape=(65, 65), frame_center=(0.5, 0.5))
@@ -3663,7 +3966,7 @@ def experiment_visualize_gamma_upsample_video(shape=(24, 48), source_pow=1) -> N
   for angle in np.linspace(0.0, math.tau, 60, endpoint=False):
     center = (0.75, 0.5) + np.array([np.cos(angle), np.sin(angle)]) * 0.05
     radius = np.linalg.norm(yx - center, axis=-1)
-    image = (np.cos((radius + 0.1) ** 0.5 * 70.0) * 0.5 + 0.5)**source_pow
+    image = (np.cos((radius + 0.1) ** 0.5 * 70.0) * 0.5 + 0.5) ** source_pow
 
     def resize_gamma(gamma: str) -> _NDArray:
       return resampler.resize(image, new_shape, filter='lanczos3', gamma=gamma)
@@ -3673,8 +3976,9 @@ def experiment_visualize_gamma_upsample_video(shape=(24, 48), source_pow=1) -> N
     power2.append(resize_gamma('power2'))
 
   videos = {'original': original, 'identity': identity, 'power2': power2}
-  media.show_videos(videos, codec='gif', fps=10, height=shape[0]*8, border=True,
-                    ylabel=f'{source_pow=}')
+  ylabel = f'{source_pow=}'
+  media.show_videos(videos, codec='gif', fps=10, height=shape[0] * 8, border=True, ylabel=ylabel)
+
 
 if EFFORT >= 2:
   experiment_visualize_gamma_upsample_video()
@@ -3714,25 +4018,35 @@ if EFFORT >= 2:
 
 # %%
 def _get_pil_font(font_size: int, font_name: str = 'cmr10') -> Any:
-  font_file = f'{matplotlib.__path__[0]}/mpl-data/fonts/ttf/{font_name}.ttf'
   import PIL.ImageFont
+
+  font_file = f'{matplotlib.__path__[0]}/mpl-data/fonts/ttf/{font_name}.ttf'
   return PIL.ImageFont.truetype(font_file, font_size)  # Slow ~1.3 s but gets cached.
 
-def rasterize_text(shape: tuple[int, int], text: str, *,
-                   pad_xy: tuple[int, int] = (10, 10),
-                   background: int = 255, foreground: int = 0,
-                   font_size: int = 48) -> _NDArray:
+
+def rasterize_text(
+    shape: tuple[int, int],
+    text: str,
+    *,
+    pad_xy: tuple[int, int] = (10, 10),
+    background: int = 255,
+    foreground: int = 0,
+    font_size: int = 48,
+) -> _NDArray:
   import PIL.Image
   import PIL.ImageDraw
+
   pil_font = _get_pil_font(font_size)
   pil_image = PIL.Image.fromarray(np.full(shape, background, np.uint8))
   draw = PIL.ImageDraw.Draw(pil_image)
   draw.text(pad_xy, text, fill=foreground, spacing=5, font=pil_font)
   return np.array(pil_image)
 
+
 def get_text_image(shape=(200,) * 2) -> _NDArray:
   # Replace by hh.rasterized_text() -- requires introducing `spacing` parameter??
   return rasterize_text(shape, 'Hlllllmm\n' * 4)
+
 
 def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=21) -> None:
   original = crop_array(get_text_image() / 255.0, -50, 1.0)
@@ -3757,6 +4071,7 @@ def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=21) -> No
   ax.plot(degrees, psnrs, '.')
   ax.set(xlabel='Grid rotation (degrees)', ylabel='Reconstruction PSNR (dB)')
 
+
 if EFFORT >= 1:
   experiment_rotated_grid_has_higher_fidelity_for_text()
 
@@ -3779,13 +4094,16 @@ def visualize_prefiltering_a_discontinuity_in_1D(size=400, x_step=0.5) -> None:
   x = (np.arange(size) + 0.5) / size
   array = np.where(x < x_step, 0.0, 1.0)
   new_sizes = [10, 11, 12, 13]  # range(10, 21)
-  filters = ('box trapezoid triangle mitchell cubic '
-             'hamming3 cardinal3 lanczos3 omoms5 lanczos10').split()
+  filters = (
+      'box trapezoid triangle mitchell cubic hamming3 cardinal3 lanczos3 omoms5 lanczos10'
+  ).split()
   fig, axs = plt.subplots(len(new_sizes), len(filters), figsize=(12, 6))
   for row_index, new_size in enumerate(new_sizes):
     for col_index, filter in enumerate(filters):
+
       def downsample(a: _NDArray) -> _NDArray:
         return resampler.resize(a, (new_size,), filter=filter)
+
       ax = axs[row_index][col_index]
       ax.plot(x, array, '-', linewidth=0.7)
       ax.plot(downsample(x), downsample(array), 'o-')
@@ -3794,6 +4112,7 @@ def visualize_prefiltering_a_discontinuity_in_1D(size=400, x_step=0.5) -> None:
       ax.set_ylabel(f'new size {new_size}' if col_index == 0 else None)
       ax.set_title(f"'{filter}'" if row_index == 0 else None)
   fig.tight_layout()
+
 
 visualize_prefiltering_a_discontinuity_in_1D()
 
@@ -3809,16 +4128,19 @@ visualize_prefiltering_a_discontinuity_in_1D()
 
 # %%
 def visualize_prefiltering_a_discontinuity_in_2D(
-    shape=(100, 100), radius=0.2, new_shape=(20, 20)) -> None:
+    shape=(100, 100), radius=0.2, new_shape=(20, 20)
+) -> None:
   mapped_radius = np.linalg.norm((np.indices(shape).T + 0.5) / np.array(shape) - 0.5, axis=-1).T
   outside_circle = mapped_radius >= radius
   array = np.where(outside_circle, 0.9, 0.2)
-  filters = ('box trapezoid triangle mitchell cubic '
-             'hamming3 cardinal3 lanczos3 omoms5 lanczos10').split()
+  filters = (
+      'box trapezoid triangle mitchell cubic hamming3 cardinal3 lanczos3 omoms5 lanczos10'
+  ).split()
   images = {'original': array}
   for filter in filters:
     images[f"'{filter}'"] = resampler.resize(array, new_shape, filter=filter)
-  media.show_images(images, vmin=0, vmax=1, height=shape[0]*1.25, border=True, columns=6)
+  media.show_images(images, vmin=0, vmax=1, height=shape[0] * 1.25, border=True, columns=6)
+
 
 visualize_prefiltering_a_discontinuity_in_2D()
 
@@ -3835,7 +4157,8 @@ visualize_prefiltering_a_discontinuity_in_2D()
 
 # %%
 def visualize_prefiltering_as_scale_is_varied(
-    shape=(100, 100), radius=0.2, new_shape=(20, 20)) -> None:
+    shape=(100, 100), radius=0.2, new_shape=(20, 20)
+) -> None:
   mapped_radius = np.linalg.norm((np.indices(shape).T + 0.5) / np.array(shape) - 0.5, axis=-1).T
   outside_circle = mapped_radius >= radius
   array = np.where(outside_circle, 0.9, 0.2)
@@ -3843,9 +4166,10 @@ def visualize_prefiltering_as_scale_is_varied(
   videos = collections.defaultdict(list)
   for filter in filters:
     for scale in np.linspace(0.9, 1.1, 61):
-      videos[f"'{filter}'"].append(
-          resampler.resize(array, new_shape, scale=scale, filter=filter)[3:-3, 3:-3])
-  media.show_videos(videos, qp=14, fps=20, height=shape[0]*1.5, border=True, columns=4)
+      video = resampler.resize(array, new_shape, scale=scale, filter=filter)[3:-3, 3:-3]
+      videos[f"'{filter}'"].append(video)
+  media.show_videos(videos, qp=14, fps=20, height=shape[0] * 1.5, border=True, columns=4)
+
 
 if EFFORT >= 1:
   visualize_prefiltering_as_scale_is_varied()
@@ -3866,6 +4190,7 @@ def _torch_symmetric_pad(array: _ArrayLike, padding: Iterable[int]) -> _TorchTen
   # See https://github.com/pytorch/pytorch/issues/46240 and
   # https://discuss.pytorch.org/t/symmetric-padding/19866/3.
   import torch
+
   a = torch.as_tensor(array)
   del array
   padding = tuple(padding)
@@ -3919,16 +4244,16 @@ def experiment_with_convolution() -> None:
 
   def scipy_sepfir2d(array, filter1d) -> _NDArray:
     if array.ndim > 2:
-      return np.stack([scipy_sepfir2d(array[..., i], filter1d)
-                       for i in range(array.shape[-1])], axis=-1)
+      a = [scipy_sepfir2d(array[..., i], filter1d) for i in range(array.shape[-1])]
+      return np.stack(a, axis=-1)
     return scipy.signal.sepfir2d(array, filter1d, filter1d)
 
   def numpy_fftconvolve(array, filter) -> _NDArray:
     assert array.ndim >= filter.ndim
     while filter.ndim < array.ndim:
       filter = filter[..., None]
-    result = np.fft.irfftn(np.fft.rfftn(array) * np.fft.rfftn(filter, s=array.shape),
-                           s=array.shape)  # (Always np.float64.)
+    a = np.fft.rfftn(array) * np.fft.rfftn(filter, s=array.shape)
+    result = np.fft.irfftn(a, s=array.shape)  # (Always np.float64.)
     result = np.roll(result, -(np.array(filter.shape) // 2), axis=range(array.ndim))
     return result
 
@@ -3941,6 +4266,7 @@ def experiment_with_convolution() -> None:
   def tensorflow_convolve(array, filter, reflect=False) -> _NDArray:
     """Convolve the array [*dims, *sample_shape] with the filter [*dims]."""
     import tensorflow as tf
+
     array = tf.convert_to_tensor(array)
     filter = tf.convert_to_tensor(filter)
     conv_ndim = filter.ndim
@@ -3964,6 +4290,7 @@ def experiment_with_convolution() -> None:
   def torch_convolve(array, filter, reflect=False) -> _NDArray:
     """Convolve the array [*dims, *sample_shape] with the filter [*dims]."""
     import torch
+
     array = torch.as_tensor(array)
     filter = torch.as_tensor(filter)
     conv_ndim = filter.ndim
@@ -3996,7 +4323,8 @@ def experiment_with_convolution() -> None:
   array[tuple(np.array(shape[:2]) // 2)] = 1.0
   array[2, 0] = 1.0
   filter1d = resampler.resize(
-      [0.0, 0.0, 1.0, 0.0, 0.0], (11,), gridtype='primal', filter='cubic', dtype=np.float32)
+      [0.0, 0.0, 1.0, 0.0, 0.0], (11,), gridtype='primal', filter='cubic', dtype=np.float32
+  )
   filter1d = filter1d / filter1d.sum()
   filter = np.outer(filter1d, filter1d)
   functions: dict[str, Callable[[], _NDArray]] = {
@@ -4048,6 +4376,7 @@ def experiment_with_convolution() -> None:
       # hh.print_time(lambda: scipy_convolve(array, filter, reflect=False))
       hh.print_time(lambda: scipy_convolve(array, filter, reflect=True))
       hh.print_time(lambda: resampler.resize(array, np.array(array.shape[:2]) // downsample))
+
 
 if EFFORT >= 1:
   experiment_with_convolution()
@@ -4111,7 +4440,8 @@ def test_banded(debug=False) -> None:
     src_position = np.broadcast_to(0.5, len(values))
     src_gridtype = resampler._get_gridtype('dual')
     src_index, weight = resampler._get_boundary(boundary).apply(
-        src_index, weight, src_position, size, src_gridtype)
+        src_index, weight, src_position, size, src_gridtype
+    )
     data = weight.reshape(-1)
     row_ind = np.arange(size).repeat(src_index.shape[1])
     col_ind = src_index.reshape(-1)
@@ -4127,14 +4457,14 @@ def test_banded(debug=False) -> None:
     else:
       matrix = matrix.todia()
       _check_eq(matrix.offsets, range(-l, l + 1))
-      new = scipy.linalg.solveh_banded(matrix.data[-1:l-1:-1], array, check_finite=False)
+      new = scipy.linalg.solveh_banded(matrix.data[-1 : l - 1 : -1], array, check_finite=False)
     if debug:
       print('boundary', new, matrix.dot(new))
     assert np.allclose(matrix.dot(new), array)
 
   if 1 and l == 1 and boundary == 'reflect':
     ab = np.empty((l + 1, size))
-    ab[:] = values[:l+1, None]
+    ab[:] = values[: l + 1, None]
     ab[1, 0] = ab[1, 0] + ab[0, 0]
     ab[0, 0] = UNDEFINED
     ab[1, -1] = ab[1, -1] + ab[0, -1]
@@ -4161,7 +4491,8 @@ def test_banded(debug=False) -> None:
     # Drawbacks: not as precise; only Bspline (no OMOMS); limited boundaries.
     mode = {'reflect': 'reflect', 'wrap': 'grid-wrap'}[boundary]
     new = scipy.ndimage.spline_filter1d(
-        array, order=l * 2 + 1, axis=0, mode=mode, output=array.dtype)
+        array, order=l * 2 + 1, axis=0, mode=mode, output=array.dtype
+    )
     if debug:
       print('ndimage', new, matrix.dot(new))
     assert np.allclose(matrix.dot(new), array)
@@ -4222,7 +4553,8 @@ if 1:
 
 # %%
 def test_inverse_convolution_2d(
-    gridscale=2.0, degree=3, gridtype='dual', boundary='reflect', dtype=np.float32) -> None:
+    gridscale=2.0, degree=3, gridtype='dual', boundary='reflect', dtype=np.float32
+) -> None:
   filter = resampler.BsplineFilter(degree=degree)
   l = math.ceil(filter.radius) - 1
   x = np.arange(-l, l + 1)
@@ -4251,7 +4583,8 @@ def test_inverse_convolution_2d(
       src_position = np.broadcast_to(0.5, len(values))
       src_gridtype = resampler._get_gridtype(gridtype)
       src_index, weight = resampler._get_boundary(boundary).apply(
-          src_index, weight, src_position, size, src_gridtype)
+          src_index, weight, src_position, size, src_gridtype
+      )
       if gridtype == 'primal' and boundary == 'wrap':
         # Overwrite redundant last row to preserve unreferenced last sample.
         src_index[-1] = [size - 1] + [0] * (src_index.shape[1] - 1)
@@ -4271,7 +4604,7 @@ def test_inverse_convolution_2d(
         _check_eq(matrix.offsets, range(-l, l + 1))
         options = dict(check_finite=False, overwrite_ab=True, overwrite_b=True)
         if resampler._is_symmetric(matrix):
-          array_dim = scipy.linalg.solveh_banded(matrix.data[-1:l-1:-1], array_dim, **options)
+          array_dim = scipy.linalg.solveh_banded(matrix.data[-1 : l - 1 : -1], array_dim, **options)
         else:
           array_dim = scipy.linalg.solve_banded((l, l), matrix.data[::-1], array_dim, **options)
       array = np.moveaxis(array_dim, 0, dim)
@@ -4282,12 +4615,13 @@ def test_inverse_convolution_2d(
       array_dim = np.moveaxis(array, dim, 0)
       size = array_dim.shape[0]
       ab = np.empty((l + 1, size), array.dtype)
-      ab[:] = values[:l+1, None]
+      ab[:] = values[: l + 1, None]
       ab[1, 0] = ab[1, 0] + ab[0, 0]
       ab[0, 0] = UNDEFINED
       ab[1, -1] = ab[1, -1] + ab[0, -1]
       array_dim = scipy.linalg.solveh_banded(
-          ab, array_dim, check_finite=False, overwrite_ab=True, overwrite_b=True)
+          ab, array_dim, check_finite=False, overwrite_ab=True, overwrite_b=True
+      )
       array = np.moveaxis(array_dim, 0, dim)
     return array
 
@@ -4354,6 +4688,7 @@ def test_inverse_convolution_2d(
       max_error = abs(convolved - array).max()
       print(f'{name:16}: {elapsed:5.3f} s  (max_error:{max_error:9.2e})')
       assert max_error <= 1e-6
+
 
 if EFFORT >= 1:
   test_inverse_convolution_2d()
@@ -4426,15 +4761,16 @@ def visualize_rotational_symmetry_of_gaussian_filter(size1=11, size2=1001) -> No
   # Because the continuous filter is rotationally symmetric, its value at a
   # distance 1.0 along a diagonal equals its value at a distance 1.0 along
   # an axis.
-  assert np.allclose(gauss(2.0**-0.5)**2.0, gauss(1.0) * gauss(0.0))
+  assert np.allclose(gauss(2.0**-0.5) ** 2.0, gauss(1.0) * gauss(0.0))
 
   array = np.zeros((size1, size1))
   array[size1 // 2, size1 // 2] = 1
   image = resampler.resize(array, filter='gaussian', shape=(size2, size2))
-  media.show_image(crop_array(image, int(size2 * .45)), border=True)
+  media.show_image(crop_array(image, int(size2 * 0.45)), border=True)
   _, ax = plt.subplots(figsize=(4, 4))
-  ax.contour(crop_array(image, int(size2 * .45)), 20)
+  ax.contour(crop_array(image, int(size2 * 0.45)), 20)
   # The upsampled signal does not have exact rotational symmetry.
+
 
 visualize_rotational_symmetry_of_gaussian_filter()
 
@@ -4455,6 +4791,7 @@ def visualize_resampled_spiral_with_alpha() -> None:
   resampled = resampler.resample(image, coords, boundary='constant')
   media.show_image(resampled)
 
+
 visualize_resampled_spiral_with_alpha()
 
 
@@ -4470,6 +4807,7 @@ def visualize_resampled_spiral_large() -> None:
   coords = np.dstack((np.sin(angle) * radius, np.cos(angle) * radius)) + 0.5
   resampled = resampler.resample(image, coords, boundary='constant')[320:-320]
   media.show_image(resampled)
+
 
 if 0:
   visualize_resampled_spiral_large()
@@ -4492,15 +4830,17 @@ def visualize_warp_samples() -> None:
     if np.all((coord >= 0) & (coord + 1 < src_shape)):
       coords_image[tuple(slice(coord[c], coord[c] + 2) for c in range(2))] = 0
   dst_image = resampler.resize(
-      np.zeros(shape), src_shape, filter=resampler.NarrowBoxFilter(radius=0.15), cval=1)
+      np.zeros(shape), src_shape, filter=resampler.NarrowBoxFilter(radius=0.15), cval=1
+  )
   resampled = resampler.resample(image, coords, boundary='constant')
   images = {
       'source': image,
       'coords in source': coords_image,
       'destination grid': dst_image,
-      'resampled': resampled
+      'resampled': resampled,
   }
   media.show_images(images, height=128, border=True)
+
 
 visualize_warp_samples()
 
@@ -4525,6 +4865,7 @@ def visualize_unused() -> None:
   upsample_1d(axs[0], 'dual', lambda x: (np.arange(len(x)) + 0.5) / len(x))
   upsample_1d(axs[1], 'primal', lambda x: np.arange(len(x)) / (len(x) - 1))
 
+
 visualize_unused()
 
 
@@ -4537,15 +4878,27 @@ def visualize_reconstruction_and_sampling() -> None:
   new = resampler.resize(array, (6, 6))
   images = {
       'samples': array,
-      'sample_squares': resampler.resize(array, (120, 120), boundary='constant', cval=1.0,
-                                         filter=resampler.NarrowBoxFilter(radius=0.099)),
-      'reconstruction': resampler.resize(array, (120, 120), boundary='constant', cval=1.0,
-                                         filter='lanczos3'),
+      'sample_squares': resampler.resize(
+          array,
+          (120, 120),
+          boundary='constant',
+          cval=1.0,
+          filter=resampler.NarrowBoxFilter(radius=0.099),
+      ),
+      'reconstruction': resampler.resize(
+          array, (120, 120), boundary='constant', cval=1.0, filter='lanczos3'
+      ),
       'wide_reconstruction': resize_showing_domain_boundary(array, (120, 120)),
-      'new_samples': resampler.resize(new, (120, 120), boundary='constant', cval=1.0,
-                                      filter=resampler.NarrowBoxFilter(radius=0.128)),
+      'new_samples': resampler.resize(
+          new,
+          (120, 120),
+          boundary='constant',
+          cval=1.0,
+          filter=resampler.NarrowBoxFilter(radius=0.128),
+      ),
   }
   media.show_images(images, border=False, height=120)
+
 
 visualize_reconstruction_and_sampling()
 # (These are different from the images originally placed in Google Drawings.)
@@ -4585,8 +4938,12 @@ def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
   """Create 1D boundary rule plots similar to
   https://docs.scipy.org/doc/scipy/reference/tutorial/ndimage.html#ndimage-interpolation-modes"""
 
-  def visualize_gridtype(gridtype, boundaries=None, num_samples=250,
-                         filters=('box', 'triangle', 'lanczos3', 'cardinal5')) -> None:
+  def visualize_gridtype(
+      gridtype,
+      boundaries=None,
+      num_samples=250,
+      filters=('box', 'triangle', 'lanczos3', 'cardinal5'),
+  ) -> None:
     boundaries = resampler._OFTUSED_BOUNDARIES if boundaries is None else boundaries
     color = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
 
@@ -4600,8 +4957,16 @@ def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
         for x_value in [0.0, 1.0]:
           ax.axvline(x=x_value, ymin=0.0, ymax=0.77, color='red', linestyle='--', linewidth=1)
         resized = resampler.resize(
-            array, (num_samples,), src_gridtype=gridtype, dst_gridtype='dual',
-            boundary=boundary, cval=1.0, filter=filter, scale=scale, translate=(1 - scale) / 2)
+            array,
+            (num_samples,),
+            src_gridtype=gridtype,
+            dst_gridtype='dual',
+            boundary=boundary,
+            cval=1.0,
+            filter=filter,
+            scale=scale,
+            translate=(1 - scale) / 2,
+        )
         offset = (1 - scale) / 2 / scale
         x = (np.arange(len(resized)) + 0.5) / len(resized) / scale - offset
         ax.plot(x, resized, '-', color=color, label=boundary)
@@ -4625,18 +4990,20 @@ def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
 
   display_markdown("**`gridtype='dual'`**")
   visualize_gridtype('dual')
-  display_markdown("""&emsp; &emsp; Graphics
+  display_markdown(
+      """&emsp; &emsp; Graphics
     [texture sampling](https://www.khronos.org/opengl/wiki/Sampler_Object)
     supports a `'dual'` grid with the `'box'` or `'triangle'` filter, using the
-    `'reflect'`, `'wrap'`, `'clamp'`, `'reflect_clamp'`, or `'border'` boundary.
-  """)
+    `'reflect'`, `'wrap'`, `'clamp'`, `'reflect_clamp'`, or `'border'` boundary."""
+  )
 
   display_markdown("<br/>**`gridtype='primal'`**")
   visualize_gridtype('primal')
-  display_markdown(r"""&emsp; &emsp; ${}^\dagger$To create a continuous periodic
+  display_markdown(
+      r"""&emsp; &emsp; ${}^\dagger$To create a continuous periodic
     reconstruction, the last sample is ignored for the `'wrap'` boundary rule
-    on a `'primal'` grid.
-  """)
+    on a `'primal'` grid."""
+  )
 
   display_markdown('<br/>**For filters_summary figure:**')
   boundaries = 'reflect wrap tile clamp natural linear quadratic'.split()
@@ -4648,8 +5015,9 @@ if EFFORT >= 1:
 
 
 # %%
-def visualize_boundary_rules_in_2d(*, scale=0.6, src_gridtype=('dual', 'primal'),
-                                   cval=(0.6, 0.6, 0.9)) -> None:
+def visualize_boundary_rules_in_2d(
+    *, scale=0.6, src_gridtype=('dual', 'primal'), cval=(0.6, 0.6, 0.9)
+) -> None:
   media.set_max_output_height(2000)
   shape = (120, 120) if hh.in_colab() else (100, 100)
   if 1:
@@ -4661,8 +5029,10 @@ def visualize_boundary_rules_in_2d(*, scale=0.6, src_gridtype=('dual', 'primal')
         table.show_images2 div div:nth-of-type(2) { padding-top: 5px; }
         .show_images2 td { padding:1px; }
       </style>
-    """.replace('FONT-SIZE', 'medium' if hh.in_colab() else 'small')
-    display_html(text)
+    """.replace(
+        'FONT-SIZE', 'medium' if hh.in_colab() else 'small'
+    )
+    hh.display_html(text)
 
   # array = np.array([[1.0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0], [0, 1, 0, 0]])
   # array = np.indices((4, 4), np.float64).sum(axis=0) / 6.0
@@ -4674,23 +5044,32 @@ def visualize_boundary_rules_in_2d(*, scale=0.6, src_gridtype=('dual', 'primal')
   array = array * 0.8 + 0.1
 
   def show_row(*, scale=scale) -> None:
-    kwargs = dict(shape=shape, src_gridtype=src_gridtype,
-                  dst_gridtype='dual', scale=scale, translate=(1 - scale) / 2)
+    kwargs = dict(
+        shape=shape,
+        src_gridtype=src_gridtype,
+        dst_gridtype='dual',
+        scale=scale,
+        translate=(1 - scale) / 2,
+    )
     images = {}
     for boundary in resampler._OFTUSED_BOUNDARIES:
       name = {'quadratic_constant': 'quadratic_const.'}.get(boundary, boundary)
       images[f"'{name}'"] = resize_showing_domain_boundary(
-          array, boundary=boundary, cval=cval, filter=filter, **kwargs)
+          array, boundary=boundary, cval=cval, filter=filter, **kwargs
+      )
     image_samples = resize_showing_domain_boundary(
-        array, boundary='constant', cval=0.5, filter='narrowbox', **kwargs)
+        array, boundary='constant', cval=0.5, filter='narrowbox', **kwargs
+    )
     images = {'(samples)': image_samples, **images}
     images2: Any = images if row_index == 0 else images.values()
     # Benefit of show_images() over matplotlib.imshow() is no pixel resampling.
     ylabel = f"filter='{filter}'&nbsp;&nbsp;&nbsp" if row_index == 0 else f"'{filter}'"
     media.show_images(images2, ylabel=ylabel, html_class='show_images2')
 
-  display_markdown("**Upsampling of a 2D grid (`gridtype=('dual', 'primal')`,"
-                   " for $y$ and $x$ axes respectively)**")
+  display_markdown(
+      "**Upsampling of a 2D grid (`gridtype=('dual', 'primal')`,"
+      ' for $y$ and $x$ axes respectively)**'
+  )
   for row_index, filter in enumerate('box triangle cubic lanczos3'.split()):
     show_row()
 
@@ -4756,8 +5135,9 @@ visualize_boundary_rules_in_2d()
 # %%
 def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200, 400)) -> None:
   # All filtering is done in lightness space (i.e. with gamma='identity').
-  original = resampler.resize(media.to_float01(example_tissot_image()), shape,
-                              filter='trapezoid', dtype=np.float32)  # Was 'lanczos5'.
+  original = resampler.resize(
+      media.to_float01(example_tissot_image()), shape, filter='trapezoid', dtype=np.float32
+  )  # Was 'lanczos5'.
   downsampled_shape_2d = (np.array(shape) / gridscale + 0.5).astype(int)
   array = resampler.resize(original, downsampled_shape_2d, filter='lanczos5')
   if 1:
@@ -4765,37 +5145,42 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200
   if 0:
     array = np.swapaxes(np.swapaxes(array, 0, 1).copy(), 0, 1)  # Transpose memory layout.
   print(f'{array.dtype} src_shape={array.shape} strides={array.strides} dst_shape={shape}')
+  a = array, shape
   funcs: dict[str, Callable[[], _AnyArray]] = {
       'original': lambda: original,
-      # 'resize lanczos4': lambda: resampler.resize(array, shape, filter=resampler.LanczosFilter(radius=4)),
-      # 'resample lanczos5': lambda: resampler._resize_using_resample(array, shape, filter='lanczos5'),
-      'resize lanczos5': lambda: resampler.resize(array, shape, filter='lanczos5'),
-      'resize lanczos3': lambda: resampler.resize(array, shape, filter='lanczos3'),
-      'resize cardinal3': lambda: resampler.resize(array, shape, filter='cardinal3'),
-      'resize cubic': lambda: resampler.resize(array, shape, filter='cubic'),
-      'resize triangle': lambda: resampler.resize(array, shape, filter='triangle'),
-      'resize_in_tf lanczos3': lambda: resampler.resize_in_tensorflow(array, shape, filter='lanczos3'),
-      'resize_in_torch lanczos3': lambda: resampler.resize_in_torch(array, shape, filter='lanczos3'),
-      'resize_in_jax lanczos3': lambda: resampler.resize_in_jax(array, shape, filter='lanczos3'),
-      'jaxjit_resize lanczos3': lambda: resampler.jaxjit_resize(array, shape, filter='lanczos3'),
-      'resample lanczos3': lambda: resampler._resize_using_resample(array, shape, filter='lanczos3'),
-      'PIL.Image.resize lanczos3': lambda: resampler.pil_image_resize(array, shape, filter='lanczos3'),
-      'PIL.Image.resize cubic': lambda: resampler.pil_image_resize(array, shape, filter='cubic'),
+      # 'resize lanczos4': lambda: resampler.resize(*a, filter=resampler.LanczosFilter(radius=4)),
+      # 'resample lanczos5': lambda: resampler._resize_using_resample(*a, filter='lanczos5'),
+      'resize lanczos5': lambda: resampler.resize(*a, filter='lanczos5'),
+      'resize lanczos3': lambda: resampler.resize(*a, filter='lanczos3'),
+      'resize cardinal3': lambda: resampler.resize(*a, filter='cardinal3'),
+      'resize cubic': lambda: resampler.resize(*a, filter='cubic'),
+      'resize triangle': lambda: resampler.resize(*a, filter='triangle'),
+      'resize_in_tf lanczos3': lambda: resampler.resize_in_tensorflow(*a, filter='lanczos3'),
+      'resize_in_torch lanczos3': lambda: resampler.resize_in_torch(*a, filter='lanczos3'),
+      'resize_in_jax lanczos3': lambda: resampler.resize_in_jax(*a, filter='lanczos3'),
+      'jaxjit_resize lanczos3': lambda: resampler.jaxjit_resize(*a, filter='lanczos3'),
+      'resample lanczos3': lambda: resampler._resize_using_resample(*a, filter='lanczos3'),
+      'PIL.Image.resize lanczos3': lambda: resampler.pil_image_resize(*a, filter='lanczos3'),
+      'PIL.Image.resize cubic': lambda: resampler.pil_image_resize(*a, filter='cubic'),
       # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (gridscale, gridscale, 1.0)),
-      'map_coordinates order=3': lambda: resampler.scipy_ndimage_resize(array, shape, filter='cardinal3'),
-      'skimage.transform.resize': lambda: resampler.skimage_transform_resize(array, shape, filter='cardinal3'),
-      'tf.resize lanczos5': lambda: resampler.tf_image_resize(array, shape, filter='lanczos5'),
-      'tf.resize lanczos3': lambda: resampler.tf_image_resize(array, shape, filter='lanczos3'),
-      # 'tf.resize cubic new': lambda: resampler.tf_image_resize(array, shape, filter='cubic'),  # newer; resize_with_scale_and_translate('keyscubic')
-      'tf.resize cubic (aa False)': lambda: resampler.tf_image_resize(array, shape, filter='cubic', antialias=False),  # older; gen_image_ops.resize_bicubic()
-      'torch.nn.interp sharpcubic': lambda: resampler.torch_nn_resize(array, shape, filter='sharpcubic'),
-      'torch.nn.interpolate triangle': lambda: resampler.torch_nn_resize(array, shape, filter='triangle'),
-      # 'torch.nn.interp cubic AA': lambda: resampler.torch_nn_resize(array, shape, filter='sharpcubic', antialias=True),
-      # 'torch.nn.interp triangle AA': lambda: resampler.torch_nn_resize(array, shape, 'filter=triangle', antialias=True),
-      'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(array, shape, filter='lanczos3'),
-      'jax.image.resize triangle': lambda: resampler.jax_image_resize(array, shape, filter='triangle'),
-      'cv.resize lanczos4': lambda: resampler.cv_resize(array, shape, filter='lanczos4'),
-      'cv.resize (sharp)cubic': lambda: resampler.cv_resize(array, shape, filter='sharpcubic'),
+      'map_coordinates order=3': lambda: resampler.scipy_ndimage_resize(*a, filter='cardinal3'),
+      'skimage.transform.resize': lambda: resampler.skimage_transform_resize(
+          *a, filter='cardinal3'
+      ),
+      'tf.resize lanczos5': lambda: resampler.tf_image_resize(*a, filter='lanczos5'),
+      'tf.resize lanczos3': lambda: resampler.tf_image_resize(*a, filter='lanczos3'),
+      # 'tf.resize cubic new': lambda: resampler.tf_image_resize(*a, filter='cubic'),  # newer; resize_with_scale_and_translate('keyscubic')
+      'tf.resize cubic (aa False)': lambda: resampler.tf_image_resize(
+          *a, filter='cubic', antialias=False
+      ),  # older; gen_image_ops.resize_bicubic()
+      'torch.nn.interp sharpcubic': lambda: resampler.torch_nn_resize(*a, filter='sharpcubic'),
+      'torch.nn.interpolate triangle': lambda: resampler.torch_nn_resize(*a, filter='triangle'),
+      # 'torch.nn.interp cubic AA': lambda: resampler.torch_nn_resize(*a, filter='sharpcubic', antialias=True),
+      # 'torch.nn.interp triangle AA': lambda: resampler.torch_nn_resize(*a, 'filter=triangle', antialias=True),
+      'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(*a, filter='lanczos3'),
+      'jax.image.resize triangle': lambda: resampler.jax_image_resize(*a, filter='triangle'),
+      'cv.resize lanczos4': lambda: resampler.cv_resize(*a, filter='lanczos4'),
+      'cv.resize (sharp)cubic': lambda: resampler.cv_resize(*a, filter='sharpcubic'),
   }
   images = {}
   for name, func in funcs.items():
@@ -4816,6 +5201,7 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200
   show_args: Any = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
   media.show_images(images, **show_args)
   # media.show_video([upsampled3, upsampled4], codec='gif', fps=1, height=400)
+
 
 if EFFORT >= 1:
   experiment_compare_upsampling_with_other_libraries()
@@ -4838,48 +5224,59 @@ if EFFORT >= 3:
 def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(100, 200)) -> None:
   # All filtering is done in lightness space (i.e. with gamma='identity').
   original_shape_2d = (np.array(shape) / gridscale + 0.5).astype(int)
-  original = resampler.resize(media.to_float01(example_tissot_image()), original_shape_2d,
-                              filter='lanczos5', dtype=np.float32)
+  original = resampler.resize(
+      media.to_float01(example_tissot_image()),
+      original_shape_2d,
+      filter='lanczos5',
+      dtype=np.float32,
+  )
   if 1:
     original = np.ascontiguousarray(original)  # Compactify, removing cropped X and Y.
   if 0:
     original = np.swapaxes(np.swapaxes(original, 0, 1).copy(), 0, 1)  # Transpose memory layout.
   array = original
   print(f'{array.dtype} src_shape={array.shape} strides={array.strides} dst_shape={shape}')
+  a = array, shape
   funcs: dict[str, Callable[[], _AnyArray]] = {
-      # 'resize lanczos5': lambda: resampler.resize(array, shape, filter='lanczos5'),
-      'resize lanczos3': lambda: resampler.resize(array, shape),
-      'resize cardinal3': lambda: resampler.resize(array, shape, filter='cardinal3'),
-      'resize cubic': lambda: resampler.resize(array, shape, filter='cubic'),
-      'resize triangle': lambda: resampler.resize(array, shape, filter='triangle'),
-      'resize trapezoid': lambda: resampler.resize(array, shape, filter='trapezoid'),
-      'resize box': lambda: resampler.resize(array, shape, filter='box'),
-      'resize_in_tf lanczos3': lambda: resampler.resize_in_tensorflow(array, shape),
-      'resize_in_tf trapezoid': lambda: resampler.resize_in_tensorflow(array, shape, filter='trapezoid'),
-      'resize_in_torch lanczos3': lambda: resampler.resize_in_torch(array, shape),
-      'resize_in_torch trapezoid': lambda: resampler.resize_in_torch(array, shape, filter='trapezoid'),
-      'resize_in_jax lanczos3': lambda: resampler.resize_in_jax(array, shape),
-      'resize_in_jax trapezoid': lambda: resampler.resize_in_jax(array, shape, filter='trapezoid'),
-      'jaxjit_resize lanczos3': lambda: resampler.jaxjit_resize(array, shape, filter='lanczos3'),
-      'jaxjit_resize trapezoid': lambda: resampler.jaxjit_resize(array, shape, filter='trapezoid'),
-      'resample lanczos3': lambda: resampler._resize_using_resample(array, shape, filter='lanczos3'),
-      'PIL.Image.resize lanczos3': lambda: resampler.pil_image_resize(array, shape, filter='lanczos3'),
-      # 'PIL.Image.resize cubic': lambda: resampler.pil_image_resize(array, shape, filter='cubic'),
-      'PIL.Image.resize box': lambda: resampler.pil_image_resize(array, shape, filter='box'),
+      # 'resize lanczos5': lambda: resampler.resize(*a, filter='lanczos5'),
+      'resize lanczos3': lambda: resampler.resize(*a),
+      'resize cardinal3': lambda: resampler.resize(*a, filter='cardinal3'),
+      'resize cubic': lambda: resampler.resize(*a, filter='cubic'),
+      'resize triangle': lambda: resampler.resize(*a, filter='triangle'),
+      'resize trapezoid': lambda: resampler.resize(*a, filter='trapezoid'),
+      'resize box': lambda: resampler.resize(*a, filter='box'),
+      'resize_in_tf lanczos3': lambda: resampler.resize_in_tensorflow(*a),
+      'resize_in_tf trapezoid': lambda: resampler.resize_in_tensorflow(*a, filter='trapezoid'),
+      'resize_in_torch lanczos3': lambda: resampler.resize_in_torch(*a),
+      'resize_in_torch trapezoid': lambda: resampler.resize_in_torch(*a, filter='trapezoid'),
+      'resize_in_jax lanczos3': lambda: resampler.resize_in_jax(*a),
+      'resize_in_jax trapezoid': lambda: resampler.resize_in_jax(*a, filter='trapezoid'),
+      'jaxjit_resize lanczos3': lambda: resampler.jaxjit_resize(*a, filter='lanczos3'),
+      'jaxjit_resize trapezoid': lambda: resampler.jaxjit_resize(*a, filter='trapezoid'),
+      'resample lanczos3': lambda: resampler._resize_using_resample(*a, filter='lanczos3'),
+      'PIL.Image.resize lanczos3': lambda: resampler.pil_image_resize(*a, filter='lanczos3'),
+      # 'PIL.Image.resize cubic': lambda: resampler.pil_image_resize(*a, filter='cubic'),
+      'PIL.Image.resize box': lambda: resampler.pil_image_resize(*a, filter='box'),
       # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (gridscale, gridscale, 1.0)),
-      'map_coordinates order=3': lambda: resampler.scipy_ndimage_resize(array, shape, filter='cardinal3'),
-      'skimage.transform.resize': lambda: resampler.skimage_transform_resize(array, shape, filter='cardinal3'),
-      'tf.resize lanczos3': lambda: resampler.tf_image_resize(array, shape, filter='lanczos3'),
-      'tf.resize trapezoid': lambda: resampler.tf_image_resize(array, shape, filter='trapezoid'),
-      # 'torch.nn.interpolate cubic': lambda: resampler.torch_nn_resize(array, shape, filter='sharpcubic'),
-      # 'torch.nn.interpolate triangle': lambda: resampler.torch_nn_resize(array, shape, filter='triangle'),
-      'torch.nn.interp trapezoid': lambda: resampler.torch_nn_resize(array, shape, filter='trapezoid'),
-      'torch.nn.interp cubic AA': lambda: resampler.torch_nn_resize(array, shape, filter='sharpcubic', antialias=True),
-      'torch.nn.interp triangle AA': lambda: resampler.torch_nn_resize(array, shape, filter='triangle', antialias=True),
-      'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(array, shape, filter='lanczos3'),
-      'jax.image.resize triangle': lambda: resampler.jax_image_resize(array, shape, filter='triangle'),
-      'cv.resize lanczos4': lambda: resampler.cv_resize(array, shape, filter='lanczos4'),  # Aliased.
-      'cv.resize trapezoid': lambda: resampler.cv_resize(array, shape, filter='trapezoid'),
+      'map_coordinates order=3': lambda: resampler.scipy_ndimage_resize(*a, filter='cardinal3'),
+      'skimage.transform.resize': lambda: resampler.skimage_transform_resize(
+          *a, filter='cardinal3'
+      ),
+      'tf.resize lanczos3': lambda: resampler.tf_image_resize(*a, filter='lanczos3'),
+      'tf.resize trapezoid': lambda: resampler.tf_image_resize(*a, filter='trapezoid'),
+      # 'torch.nn.interpolate cubic': lambda: resampler.torch_nn_resize(*a, filter='sharpcubic'),
+      # 'torch.nn.interpolate triangle': lambda: resampler.torch_nn_resize(*a, filter='triangle'),
+      'torch.nn.interp trapezoid': lambda: resampler.torch_nn_resize(*a, filter='trapezoid'),
+      'torch.nn.interp cubic AA': lambda: resampler.torch_nn_resize(
+          *a, filter='sharpcubic', antialias=True
+      ),
+      'torch.nn.interp triangle AA': lambda: resampler.torch_nn_resize(
+          *a, filter='triangle', antialias=True
+      ),
+      'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(*a, filter='lanczos3'),
+      'jax.image.resize triangle': lambda: resampler.jax_image_resize(*a, filter='triangle'),
+      'cv.resize lanczos4': lambda: resampler.cv_resize(*a, filter='lanczos4'),  # Aliased.
+      'cv.resize trapezoid': lambda: resampler.cv_resize(*a, filter='trapezoid'),
   }
   images = {}
   for name, func in funcs.items():
@@ -4899,10 +5296,11 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
   show_args: Any = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
   media.show_images(images, **show_args)
 
+
 if EFFORT >= 1:
   experiment_compare_downsampling_with_other_libraries()
 if EFFORT >= 3:
-  experiment_compare_downsampling_with_other_libraries(gridscale=1/8)
+  experiment_compare_downsampling_with_other_libraries(gridscale=1 / 8)
   experiment_compare_downsampling_with_other_libraries(gridscale=0.1007)
 
 
@@ -4911,14 +5309,16 @@ def test_downsample_timing() -> None:
   """Check that we account for strides in `_arr_best_dims_order_for_resize()`."""
   for with_copy in [False, True]:
     for shape in [(1000, 2000), (900, 1800), (800, 1600)]:
-      array = resampler.resize(
-          media.to_float01(example_tissot_image()), shape, filter='lanczos5', dtype=np.float32)
+      array = media.to_float01(example_tissot_image())
+      array = resampler.resize(array, shape, filter='lanczos5', dtype=np.float32)
       if with_copy:
         array = np.ascontiguousarray(array)  # Like copy(), it keeps a stride of 4.
       print(f'{array.dtype} {array.shape!s:<16} {array.strides!s:<16}: ', end='')
-      hh.print_time(lambda: resampler.resize(array, (100, 200), filter='lanczos3',
-                                             boundary='reflect'),
-                    max_time=0)
+      hh.print_time(
+          lambda: resampler.resize(array, (100, 200), filter='lanczos3', boundary='reflect'),
+          max_time=0,
+      )
+
 
 test_downsample_timing()
 
@@ -4946,13 +5346,15 @@ def run_pytest_command() -> None:  # (This function name cannot end in 'test', e
   assert running_in_notebook()
   hh.run('pytest -qq || true')
 
+
 if EFFORT >= 1:
   run_pytest_command()
 
 
 # %%
-def run_spell_check(filenames: Iterable[str], *, commit_new_words: bool = False,
-                    spell: str = 'pdoc/spell.txt') -> None:
+def run_spell_check(
+    filenames: Iterable[str], *, commit_new_words: bool = False, spell: str = 'pdoc/spell.txt'
+) -> None:
   """Look for misspelled words."""
   for filename in filenames:
     path = pathlib.Path(filename)
@@ -4966,6 +5368,7 @@ def run_spell_check(filenames: Iterable[str], *, commit_new_words: bool = False,
     else:
       hh.run(f'{find} || true')
 
+
 if EFFORT >= 1:
   run_spell_check('resampler_notebook.py resampler/__init__.py'.split())
 
@@ -4977,6 +5380,7 @@ def run_lint() -> None:
     hh.run('echo autopep8; autopep8 -j8 -d .')
     hh.run('echo mypy; mypy . || true')
     hh.run('echo pylint; pylint -j8 . || true')
+
 
 if EFFORT >= 1:
   run_lint()
@@ -4991,6 +5395,7 @@ if EFFORT >= 1:
 # %%
 # Remember to increment __version__ to allow a new pypi package.
 
+
 def build_and_upload_pypi_package() -> None:
   """Build and upload a PyPI package.  (Instead, this is normally performed as a GitHub action.)"""
   if 0:
@@ -5004,6 +5409,7 @@ def build_and_upload_pypi_package() -> None:
     hh.run('pip install -q twine')
     hh.run('python3 -m twine upload dist/*')  # Uploads to pypi.org.
   print('Update should be visible soon at https://pypi.org/project/resampler/.')
+
 
 if 0:
   build_and_upload_pypi_package()
@@ -5026,6 +5432,7 @@ def create_documentation_files() -> None:
   # To run interactively in web browser, just omit '-o ./docs'.
   hh.run('pdoc/make.py')
 
+
 if 0:
   create_documentation_files()
 
@@ -5038,17 +5445,25 @@ hh.analyze_lru_caches(globals())
 
 # %%
 def show_added_global_variables_sorted_by_type() -> None:
-  for typename, name in sorted(
-      (type(value).__name__, name) for name, value in globals().items()):
+  for typename, name in sorted((type(value).__name__, name) for name, value in globals().items()):
     if not any((
         name in _ORIGINAL_GLOBALS,
         name.startswith(('_', 'test_', 'visualize_')),
-        typename in ['_GenericAlias', '_SpecialGenericAlias', 'partial',
-                     'type', 'function', '_lru_cache_wrapper', 'CPUDispatcher'],
+        typename
+        in [
+            '_GenericAlias',
+            '_SpecialGenericAlias',
+            'partial',
+            'type',
+            'function',
+            '_lru_cache_wrapper',
+            'CPUDispatcher',
+        ],
         len(name) >= 6 and name.upper() == name,
         name in ''.split(),
     )):
       print(f'# {typename:24} {name}')
+
 
 show_added_global_variables_sorted_by_type()
 
