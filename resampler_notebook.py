@@ -349,11 +349,11 @@ _AnyArray = resampler._AnyArray
 
 # %%
 def running_in_notebook() -> bool:
-  return IPython.get_ipython() is not None  # type: ignore[attr-defined]
+  return IPython.get_ipython() is not None  # type: ignore
 
 
 # %%
-EFFORT: Literal[0, 1, 2, 3] = 2  # ??1
+EFFORT: Literal[0, 1, 2, 3] = 1
 """Controls the breadth and precision of the notebook experiments; 0 <= value <= 3."""
 if not running_in_notebook():
   EFFORT = 0  # Otherwise, invocations of doctest or pytest would recurse infinitely.
@@ -1416,7 +1416,7 @@ def test_apply_digital_filter_1d_quick() -> None:
     shape = 5, 7
     array2_np = np.random.default_rng(0).random(shape, np.float64)
     array2 = torch.tensor(array2_np, requires_grad=True)
-    assert torch.autograd.gradcheck(  # type: ignore[attr-defined]
+    assert torch.autograd.gradcheck(
         inverse_convolution, [array2], rtol=0, atol=1e-6
     ), boundary
 
@@ -2149,7 +2149,7 @@ def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7
   array_np = np.random.default_rng(0).random(src_shape, np.float64)
   array = torch.tensor(array_np, requires_grad=True)
   for name, function in functions.items():
-    assert torch.autograd.gradcheck(  # type: ignore[attr-defined]
+    assert torch.autograd.gradcheck(
         function, [array], rtol=0, atol=1e-6
     ), name
 
@@ -2869,7 +2869,7 @@ def test_torch_optimize_image_for_desired_upsampling(
     for _ in range(num_steps):
       loss = compute_loss(model(array))
       optimizer.zero_grad()
-      loss.backward()  # type: ignore[no-untyped-call]
+      loss.backward()
       optimizer.step()
 
     upsampled = model(array).detach()
@@ -2900,7 +2900,7 @@ def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -
     array_np = np.random.default_rng(0).random(src_shape, np.float64)
     array = torch.tensor(array_np, requires_grad=True)
     for function in functions:
-      assert torch.autograd.gradcheck(function, [array], rtol=0, atol=1e-6)  # type: ignore[attr-defined]
+      assert torch.autograd.gradcheck(function, [array], rtol=0, atol=1e-6)
 
 
 if EFFORT >= 1:
