@@ -4041,11 +4041,11 @@ def rasterize_text(
 
 def get_text_image(shape=(200,) * 2) -> _NDArray:
   image = np.full((*shape, 3), 255, np.uint8)
-  yx = np.array(shape) // 2
+  yx = shape[0] // 2, shape[1] // 2
   text = 'Hlllllmm\n' * 4
   hh.overlay_text(image, yx, text, fontname='cmr10', fontsize=48, align='mc', spacing=5, margin=0)
   return image[..., 0]  # Convert to grayscale.
-  return rasterize_text(shape, text)
+  # return rasterize_text(shape, text)
 
 
 def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=41) -> None:
