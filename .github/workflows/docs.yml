@@ -28,12 +28,12 @@ jobs:
       # ADJUST THIS: install all dependencies (including pdoc)
       - run: pip install .
       - run: pip install pdoc
-      # ADJUST THIS: build your documentation into docs/.
+      # ADJUST THIS: build your documentation into pdoc/html/.
       - run: python pdoc/make.py
 
       - uses: actions/upload-pages-artifact@v1
         with:
-          path: docs/
+          path: pdoc/html/
       
   # Deploy the artifact to GitHub pages.
   # This is a separate job so that only actions/deploy-pages has the necessary permissions.

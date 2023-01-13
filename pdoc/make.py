@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Create HTML documentation from the source code using `pdoc`."""
-
-# Note: Invoke this script from the parent directory as "pdoc/make.py" !
+# Note: Invoke this script from the parent directory as "pdoc/make.py".
 
 import pathlib
 import re
@@ -20,14 +19,14 @@ FOOTER_TEXT = ''
 LOGO = 'https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png'
 LOGO_LINK = 'https://hhoppe.github.io/resampler/'
 TEMPLATE_DIRECTORY = pathlib.Path('./pdoc')
-OUTPUT_DIRECTORY = pathlib.Path('./docs')
+OUTPUT_DIRECTORY = pathlib.Path('./pdoc/html')
 
 
 def main() -> None:
   """Invoke `pdoc` on the module source files."""
   # See https://github.com/mitmproxy/pdoc/blob/main/pdoc/__main__.py
   pdoc.render.configure(
-      docformat='restructuredtext',  # 'google' is inferred from __docformat__.
+      docformat='google',
       edit_url_map=None,
       favicon=FAVICON,
       footer_text=FOOTER_TEXT,
