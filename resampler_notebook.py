@@ -1416,9 +1416,7 @@ def test_apply_digital_filter_1d_quick() -> None:
     shape = 5, 7
     array2_np = np.random.default_rng(0).random(shape, np.float64)
     array2 = torch.tensor(array2_np, requires_grad=True)
-    assert torch.autograd.gradcheck(
-        inverse_convolution, [array2], rtol=0, atol=1e-6
-    ), boundary
+    assert torch.autograd.gradcheck(inverse_convolution, [array2], rtol=0, atol=1e-6), boundary
 
 
 if EFFORT >= 1:
@@ -2149,9 +2147,7 @@ def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7
   array_np = np.random.default_rng(0).random(src_shape, np.float64)
   array = torch.tensor(array_np, requires_grad=True)
   for name, function in functions.items():
-    assert torch.autograd.gradcheck(
-        function, [array], rtol=0, atol=1e-6
-    ), name
+    assert torch.autograd.gradcheck(function, [array], rtol=0, atol=1e-6), name
 
 
 test_differentiability_of_torch_resizing()
@@ -4044,11 +4040,15 @@ def rasterize_text(
 
 
 def get_text_image(shape=(200,) * 2) -> _NDArray:
-  # Replace by hh.rasterized_text() -- requires introducing `spacing` parameter??
-  return rasterize_text(shape, 'Hlllllmm\n' * 4)
+  image = np.full((*shape, 3), 255, np.uint8)
+  yx = np.array(shape) // 2
+  text = 'Hlllllmm\n' * 4
+  hh.overlay_text(image, yx, text, fontname='cmr10', fontsize=48, align='mc', spacing=5, margin=0)
+  return image[..., 0]  # Convert to grayscale.
+  return rasterize_text(shape, text)
 
 
-def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=21) -> None:
+def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=41) -> None:
   original = crop_array(get_text_image() / 255.0, -50, 1.0)
 
   def generate_image_pair(degree) -> tuple[_NDArray, _NDArray]:
@@ -4065,7 +4065,7 @@ def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=21) -> No
     images[f'{degree=}  {psnr=:.2f}'] = reconstructed
   media.show_images(images, vmin=0, vmax=1, border=True, height=reconstructed.shape[0])
 
-  degrees = np.linspace(0.0, 90.0, num_rotations)
+  degrees = np.linspace(0.0, 45.0, num_rotations)
   psnrs = [get_psnr(*generate_image_pair(degree)) for degree in degrees]
   _, ax = plt.subplots(figsize=(5, 3))
   ax.plot(degrees, psnrs, '.')
