@@ -742,3 +742,6 @@ ndenumerate
 gt
 noop
 noqa
+fontname
+mc
+pyink
