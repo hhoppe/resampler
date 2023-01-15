@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.7.0'
+__version__ = '0.7.1'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -16,7 +16,7 @@ import functools
 import itertools
 import math
 import typing
-from typing import Any, Generic, TypeVar, Union
+from typing import Any, Generic, Literal, TypeVar, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -2705,10 +2705,24 @@ def resize_in_arraylib(array: _NDArray, /, *args: Any, arraylib: str, **kwargs: 
   return _arr_numpy(_original_resize(_make_array(array, arraylib), *args, **kwargs))
 
 
-resize_in_numpy = functools.partial(resize_in_arraylib, arraylib='numpy')
-resize_in_tensorflow = functools.partial(resize_in_arraylib, arraylib='tensorflow')
-resize_in_torch = functools.partial(resize_in_arraylib, arraylib='torch')
-resize_in_jax = functools.partial(resize_in_arraylib, arraylib='jax')
+def resize_in_numpy(array: _NDArray, /, *args: Any, **kwargs: Any) -> _NDArray:
+  """Evaluate the `resize()` operation using the `numpy` library."""
+  return resize_in_arraylib(array, *args, arraylib='numpy', **kwargs)
+
+
+def resize_in_tensorflow(array: _NDArray, /, *args: Any, **kwargs: Any) -> _NDArray:
+  """Evaluate the `resize()` operation using the `tensorflow` library."""
+  return resize_in_arraylib(array, *args, arraylib='tensorflow', **kwargs)
+
+
+def resize_in_torch(array: _NDArray, /, *args: Any, **kwargs: Any) -> _NDArray:
+  """Evaluate the `resize()` operation using the `torch` library."""
+  return resize_in_arraylib(array, *args, arraylib='torch', **kwargs)
+
+
+def resize_in_jax(array: _NDArray, /, *args: Any, **kwargs: Any) -> _NDArray:
+  """Evaluate the `resize()` operation using the `jax` library."""
+  return resize_in_arraylib(array, *args, arraylib='jax', **kwargs)
 
 
 def _resize_possibly_in_arraylib(
@@ -2743,6 +2757,7 @@ def uniform_resize(
     /,
     shape: Iterable[int],
     *,
+    object_fit: Literal['contain', 'cover'] = 'contain',
     gridtype: str | Gridtype | None = None,
     src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
     dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
@@ -2762,6 +2777,8 @@ def uniform_resize(
     array: Regular grid of source sample values.
     shape: The number of grid samples in each coordinate dimension of the output array.  The source
       `array` must have at least as many dimensions as `len(shape)`.
+    object_fit: Like CSS `object-fit`.  If `'contain'`, `array` is resized uniformly to fit within
+      `shape`. If `'cover'`, `array` is resized to fully cover `shape`.
     gridtype: Placement of samples on all dimensions of both the source and output domain grids.
     src_gridtype: Placement of the samples in the source domain grid for each dimension.
     dst_gridtype: Placement of the samples in the output domain grid for each dimension.
@@ -2782,6 +2799,10 @@ def uniform_resize(
   >>> uniform_resize(np.ones((4, 8)), (2, 7), filter='trapezoid')
   array([[0. , 0.5, 1. , 1. , 1. , 0.5, 0. ],
          [0. , 0.5, 1. , 1. , 1. , 0.5, 0. ]])
+
+  >>> uniform_resize(np.arange(6.0).reshape(2, 3), (2, 2), filter='trapezoid', object_fit='cover')
+  array([[0.5, 1.5],
+         [3.5, 4.5]])
   """
   if scale != 1.0 or translate != 0.0:
     raise ValueError('`uniform_resize()` does not accept `scale` or `translate` parameters.')
@@ -2799,7 +2820,8 @@ def uniform_resize(
       / src_gridtype2[dim].size_in_samples(array.shape[dim])
       for dim in range(len(shape))
   ]
-  scale2 = min(raw_scales) / np.array(raw_scales)
+  scale0 = {'contain': min(raw_scales), 'cover': max(raw_scales)}[object_fit]
+  scale2 = scale0 / np.array(raw_scales)
   translate = (1.0 - scale2) / 2
   return resize(array, shape, boundary=boundary, scale=scale2, translate=translate, **kwargs)
 

@@ -313,14 +313,15 @@
 """Python notebook demonstrating the `resampler` package."""
 from __future__ import annotations
 
-import copy
 import collections
 from collections.abc import Callable, Iterable, Mapping, Sequence
+import copy
 import functools
 import itertools
 import math
 import os
 import pathlib
+import sys
 import typing
 from typing import Any, Literal, TypeVar
 import warnings
@@ -331,6 +332,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import mediapy as media  # https://github.com/google/mediapy
 import numpy as np
+import pdoc
 import scipy.signal
 import skimage.metrics
 
@@ -450,9 +452,6 @@ hh.display_html('<style>.jp-RenderedMarkdown { max-width: 950px!important; }</st
 
 # %%
 def show_docstring(module_dot_name: str) -> None:
-  import pdoc
-  import sys
-
   modulename, name = module_dot_name.rsplit('.', 1)
   module = sys.modules[modulename]
   text = pdoc.doc_ast.walk_tree(module).docstrings.get(name, '')
@@ -509,6 +508,7 @@ def get_ssim(image1: _NDArray, image2: _NDArray) -> float:
 
   # Slower but with more functionality.
   import tensorflow as tf
+
   # Default filter_size=11, filter_sigma=1.5.
   return float(tf.image.ssim(image1, image2, max_val=1.0))
 
@@ -829,7 +829,7 @@ show_docstring('resampler.GAMMAS')
 # ## <a name="Resize"></a>Resize
 
 # %%
-# ?resampler.resize
+hh.pdoc_help(resampler.resize)
 
 # %% [markdown]
 # Because the reconstruction and prefilter kernels are assumed to be separable functions,
@@ -839,10 +839,10 @@ show_docstring('resampler.GAMMAS')
 # (up to machine precision), but it affects total execution time.
 
 # %%
-# ?resampler.resize_in_arraylib
+hh.pdoc_help(resampler.resize_in_arraylib)
 
 # %%
-# ?resampler.jaxjit_resize
+hh.pdoc_help(resampler.jaxjit_resize)
 
 # %%
 # display_markdown(resampler.resize.__doc__)  # It does not show parameter types and defaults.
@@ -894,21 +894,21 @@ def visualize_filters_on_checkerboard(src_shape=(12, 8), boundary='wrap') -> Non
 if EFFORT >= 1:
   visualize_filters_on_checkerboard()
 
-
 # %% [markdown]
 # ## <a name="Resample"></a>Resample
 
 # %%
-# ?resampler.resample
+hh.pdoc_help(resampler.resample)
 
 # %%
-# ?resampler.resample_affine
+hh.pdoc_help(resampler.resample_affine)
 
 # %%
-# ?resampler.rotation_about_center_in_2d
+hh.pdoc_help(resampler.rotation_about_center_in_2d)
 
 # %%
-# ?resampler.rotate_image_about_center
+hh.pdoc_help(resampler.rotate_image_about_center)
+
 
 # %%
 # General resample:
@@ -4013,39 +4013,12 @@ if EFFORT >= 2:
 # and measure the reconstruction accuracy.
 
 # %%
-def _get_pil_font(font_size: int, font_name: str = 'cmr10') -> Any:
-  import PIL.ImageFont
-
-  font_file = f'{matplotlib.__path__[0]}/mpl-data/fonts/ttf/{font_name}.ttf'
-  return PIL.ImageFont.truetype(font_file, font_size)  # Slow ~1.3 s but gets cached.
-
-
-def rasterize_text(
-    shape: tuple[int, int],
-    text: str,
-    *,
-    pad_xy: tuple[int, int] = (10, 10),
-    background: int = 255,
-    foreground: int = 0,
-    font_size: int = 48,
-) -> _NDArray:
-  import PIL.Image
-  import PIL.ImageDraw
-
-  pil_font = _get_pil_font(font_size)
-  pil_image = PIL.Image.fromarray(np.full(shape, background, np.uint8))
-  draw = PIL.ImageDraw.Draw(pil_image)
-  draw.text(pad_xy, text, fill=foreground, spacing=5, font=pil_font)
-  return np.array(pil_image)
-
-
 def get_text_image(shape=(200,) * 2) -> _NDArray:
   image = np.full((*shape, 3), 255, np.uint8)
   yx = shape[0] // 2, shape[1] // 2
   text = 'Hlllllmm\n' * 4
   hh.overlay_text(image, yx, text, fontname='cmr10', fontsize=48, align='mc', spacing=5, margin=0)
   return image[..., 0]  # Convert to grayscale.
-  # return rasterize_text(shape, text)
 
 
 def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=41) -> None:
@@ -4512,6 +4485,7 @@ def test_banded(debug=False) -> None:
 
   if 1 and l == 1 and boundary == 'reflect':
     import tensorflow as tf
+
     # tensorflow does not support general banded solver.
     # tf.linalg.banded_triangular_solve(): only upper or only lower diagonals.
     # tf.linalg.tridiagonal_solve(): 1 lower diagonal and 1 upper diagonal.
@@ -5353,7 +5327,7 @@ if EFFORT >= 1:
 
 # %%
 def run_spell_check(
-    filenames: Iterable[str], *, commit_new_words: bool = False, spell: str = 'pdoc/spell.txt'
+    filenames: Iterable[str], *, commit_new_words: bool = False, spell: str = 'pdoc_files/spell.txt'
 ) -> None:
   """Look for misspelled words."""
   for filename in filenames:
@@ -5378,6 +5352,7 @@ def run_lint() -> None:
   """Run checks on *.py notebook code (saved using jupytext or from menu)."""
   if pathlib.Path('resampler_notebook.py').is_file():
     hh.run('echo autopep8; autopep8 -j8 -d .')
+    hh.run('echo pyink; pyink --diff .')
     hh.run('echo mypy; mypy . || true')
     hh.run('echo pylint; pylint -j8 . || true')
 
@@ -5428,9 +5403,9 @@ def create_documentation_files() -> None:
     hh.run('pip install pdoc')
   # Used http://www.xiconeditor.com/ to upload 4-channel png and save *.ico .
   # Use custom template ./pdoc/module.html.jinja2 and output ./docs/*.
-  # hh.run('pdoc --math -t ./pdoc -o ./docs ./resampler --logo https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png --favicon https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha_scaletox64.ico --logo-link https://hhoppe.github.io/resampler/resampler.html')
+  # hh.run('pdoc --math -t ./pdoc_files -o ./docs ./resampler --logo https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png --favicon https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha_scaletox64.ico --logo-link https://hhoppe.github.io/resampler/resampler.html')
   # To run interactively in web browser, just omit '-o ./docs'.
-  hh.run('pdoc/make.py')
+  hh.run('pdoc_files/make.py')
 
 
 if 0:
