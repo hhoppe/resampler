@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Create HTML documentation from the source code using `pdoc`."""
-# Note: Invoke this script from the parent directory as "pdoc/make.py".
+# Note: Invoke this script from the parent directory as "pdoc_files/make.py".
 
 import pathlib
 import re
@@ -18,8 +18,8 @@ FAVICON = (
 FOOTER_TEXT = ''
 LOGO = 'https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png'
 LOGO_LINK = 'https://hhoppe.github.io/resampler/'
-TEMPLATE_DIRECTORY = pathlib.Path('./pdoc')
-OUTPUT_DIRECTORY = pathlib.Path('./pdoc/html')
+TEMPLATE_DIRECTORY = pathlib.Path('./pdoc_files')
+OUTPUT_DIRECTORY = pathlib.Path('./pdoc_files/html')
 
 
 def main() -> None:
