@@ -31,6 +31,7 @@ https://github.com/mitmproxy/pdoc/blob/main/pdoc/templates/default/module.html.j
     {% elif 'Gamma.' in doc.qualname %}
     {% elif 'PowerGamma' in doc.qualname %}
     {% elif 'SrgbGamma' in doc.qualname %}
+    {% elif 'resize_in_' in doc.qualname %}
     {% else %}
         {{ default_is_public(doc) }}
     {% endif %}
