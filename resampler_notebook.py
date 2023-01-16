@@ -5326,28 +5326,6 @@ if EFFORT >= 1:
 
 
 # %%
-def run_spell_check(
-    filenames: Iterable[str], *, commit_new_words: bool = False, spell: str = 'pdoc_files/spell.txt'
-) -> None:
-  """Look for misspelled words."""
-  for filename in filenames:
-    path = pathlib.Path(filename)
-    if not path.is_file():
-      continue
-    # -Fxvif: fixed_string, match_whole_line, invert_match, case_insensitive, patterns_from_file.
-    find = rf"""cat {path} | perl -pe "s@https?:/.*?[)> ]@@g; s/'/ /g; s/\\\\n//g;" | spell | \
-                sort -u | grep -Fxvif {spell}"""
-    if commit_new_words:
-      hh.run(f'{find} >v.spell; cat v.spell >>{spell} && rm v.spell')
-    else:
-      hh.run(f'{find} || true')
-
-
-if EFFORT >= 1:
-  run_spell_check('resampler_notebook.py resampler/__init__.py'.split())
-
-
-# %%
 def run_lint() -> None:
   """Run checks on *.py notebook code (saved using jupytext or from menu)."""
   if pathlib.Path('resampler_notebook.py').is_file():
