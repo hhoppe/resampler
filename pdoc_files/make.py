@@ -12,11 +12,9 @@ if 0:  # https://github.com/mitmproxy/pdoc/issues/420
   pdoc.doc_types.simplify_annotation.recompile()
 
 MODULES = ['./resampler']  # One or more module names or file paths.
-FAVICON = (
-    'https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha_scaletox64.ico'
-)
+FAVICON = 'https://github.com/hhoppe/resampler/raw/main/pdoc_files/favicon.ico'
 FOOTER_TEXT = ''
-LOGO = 'https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png'
+LOGO = 'https://github.com/hhoppe/resampler/raw/main/pdoc_files/logo.png'
 LOGO_LINK = 'https://hhoppe.github.io/resampler/'
 TEMPLATE_DIRECTORY = pathlib.Path('./pdoc_files')
 OUTPUT_DIRECTORY = pathlib.Path('./pdoc_files/html')
@@ -46,12 +44,14 @@ def main() -> None:
   if 1:
     output_file = OUTPUT_DIRECTORY / 'resampler.html'
     text = output_file.read_text()
-    # collections.abc.Iterable -> Iterable.
+    # e.g., collections.abc.Iterable -> Iterable.
     text = text.replace(
         '<span class="n">collections</span><span class="o">'
         '.</span><span class="n">abc</span><span class="o">.</span>',
         '',
     )
+    # typing.* -> *.
+    text = text.replace('<span class="n">typing</span><span class="o">.</span>', '')
     # resampler.Filter, resampler.Boundary, etc. -> Filter, Boundary, etc.
     text = re.sub(r'resampler\.([A-Z][a-z]+)', r'\1', text)
     output_file.write_text(text)
