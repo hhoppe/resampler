@@ -374,8 +374,10 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 warnings.filterwarnings('ignore', message='IProgress not found')  # category=tqdm.TqdmWarning
 
 # %%
-if 0:  # Silence "WARNING:absl:No GPU/TPU found, falling back to CPU".
+if 1:  # Silence "No GPU/TPU found, falling back to CPU."
+  # See https://github.com/google/jax/issues/6805.
   os.environ['JAX_PLATFORM_NAME'] = 'cpu'
+  os.environ['JAX_PLATFORMS'] = 'cpu'
 
 # %%
 # Silence "RuntimeWarning: More than 20 figures have been opened." when run as script.
@@ -408,8 +410,6 @@ def experiment_preload_arraylibs_for_accurate_timings() -> None:
 
 if EFFORT >= 1:
   experiment_preload_arraylibs_for_accurate_timings()
-# (With "jax[cpu]" package, jax warns "WARNING:absl:No GPU/TPU found, falling back to CPU.".)
-
 # Try [gpu] ??
 
 # %%
@@ -3248,15 +3248,10 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
     if filter.name == 'impulse':
       interp_err = 0.0
       integral = 1.0
-      x = np.array([-10.0, -0.01, 0.0, 0.01, 10.0])  # Fake for visualization.
-      y = np.array([0.0, 0.0, 2.0, 0.0, 0.0])
+      x_plot = np.array([-10.0, -0.01, 0.0, 0.01, 10.0])  # Fake for visualization.
+      y_plot = np.array([0.0, 0.0, 2.0, 0.0, 0.0])
 
     else:
-      # Check that support radius is necessary and sufficient.
-      assert filter(-radius + 0.1) != 0.0 and filter(radius - 0.1) != 0.0
-      x = np.linspace(radius + 1e-6, radius + 3.0, 1_000)
-      assert np.all(filter(x) == 0.0) and np.all(filter(-x) == 0.0)
-
       effective_radius = radius * (3 if filter.requires_digital_filter else 1)
       pad = math.ceil(effective_radius)
       src_size = pad * 2 + 1
@@ -3266,38 +3261,43 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
       dst_size = pad * 2 * scale + 1
       x = resampler.resize(x, (dst_size,), gridtype='primal', filter='triangle')
       y = resampler.resize(y, (dst_size,), gridtype='primal', filter=filter_no_renorm)
-      assert np.all(abs(y[[0, -1]]) < 1e-10)
 
       x_int = x[::scale]
       y_int = y[::scale]
       expected = np.where(x_int == 0.0, 1.0, 0.0)
       interp_err = abs(y_int - expected).sum()
-      assert (interp_err < 1e-4) == filter.interpolating, interp_err
       interp_err = 0.0 if interp_err < 1e-7 else interp_err
 
       integral = y.sum() / (len(y) - 1) * 2.0 * pad
       # (Typically the discretized kernel is renormalized anyway.)
       if not filter.continuous and abs(integral - 1.0) < 1e-3:
         integral = 1.0
-      assert (abs(integral - 1.0) < 1e-6) == filter.unit_integral, integral
-
-      assert (abs(np.diff(y)) < 0.001).all() == filter.continuous
 
       num_plot_points = 1_001
       subsample = len(x) // num_plot_points
-      x = np.concatenate(([-10.0], x[::subsample].tolist(), [10.0]))
-      y = np.concatenate(([0.0], y[::subsample].tolist(), [0.0]))
+      x_plot = np.concatenate(([-10.0], x[::subsample].tolist(), [10.0]))
+      y_plot = np.concatenate(([0.0], y[::subsample].tolist(), [0.0]))
 
     if ax is None:
       _, ax = plt.subplots(figsize=(5, 3))
 
-    ax.plot(x, y)
+    ax.plot(x_plot, y_plot)
     ax.set(title=name, xlim=(-6.0, 6.0), ylim=(-0.25, 1.08))
     ax.yaxis.set_ticks([0.0, 1.0])
     ax.xaxis.set_ticks(np.arange(-6, 7, 2))
     info = [f'{radius=:.2f}{footnote}', f'{interp_err=:.4f}', f'{integral=:.5f}']
     for i, line in enumerate(info):
       ax.text(0.9, 0.85 - 0.17 * i, line, fontsize=10.5)
+
+    if filter.name != 'impulse':
+      # Check that support radius is necessary and sufficient.
+      assert np.all(abs(y[[0, -1]]) < 1e-10)
+      assert filter(-(radius - 0.1)) != 0.0 and filter(radius - 0.1) != 0.0, filter
+      xtmp = np.linspace(radius + 1e-6, radius + 3.0, 1_000)
+      assert np.all(filter(xtmp) == 0.0) and np.all(filter(-xtmp) == 0.0), filter
+      assert (interp_err < 1e-4) == filter.interpolating, (filter, interp_err)
+      assert (abs(integral - 1.0) < 1e-6) == filter.unit_integral, (filter, integral)
+      assert (abs(np.diff(y)) < 0.001).all() == filter.continuous, filter
 
   media.set_max_output_height(2000)
   num_columns = 3
@@ -3356,6 +3356,40 @@ def visualize_cardinal_bsplines() -> None:
 
 
 visualize_cardinal_bsplines()
+
+
+# %%
+class TestBsplineRouhani2015(resampler.Filter):
+  def __init__(self) -> None:
+    super().__init__(name='test_bspline1', radius=2.0, interpolating=False)
+
+  def __call__(self, x: _ArrayLike, /) -> _NDArray:
+    u0, u1, u2, u3 = x + 2.0, x + 1.0, x, x - 1.0
+    return np.where(x > 2.0, 0.0,
+                    np.where(x > 1.0, (1 - u3)**3,
+                             np.where(x > 0.0,  3*u2**3 - 6*u2**2 + 4,
+                                      np.where(x > -1.0, -3*u1**3 + 3*u1**2 + 3*u1 + 1,
+                                               np.where(x > -2.0, u0**3, 0.0))))) / 6.0
+
+class TestSubmission(resampler.Filter):
+  def __init__(self) -> None:
+    super().__init__(name='test_bspline1', radius=2.0, interpolating=False)
+
+  def __call__(self, x: _ArrayLike, /) -> _NDArray:
+    return np.where(x > 2.0, 0.0,
+                    np.where(x > 1.0, -1/6*x**3 + x**2 - 2*x + 4/3,
+                             np.where(x > 0.0,  1/2*x**3 - x**2 + 2/3,
+                                      np.where(x > -1.0, -1/2*x**3 - x**2 + 2/3,
+                                               np.where(x > -2.0, 1/6 * x**3 + x**2 + 2*x + 4/3,
+                                                        0.0)))))
+
+
+_filters = {
+    'bspline3': resampler.BsplineFilter(degree=3),
+    'rouhani2015': TestBsplineRouhani2015(),
+    'submission': TestSubmission(),
+}
+visualize_filters(_filters)
 
 
 # %%
@@ -5381,7 +5415,7 @@ def create_documentation_files() -> None:
     hh.run('pip install pdoc')
   # Used http://www.xiconeditor.com/ to upload 4-channel png and save *.ico .
   # Use custom template ./pdoc/module.html.jinja2 and output ./docs/*.
-  # hh.run('pdoc --math -t ./pdoc_files -o ./docs ./resampler --logo https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha.png --favicon https://github.com/hhoppe/resampler/raw/main/media/spiral_resampled_with_alpha_scaletox64.ico --logo-link https://hhoppe.github.io/resampler/resampler.html')
+  # hh.run('pdoc --math -t ./pdoc_files -o ./docs ./resampler --logo https://github.com/hhoppe/resampler/raw/main/pdoc_files/logo.png --favicon https://github.com/hhoppe/resampler/raw/main/pdoc_files/favicon.ico --logo-link https://hhoppe.github.io/resampler/resampler.html')
   # To run interactively in web browser, just omit '-o ./docs'.
   hh.run('pdoc_files/make.py')
 
