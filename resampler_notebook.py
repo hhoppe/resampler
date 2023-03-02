@@ -3360,28 +3360,61 @@ visualize_cardinal_bsplines()
 
 # %%
 class TestBsplineRouhani2015(resampler.Filter):
+  """Examine the cubic B-spline defined in [Rouhani et al. 2015]."""
+
   def __init__(self) -> None:
     super().__init__(name='test_bspline1', radius=2.0, interpolating=False)
 
   def __call__(self, x: _ArrayLike, /) -> _NDArray:
+    x = np.asarray(x)
     u0, u1, u2, u3 = x + 2.0, x + 1.0, x, x - 1.0
-    return np.where(x > 2.0, 0.0,
-                    np.where(x > 1.0, (1 - u3)**3,
-                             np.where(x > 0.0,  3*u2**3 - 6*u2**2 + 4,
-                                      np.where(x > -1.0, -3*u1**3 + 3*u1**2 + 3*u1 + 1,
-                                               np.where(x > -2.0, u0**3, 0.0))))) / 6.0
+    return (
+        np.where(
+            x > 2.0,
+            0.0,
+            np.where(
+                x > 1.0,
+                (1 - u3) ** 3,
+                np.where(
+                    x > 0.0,
+                    3 * u2**3 - 6 * u2**2 + 4,
+                    np.where(
+                        x > -1.0,
+                        -3 * u1**3 + 3 * u1**2 + 3 * u1 + 1,
+                        np.where(x > -2.0, u0**3, 0.0),
+                    ),
+                ),
+            ),
+        )
+        / 6.0
+    )
+
 
 class TestSubmission(resampler.Filter):
+  """Examine the cubic B-spline defined in a submission."""
+
   def __init__(self) -> None:
     super().__init__(name='test_bspline1', radius=2.0, interpolating=False)
 
   def __call__(self, x: _ArrayLike, /) -> _NDArray:
-    return np.where(x > 2.0, 0.0,
-                    np.where(x > 1.0, -1/6*x**3 + x**2 - 2*x + 4/3,
-                             np.where(x > 0.0,  1/2*x**3 - x**2 + 2/3,
-                                      np.where(x > -1.0, -1/2*x**3 - x**2 + 2/3,
-                                               np.where(x > -2.0, 1/6 * x**3 + x**2 + 2*x + 4/3,
-                                                        0.0)))))
+    x = np.asarray(x)
+    return np.where(
+        x > 2.0,
+        0.0,
+        np.where(
+            x > 1.0,
+            -1 / 6 * x**3 + x**2 - 2 * x + 4 / 3,
+            np.where(
+                x > 0.0,
+                1 / 2 * x**3 - x**2 + 2 / 3,
+                np.where(
+                    x > -1.0,
+                    -1 / 2 * x**3 - x**2 + 2 / 3,
+                    np.where(x > -2.0, 1 / 6 * x**3 + x**2 + 2 * x + 4 / 3, 0.0),
+                ),
+            ),
+        ),
+    )
 
 
 _filters = {
