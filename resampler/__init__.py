@@ -1598,7 +1598,8 @@ class CubicFilter(Filter):
 
   def __init__(self, *, b: float, c: float, name: str | None = None) -> None:
     name = f'cubic_b{b}_c{c}' if name is None else name
-    super().__init__(name=name, radius=2.0, interpolating=(b == 0))
+    interpolating = b == 0
+    super().__init__(name=name, radius=2.0, interpolating=interpolating)
     self.b, self.c = b, c
 
   def __call__(self, x: _ArrayLike, /) -> _NDArray:
@@ -1767,7 +1768,8 @@ class BsplineFilter(Filter):
     if degree < 0:
       raise ValueError(f'Bspline of degree {degree} is invalid.')
     radius = (degree + 1) / 2
-    super().__init__(name=f'bspline{degree}', radius=radius, interpolating=(degree <= 1))
+    interpolating = degree <= 1
+    super().__init__(name=f'bspline{degree}', radius=radius, interpolating=interpolating)
     t = list(range(degree + 2))
     self._bspline = scipy.interpolate.BSpline.basis_element(t)
 
@@ -2211,7 +2213,8 @@ def _create_resize_matrix(
   is_minification = scaling < 1.0
   filter = prefilter if is_minification else filter
   if filter.name == 'trapezoid':
-    filter = TrapezoidFilter(radius=(0.5 + 0.5 * min(scaling, 1.0 / scaling)))
+    radius = 0.5 + 0.5 * min(scaling, 1.0 / scaling)
+    filter = TrapezoidFilter(radius=radius)
   radius = filter.radius
   num_samples = int(np.ceil(radius * 2 / scaling) if is_minification else np.ceil(radius * 2))
 
