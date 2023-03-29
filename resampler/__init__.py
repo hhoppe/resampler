@@ -1,12 +1,12 @@
 """resampler: fast differentiable resizing and warping of arbitrary grids.
 
 .. include:: ../README.md
-"""
+."""
 
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.7.1'
+__version__ = '0.7.2'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -45,6 +45,7 @@ if typing.TYPE_CHECKING:
   _TensorflowTensor: typing.TypeAlias = tf.Tensor
   _TorchTensor: typing.TypeAlias = torch.Tensor
   _JaxArray: typing.TypeAlias = jax.numpy.ndarray
+
 else:
   _DType = Any
   _NDArray = Any
