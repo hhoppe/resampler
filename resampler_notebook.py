@@ -294,7 +294,7 @@
 # # Notebook header
 
 # %%
-# !command -v ffmpeg >/dev/null || (apt update && apt install -y ffmpeg)
+# !command -v ffmpeg >/dev/null || conda install -y ffmpeg >&/dev/null || (apt update && apt install -y ffmpeg)
 
 # %%
 # !pip install -qU 'numba~=0.56.0' 'numpy<1.23'
@@ -303,7 +303,7 @@
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q autopep8 flake8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy pdoc Pillow pylint pytest resampler scipy scikit-image tensorflow-cpu torch
+# !pip install -q autopep8 flake8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy pdoc Pillow pyink pylint pytest resampler scipy scikit-image tensorflow-cpu torch
 
 # %%
 # %load_ext autoreload
@@ -349,6 +349,7 @@ _JaxArray = resampler._JaxArray
 _Array = TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
 _AnyArray = resampler._AnyArray
 
+
 # %%
 def running_in_notebook() -> bool:
   return IPython.get_ipython() is not None  # type: ignore
@@ -393,6 +394,7 @@ def enable_jax_float64() -> None:
 
 
 enable_jax_float64()
+
 
 # %%
 def _check_eq(a: Any, b: Any) -> None:
@@ -503,7 +505,9 @@ def get_ssim(image1: _NDArray, image2: _NDArray) -> float:
     # Default win_size=7, no Gaussian weighting.
     skimage_version = tuple(int(num) for num in skimage.__version__.split('.'))
     kwargs = dict(channel_axis=2) if skimage_version >= (0, 19) else dict(multichannel=True)
-    ssim: float = skimage.metrics.structural_similarity(image1, image2, **kwargs).item()
+    ssim: float = skimage.metrics.structural_similarity(
+        image1, image2, data_range=1.0, **kwargs
+    ).item()
     return ssim
 
   # Slower but with more functionality.
@@ -941,6 +945,7 @@ hh.pdoc_help(resampler.rotate_image_about_center)
 # We could allow `coords` to be a general `_Array` type;
 # this would involve generalizing the code in the Boundary and Filter classes?
 
+
 # %%
 def test_profile_resample() -> None:
   def run(src_shape, dst_shape) -> None:
@@ -975,6 +980,7 @@ if 0:  # For testing.
 
 # %% [markdown]
 # # Tests
+
 
 # %%
 def test_precision() -> None:
@@ -1078,6 +1084,7 @@ def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
 
 test_profile_downsample_in_2d_using_box_filter()
 # 8.9 ms
+
 
 # %%
 def test_block_shape_with_min_size(debug=False, **kwargs) -> None:
@@ -1866,6 +1873,7 @@ if EFFORT >= 1:
 #  Undocumented Lanczos has radius=3 and seems imperfectly normalized.
 #  Only dual grid.
 
+
 # %%
 def test_pil_image_resize() -> None:
   at_boundaries = [False, True]
@@ -1989,6 +1997,7 @@ if EFFORT >= 2:
 #  No prefilter for antialiasing.
 #  (Their 'prefilter' is the B-spline digital prefilter).
 
+
 # %%
 def test_scipy_ndimage_resize() -> None:
   boundaries = 'reflect wrap clamp border'.split()
@@ -2023,6 +2032,7 @@ test_scipy_ndimage_resize()
 #  cval=0  # used for 'constant'.
 #  order=1  # spline interpolation order (0..5), (3='cardinal3')
 #  anti_aliasing=None  # automatically apply Gaussian prefilter prior to downsampling.
+
 
 # %%
 def test_skimage_transform_resize() -> None:
@@ -2062,6 +2072,7 @@ test_skimage_transform_resize()
 #  method='bilinear'  # or 'area', 'bicubic', 'gaussian', 'lanczos3',
 #                     #   'lanczos5', 'mitchellcubic', 'nearest'.
 #  Only 2D domain; only boundary rule is 'natural' (IgnoreOutside); only dual (half-integer) grid.
+
 
 # %%
 def test_tf_image_resize() -> None:
@@ -2103,6 +2114,7 @@ if EFFORT >= 1:
 #  Boundary rule is undocumented.
 #  Dual grid using align_corners=False.
 # https://github.com/pytorch/vision/issues/2950#issuecomment-811787820.
+
 
 # %%
 def test_torch_nn_resize() -> None:
@@ -2170,6 +2182,7 @@ test_differentiability_of_torch_resizing()
 # antialias=True: corrects filter scaling for all filters.
 # boundary corresponds to 'natural' with implicit `cval=0`.
 
+
 # %%
 def test_jax_image_resize() -> None:
   at_boundaries = [False, True]
@@ -2222,6 +2235,7 @@ if EFFORT >= 1:
 
 # %% [markdown]
 # # Timing/profiling
+
 
 # %%
 def test_gamma_conversion_from_and_to_uint8_timings() -> None:
@@ -2340,6 +2354,7 @@ if EFFORT >= 2:
 # float32 (8192,8192,3)->(2048,2048) np:0.459 tf:0.224 to:0.549 jax:1.821 jj:1.075 tfi:0.556 s
 # float64 (8192,8192,3)->(2048,2048) np:0.832 tf:0.448 to:0.711 jax:3.755 jj:1.783 tfi:0.790 s
 
+
 # %%
 def test_compare_timing_of_resize_and_media_show_image() -> None:
   array = np.full((8192, 8192, 3), 0.5, np.float32)
@@ -2353,6 +2368,7 @@ def test_compare_timing_of_resize_and_media_show_image() -> None:
 if EFFORT >= 2:
   test_compare_timing_of_resize_and_media_show_image()
 # Conclusion: media.show_image() should use resampler.resize() instead of PIL!
+
 
 # %%
 def test_profile_downsampling(
@@ -2472,6 +2488,7 @@ if EFFORT >= 2:
 #   the fastest --- even faster than the C++ code in `tf.image.resize`.
 # - For `'lanczos3'` downsampling, `resampler.resize_in_numpy` is slightly faster than `tf.image.resize`.
 
+
 # %%
 def test_profile_upsampling(
     shape, new_shape, filter='lanczos3', also_prun=False, dtype='float32'
@@ -2521,6 +2538,7 @@ if EFFORT >= 2:
 # %% [markdown]
 # ## Uniform image scaling
 
+
 # %%
 def experiment_image_uniform_scaling() -> None:
   source_images = [EXAMPLE_IMAGE[30:-30], EXAMPLE_IMAGE[:, 20:-20]]
@@ -2537,6 +2555,7 @@ experiment_image_uniform_scaling()
 
 # %% [markdown]
 # ## <a name="Image-rotation"></a>Image rotation
+
 
 # %%
 def experiment_rotate_image_about_center(scale=1.0) -> None:
@@ -2675,6 +2694,7 @@ experiment_with_boundary_antialiasing()
 # Conclusion: the middle result is best, with boundary antialiasing enabled,
 # and with filtering in linear space (after conversion from/to `'power2'` lightness space).
 
+
 # %%
 def experiment_zoom_image(original_image, num_frames=60) -> None:
   """Here we vary only the prefilter, keeping constant the default reconstruction filter."""
@@ -2706,6 +2726,7 @@ if EFFORT >= 1:
 # - 'trapezoid' is much better; however, for photos, 'lanczos3' is still best.
 # try high-frequency test pattern image?
 
+
 # %%
 def experiment_zoom_rotate_image(src_size=128, dst_size=128, num_frames=60) -> None:
   """The `resampler` function lacks a prefilter, so shows aliasing during minification."""
@@ -2736,6 +2757,7 @@ if EFFORT >= 1:
 
 # %% [markdown]
 # - Tensorflow gradient-descent optimization:
+
 
 # %%
 def test_tensorflow_optimize_image_for_desired_upsampling(
@@ -2823,6 +2845,7 @@ if EFFORT >= 1:
 # %% [markdown]
 # - Torch gradient-descent optimization:
 
+
 # %%
 def test_torch_optimize_image_for_desired_upsampling(
     src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=30
@@ -2905,6 +2928,7 @@ if EFFORT >= 1:
 
 # %% [markdown]
 # - Jax gradient-descent optimization:
+
 
 # %%
 def test_jax_optimize_image_for_desired_upsampling(
@@ -3067,6 +3091,7 @@ if 0:
 # %% [markdown]
 # - Use Tensorflow to solve for an image whose spiral upsampling matches a desired image:
 
+
 # %%
 def experiment_image_optimized_for_spiral_resampling(
     num_steps=30,
@@ -3119,6 +3144,7 @@ if EFFORT >= 1:
 
 # %% [markdown]
 # ## Block partition and timing
+
 
 # %%
 def test_blocking_using_image_rotation(max_block_size, src_size=64, dst_size=256) -> None:
@@ -3231,6 +3257,7 @@ if EFFORT >= 2:
 # i.e., it has value $1$ at $x=0$ and value $0$ at all other integer coordinates.
 #
 # TODO: more..
+
 
 # %%
 def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
@@ -3488,6 +3515,7 @@ test_kaiser_filter_fractional_radius()
 # %% [markdown]
 # ## Best boundary rule for resize
 
+
 # %%
 def compare_boundary_rules_on_cropped_windows_of_images(
     images, scale, filter, num_windows, reference_filter='lanczos5', name=''
@@ -3701,6 +3729,7 @@ elif EFFORT >= 1:
 # %% [markdown]
 # ## <a name="Best-filter-for-resize"></a>Best filter for resize
 
+
 # %%
 def experiment_best_downsampling_filter(scale=0.4, clip=False, debug=False) -> None:
   images = [
@@ -3780,6 +3809,7 @@ if EFFORT >= 1:
 # omoms5     PSNR:(24.52 19.21) mean=21.10  SSIM:(0.838 0.892) mean=0.865
 # lanczos10  PSNR:(24.53 19.22) mean=21.11  SSIM:(0.839 0.884) mean=0.862
 
+
 # %%
 def experiment_best_upsampling_filter(scale=2.0, clip=False, debug=False) -> None:
   images = [
@@ -3853,6 +3883,7 @@ if EFFORT >= 1:
 
 # %% [markdown]
 # ## Best gamma for resampling
+
 
 # %%
 def dither(
@@ -3943,6 +3974,7 @@ experiment_gamma_downsample_image()
 # %% [markdown]
 # Conclusion: For downsampling, the best approach is to convert the source image from lightness
 # to linear space (using `'power2'`), downsample, then convert back to lightness.
+
 
 # %%
 def radial1(shape=(24, 48), frame_center=(0.75, 0.5), reference_shape=None) -> _NDArray:
@@ -4079,6 +4111,7 @@ if EFFORT >= 2:
 # that are rotated by various angles (from $0^\circ$ to $90^\circ$)
 # and measure the reconstruction accuracy.
 
+
 # %%
 def get_text_image(shape=(200,) * 2) -> _NDArray:
   image = np.full((*shape, 3), 255, np.uint8)
@@ -4129,6 +4162,7 @@ if EFFORT >= 1:
 # Let us examine the effect of different prefiltering filters on the downsampling
 # of a step function.
 
+
 # %%
 def visualize_prefiltering_a_discontinuity_in_1D(size=400, x_step=0.5) -> None:
   x = (np.arange(size) + 0.5) / size
@@ -4166,6 +4200,7 @@ visualize_prefiltering_a_discontinuity_in_1D()
 # %% [markdown]
 # We now consider the same situation in 2D using a sharply defined circle:
 
+
 # %%
 def visualize_prefiltering_a_discontinuity_in_2D(
     shape=(100, 100), radius=0.2, new_shape=(20, 20)
@@ -4195,6 +4230,7 @@ visualize_prefiltering_a_discontinuity_in_2D()
 # We saw in 1D that ringing artifacts are scale-dependent.
 # Here we generate videos to show the effect of continuously changing the scale:
 
+
 # %%
 def visualize_prefiltering_as_scale_is_varied(
     shape=(100, 100), radius=0.2, new_shape=(20, 20)
@@ -4223,6 +4259,7 @@ if EFFORT >= 1:
 
 # %% [markdown]
 # ## Prefilter convolution
+
 
 # %%
 def _torch_symmetric_pad(array: _ArrayLike, padding: Iterable[int]) -> _TorchTensor:
@@ -4437,6 +4474,7 @@ if EFFORT >= 1:
 
 # %% [markdown]
 # ## Generalized sampling
+
 
 # %%
 def test_banded(debug=False) -> None:
@@ -4796,6 +4834,7 @@ if EFFORT >= 2:
 # In either case (upsampling or downsampling), the Gaussian filter introduces
 # unnecessary blur and is not recommended.
 
+
 # %%
 def visualize_rotational_symmetry_of_gaussian_filter(size1=11, size2=1001) -> None:
   gauss = resampler.GaussianFilter()
@@ -4913,6 +4952,7 @@ visualize_unused()
 # %% [markdown]
 # Images for figures:
 
+
 # %%
 def visualize_reconstruction_and_sampling() -> None:
   array = np.random.default_rng(9).random((4, 4, 3))
@@ -4943,6 +4983,7 @@ def visualize_reconstruction_and_sampling() -> None:
 
 visualize_reconstruction_and_sampling()
 # (These are different from the images originally placed in Google Drawings.)
+
 
 # %%
 def visualize_example_filters(filters: Sequence[str], num=1_001) -> None:
@@ -5173,6 +5214,7 @@ visualize_boundary_rules_in_2d()
 # %% [markdown]
 # ## Upsampling comparison
 
+
 # %%
 def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200, 400)) -> None:
   # All filtering is done in lightness space (i.e. with gamma='identity').
@@ -5260,6 +5302,7 @@ if EFFORT >= 3:
 
 # %% [markdown]
 # ## Downsampling comparison
+
 
 # %%
 def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(100, 200)) -> None:
@@ -5382,6 +5425,7 @@ test_downsample_timing()
 # %% [markdown]
 # # Run external tools
 
+
 # %%
 def run_pytest_command() -> None:  # (This function name cannot end in 'test', else recursion.)
   assert running_in_notebook()
@@ -5402,14 +5446,14 @@ def run_lint() -> None:
     hh.run('echo pylint; pylint -j8 . || true')
 
 
-if EFFORT >= 1:
+if EFFORT >= 2:
   run_lint()
 
 
 # %% [markdown]
-# In Windows Emacs, `compile` command:
+# In Windows Emacs, use `compile` command:
 # ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'echo flake8; flake8 --indent-size=2 --ignore E121,E125,E126,E129,E226,E302,E305,E501,W504,E741,E704 --exclude .ipynb_checkpoints .; echo mypy; mypy .; echo autopep8; autopep8 -j8 -d .; echo pylint; pylint -j8 .; echo All ran.'
+# c:/windows/sysnative/wsl -e bash -lc 'echo autopep8; autopep8 -j8 -d .; echo pyink; pyink --diff .; echo mypy; mypy .; echo pylint; pylint -j8 .; echo All ran.'
 # ```
 
 # %%
