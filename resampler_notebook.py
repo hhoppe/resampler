@@ -405,6 +405,18 @@ def _check_eq(a: Any, b: Any) -> None:
 
 
 # %%
+def _numba_is_present() -> bool:
+  try:
+    import numba
+
+    _ = numba
+    return True
+
+  except ModuleNotFoundError:
+    return False
+
+
+# %%
 def experiment_preload_arraylibs_for_accurate_timings() -> None:
   for arraylib in resampler.ARRAYLIBS:
     resampler._make_array(np.ones(1), arraylib)
@@ -1051,10 +1063,6 @@ test_cached_sampling_of_1d_function()
 
 # %%
 def test_downsample_in_2d_using_box_filter() -> None:
-  try:
-    import numba  # pylint: disable=unused-import # noqa
-  except ModuleNotFoundError:
-    return
   for shape in [(6, 6), (4, 4)]:
     for ch in [1, 2, 3, 4]:
       array = np.ones((*shape, ch), np.float32)
@@ -1068,21 +1076,18 @@ def test_downsample_in_2d_using_box_filter() -> None:
     assert np.allclose(new, 1.0)
 
 
-if EFFORT >= 1:
+if EFFORT >= 1 and _numba_is_present():
   test_downsample_in_2d_using_box_filter()
 
 
 # %%
 def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
-  try:
-    import numba  # pylint: disable=unused-import # noqa
-  except ModuleNotFoundError:
-    return
   array = np.ones((4096, 4096))
   hh.print_time(lambda: resampler._downsample_in_2d_using_box_filter(array, shape), max_time=0.4)
 
 
-test_profile_downsample_in_2d_using_box_filter()
+if _numba_is_present():
+  test_profile_downsample_in_2d_using_box_filter()
 # 8.9 ms
 
 
@@ -5440,7 +5445,8 @@ if EFFORT >= 1:
 def run_lint() -> None:
   """Run checks on *.py notebook code (saved using jupytext or from menu)."""
   if pathlib.Path('resampler_notebook.py').is_file():
-    hh.run('echo autopep8; autopep8 -j8 -d .')
+    # On SageMaker Studio Lab, if autopep8 sees ~/.config/pycodestyle, ./pyproject.toml is ignored.
+    hh.run('echo autopep8; autopep8 --global-config skip -j8 -d .')
     hh.run('echo pyink; pyink --diff .')
     hh.run('echo mypy; mypy . || true')
     hh.run('echo pylint; pylint -j8 . || true')
