@@ -433,7 +433,7 @@ EXAMPLE_PHOTO = media.read_image(f'{_URL_BASE}/lillian_640x480.png')  # (480, 64
 
 
 # %%
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def example_tissot_image() -> _NDArray:
   """Return image of shape (1000, 2000, 3) from
   https://commons.wikimedia.org/wiki/File:Tissot_indicatrix_world_map_equirectangular_proj.svg"""
@@ -446,7 +446,7 @@ def example_tissot_image() -> _NDArray:
 
 
 # %%
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def example_vector_graphics_image() -> _NDArray:
   """Return image of shape (3300, 2550, 3)."""
   # (We used the https://cloudconvert.com/pdf-to-png service to obtain this vector graphics

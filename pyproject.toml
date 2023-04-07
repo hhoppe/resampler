@@ -2,7 +2,7 @@
 name = "resampler"
 description = "Fast differentiable resizing and warping of arbitrary grids"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = {file = "LICENSE"}
 authors = [{name = "Hugues Hoppe", email="hhoppe@gmail.com"}]
 classifiers = [
