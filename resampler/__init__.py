@@ -2740,7 +2740,7 @@ def _resize_possibly_in_arraylib(
   return _original_resize(array, *args, **kwargs)
 
 
-@functools.lru_cache()
+@functools.cache
 def _create_jaxjit_resize() -> Callable[..., _Array]:
   """Lazily invoke `jax.jit` on `resize`."""
   import jax
