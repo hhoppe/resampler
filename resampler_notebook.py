@@ -5510,7 +5510,7 @@ if 0:
 # # Epilog
 
 # %%
-hh.analyze_lru_caches(globals())
+hh.analyze_functools_caches(globals())
 
 
 # %%
