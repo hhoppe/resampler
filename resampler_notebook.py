@@ -903,7 +903,7 @@ def visualize_filters_on_checkerboard(src_shape=(12, 8), boundary='wrap') -> Non
         f"'{filter}'": resampler.resize(original, dst_shape, filter=filter, boundary=boundary)
         for filter in filters
     }
-    images = {'original': original, **images}
+    images = {'original': original} | images
     media.show_images(images, border=True, vmin=0, vmax=1, width=64)
 
 
@@ -2573,7 +2573,7 @@ def experiment_rotate_image_about_center(scale=1.0) -> None:
         )
         for i, new_shape in enumerate(new_shapes)
     }
-    images = {'image': image, **images}
+    images = {'image': image} | images
     media.show_images(images)
 
 
@@ -2664,7 +2664,7 @@ def experiment_visualize_rotation_boundaries(
       )
       for boundary in resampler.BOUNDARIES
   }
-  images = {'original image': original_image, **images}
+  images = {'original image': original_image} | images
   assert all(image.dtype == np.uint8 for image in images.values())
   media.show_images(images, height=180, columns=5)
 
@@ -5147,7 +5147,7 @@ def visualize_boundary_rules_in_2d(
     image_samples = resize_showing_domain_boundary(
         array, boundary='constant', cval=0.5, filter='narrowbox', **kwargs
     )
-    images = {'(samples)': image_samples, **images}
+    images = {'(samples)': image_samples} | images
     images2: Any = images if row_index == 0 else images.values()
     # Benefit of show_images() over matplotlib.imshow() is no pixel resampling.
     ylabel = f"filter='{filter}'&nbsp;&nbsp;&nbsp" if row_index == 0 else f"'{filter}'"
