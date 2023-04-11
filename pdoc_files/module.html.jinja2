@@ -18,6 +18,7 @@ https://github.com/mitmproxy/pdoc/blob/main/pdoc/templates/default/module.html.j
     NO: {% if any(s in doc.qualname for s in ['PrimalGridtype.']) %}
     {% if doc.name in ['min_size', 'size_in_samples'] %}
 #}
+
 {% macro is_public(doc) %}
     {% if 0 %}
     {% elif 'Gridtype.' in doc.qualname %}

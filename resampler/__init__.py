@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.7.2'
+__version__ = '0.7.3'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -16,7 +16,7 @@ import functools
 import itertools
 import math
 import typing
-from typing import Any, Generic, Literal, TypeVar, Union
+from typing import Any, Generic, Literal, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -39,7 +39,7 @@ if typing.TYPE_CHECKING:
   import torch
 
   _DType = np.dtype[Any]  # (Requires Python 3.9 or TYPE_CHECKING.)
-  _NDArray = npt.NDArray[Any]
+  _NDArray = np.ndarray[Any, Any]
   _DTypeLike = npt.DTypeLike
   _ArrayLike = npt.ArrayLike
   _TensorflowTensor: typing.TypeAlias = tf.Tensor
@@ -47,15 +47,17 @@ if typing.TYPE_CHECKING:
   _JaxArray: typing.TypeAlias = jax.numpy.ndarray
 
 else:
-  _DType = Any
-  _NDArray = Any
-  _DTypeLike = Any  # Else `pdoc` uses a long type expression for documentation.
-  _ArrayLike = Any  # Same.
+  # Create named types for use in the `pdoc` documentation.
+  # Actually, these are superseded by the declarations in __init__.pyi!
+  _DType = typing.TypeVar('_DType')  # pylint: disable=invalid-name
+  _NDArray = typing.TypeVar('_NDArray')
+  _DTypeLike = typing.TypeVar('_DTypeLike')
+  _ArrayLike = typing.TypeVar('_ArrayLike')
   _TensorflowTensor = Any
   _TorchTensor = Any
   _JaxArray = Any
 
-_Array = TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
+_Array = typing.TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
 _AnyArray = Union[_NDArray, _TensorflowTensor, _TorchTensor, _JaxArray]
 
 
