@@ -32,7 +32,7 @@ It supports:
 
 - any **numeric type** (e.g., `uint8`, `float64`, `complex128`)
 
-- within several **array libraries**]
+- within several **array libraries**
   (`numpy`, `tensorflow`, `torch`, and `jax`);
 
 - either `'dual'` ("half-integer") or `'primal'` **grid-type** for each dimension;
@@ -58,7 +58,8 @@ A key strategy is to leverage existing sparse matrix representations and operati
 ## Example usage
 
 ```python
-!pip install -q mediapy resampler
+!pip install -q mediapy numpy resampler
+
 import mediapy as media
 import numpy as np
 import resampler
@@ -86,6 +87,7 @@ import matplotlib.pyplot as plt
 array = [3.0, 5.0, 8.0, 7.0]  # 4 source samples in 1D.
 new_dual = resampler.resize(array, (32,))  # (default gridtype='dual') 8x resolution.
 new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
+
 _, axs = plt.subplots(1, 2, figsize=(7, 1.5))
 axs[0].set_title("gridtype='dual'")
 axs[0].plot((np.arange(len(array)) + 0.5) / len(array), array, 'o')

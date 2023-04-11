@@ -1,7 +1,6 @@
 """resampler: fast differentiable resizing and warping of arbitrary grids.
 
-.. include:: ../README.md
-."""
+.. include:: ../README.md"""
 
 from __future__ import annotations
 
@@ -47,12 +46,12 @@ if typing.TYPE_CHECKING:
   _JaxArray: typing.TypeAlias = jax.numpy.ndarray
 
 else:
-  # Create named types for use in the `pdoc` documentation.
-  # Actually, these are superseded by the declarations in __init__.pyi!
-  _DType = typing.TypeVar('_DType')  # pylint: disable=invalid-name
-  _NDArray = typing.TypeVar('_NDArray')
-  _DTypeLike = typing.TypeVar('_DTypeLike')
-  _ArrayLike = typing.TypeVar('_ArrayLike')
+  # Typically, create named types for use in the `pdoc` documentation.
+  # But here, these are superseded by the declarations in __init__.pyi!
+  _DType = Any
+  _NDArray = Any
+  _DTypeLike = Any
+  _ArrayLike = Any
   _TensorflowTensor = Any
   _TorchTensor = Any
   _JaxArray = Any
@@ -2806,7 +2805,8 @@ def uniform_resize(
   array([[0. , 0.5, 1. , 1. , 1. , 0.5, 0. ],
          [0. , 0.5, 1. , 1. , 1. , 0.5, 0. ]])
 
-  >>> uniform_resize(np.arange(6.0).reshape(2, 3), (2, 2), filter='trapezoid', object_fit='cover')
+  >>> a = np.arange(6.0).reshape(2, 3)
+  >>> uniform_resize(a, (2, 2), filter='trapezoid', object_fit='cover')
   array([[0.5, 1.5],
          [3.5, 4.5]])
   """
