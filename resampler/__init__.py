@@ -1,6 +1,7 @@
 """resampler: fast differentiable resizing and warping of arbitrary grids.
 
-.. include:: ../README.md"""
+.. include:: ../README.md
+"""
 
 from __future__ import annotations
 
