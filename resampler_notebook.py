@@ -2807,20 +2807,21 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
     # reduce_sum() and reduce_mean().
     return tf.math.reduce_mean(tf.math.squared_difference(upsampled, desired))
 
-  if method == 'gradient_tape':
-    learning_rate = 1e2
-    for _ in range(num_steps):
-      with tf.GradientTape() as tape:
-        loss = compute_loss(model(array))
-      gradient = tape.gradient(loss, array)
-      array.assign_sub(learning_rate * gradient)
-  elif method == 'adam':
-    learning_rate = 1e-1
-    opt = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-    for _ in range(num_steps):
-      opt.minimize(lambda: compute_loss(model(array)), [array])
-  else:
-    raise AssertionError(f'Unknown method {method}.')
+  match method:
+    case 'gradient_tape':
+      learning_rate = 1e2
+      for _ in range(num_steps):
+        with tf.GradientTape() as tape:
+          loss = compute_loss(model(array))
+        gradient = tape.gradient(loss, array)
+        array.assign_sub(learning_rate * gradient)
+    case 'adam':
+      learning_rate = 1e-1
+      opt = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+      for _ in range(num_steps):
+        opt.minimize(lambda: compute_loss(model(array)), [array])
+    case _:
+      raise AssertionError(f'Unknown method {method}.')
 
   upsampled = model(array)
   rms = get_rms(upsampled, desired)
