@@ -714,9 +714,7 @@ def _as_arr(array: _Array, /) -> _Arraylib[_Array]:
   for cls in _DICT_ARRAYLIBS.values():
     if cls.recognize(array):
       return cls(array)  # type: ignore[abstract, arg-type]
-  raise AssertionError(
-      f'{array} {type(array)} {type(array).__module__} unrecognized by {ARRAYLIBS}.'
-  )
+  raise ValueError(f'{array} {type(array)} {type(array).__module__} unrecognized by {ARRAYLIBS}.')
 
 
 def _arr_arraylib(array: _Array, /) -> str:
@@ -1850,7 +1848,7 @@ class OmomsFilter(Filter):
           (((-1 / 120 * x + 1 / 8) * x - 299 / 396) * x + 101 / 44) * x - 27811 / 7920
       ) * x + 5707 / 2640
       return np.where(x < 1.0, v01, np.where(x < 2.0, v12, np.where(x < 3.0, v23, 0.0)))
-    raise AssertionError
+    raise ValueError(self.degree)
 
 
 class GaussianFilter(Filter):

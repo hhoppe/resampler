@@ -2821,7 +2821,7 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
       for _ in range(num_steps):
         opt.minimize(lambda: compute_loss(model(array)), [array])
     case _:
-      raise AssertionError(f'Unknown method {method}.')
+      raise ValueError(f'Unknown method {method}.')
 
   upsampled = model(array)
   rms = get_rms(upsampled, desired)
