@@ -93,7 +93,7 @@ def main2() -> None:
 
   # Put the README.md text inline; otherwise the README.md file is not found
   # in site-packages/resampler/.
-  readme_text = pathlib.Path('README.md').read_text()
+  readme_text = pathlib.Path('README.md').read_text(encoding='utf-8')
   resampler.__doc__ = resampler.__doc__.replace('.. include:: ../README.md', readme_text)
 
   doc = pdoc.doc.Module(resampler)
@@ -117,7 +117,7 @@ def main2() -> None:
   # This creates just resampler.html, not index.html and search.js which are
   # also in ./docs.
   text = pdoc.render.html_module(module=doc, all_modules={'resampler': doc})
-  pathlib.Path('resampler.html').write_text(text)
+  pathlib.Path('resampler.html').write_text(text, encoding='utf-8')
 
 
 if __name__ == '__main__':
