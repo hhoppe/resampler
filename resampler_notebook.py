@@ -465,10 +465,12 @@ hh.display_html('<style>.jp-RenderedMarkdown { max-width: 950px!important; }</st
 
 
 # %%
-def show_docstring(module_dot_name: str) -> None:
+def show_var_docstring(module_dot_name: str) -> None:
   modulename, name = module_dot_name.rsplit('.', 1)
   module = sys.modules[modulename]
-  text = pdoc.doc_ast.walk_tree(module).docstrings.get(name, '')
+  ast_info = pdoc.doc_ast.walk_tree(module)
+  # text = ast_info.docstrings.get(name, '')
+  text = ast_info.var_docstrings.get(name, '')
   text = f'**`{name}`** = {getattr(module, name)}<br/>{text}'
   display_markdown(text)
   media.set_max_output_height(3000)
@@ -673,7 +675,7 @@ print(resampler.ARRAYLIBS)
 # but less specialized library.)
 
 # %%
-show_docstring('resampler.ARRAYLIBS')
+show_var_docstring('resampler.ARRAYLIBS')
 
 # %%
 # It might be nice to switch to using eagerpy.
@@ -716,7 +718,7 @@ show_docstring('resampler.ARRAYLIBS')
 # with respect to the unit domain $[0, 1]^d$ rather than the sample lattice $\mathbb{Z}^d$.
 
 # %%
-show_docstring('resampler.GRIDTYPES')
+show_var_docstring('resampler.GRIDTYPES')
 
 # %% [markdown]
 # ## <a name="Boundary-rules"></a>Boundary rules
@@ -759,7 +761,7 @@ show_docstring('resampler.GRIDTYPES')
 # Here are some [predefined `boundary` settings](#Predefined-boundary-rules):
 
 # %%
-show_docstring('resampler.BOUNDARIES')
+show_var_docstring('resampler.BOUNDARIES')
 
 # %% [markdown]
 # ## <a name="Filter-kernels"></a>Filter kernels
@@ -801,7 +803,7 @@ show_docstring('resampler.BOUNDARIES')
 # [involves the first-order Bessel function of the first kind](https://en.wikipedia.org/wiki/Airy_disk).)
 
 # %%
-show_docstring('resampler.FILTERS')
+show_var_docstring('resampler.FILTERS')
 
 # %% [markdown]
 # The `'trapezoid'` filter is an antialiased version of the `'box'` filter.
@@ -828,7 +830,7 @@ show_docstring('resampler.FILTERS')
 # Here are the predefined schemes:
 
 # %%
-show_docstring('resampler.GAMMAS')
+show_var_docstring('resampler.GAMMAS')
 
 # %% [markdown]
 # (`'srgb'` corresponds to the [sRGB](https://en.wikipedia.org/wiki/SRGB) standard
@@ -846,6 +848,7 @@ show_docstring('resampler.GAMMAS')
 
 # %%
 hh.pdoc_help(resampler.resize)
+media.set_max_output_height(3000)
 
 # %% [markdown]
 # Because the reconstruction and prefilter kernels are assumed to be separable functions,
@@ -915,9 +918,11 @@ if EFFORT >= 1:
 
 # %%
 hh.pdoc_help(resampler.resample)
+media.set_max_output_height(3000)
 
 # %%
 hh.pdoc_help(resampler.resample_affine)
+media.set_max_output_height(3000)
 
 # %%
 hh.pdoc_help(resampler.rotation_about_center_in_2d)
