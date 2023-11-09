@@ -1,5 +1,6 @@
 # %% [markdown]
-# # <a name="Resampler-notebook"></a>Resampler notebook
+# # Resampler notebook
+# <a name="Resampler-notebook"></a>
 #
 # [Hugues Hoppe](https://hhoppe.com/)
 # &nbsp;&nbsp; Aug 2022.
@@ -58,7 +59,7 @@
 # - [**faster resizing**](#Test-other-libraries) than C++ implementations
 #   in `tf.image` and `torch.nn`.
 #
-# A key strategy is to leverage existing sparse matrix representations and operations.
+# A key strategy is to leverage existing sparse matrix representations and tensor operations.
 
 # %% [markdown]
 # **Example usage:**
@@ -163,10 +164,10 @@
 # %% [markdown]
 # **Limitations:**
 #
-# - Filters are assumed to be [separable](https://en.wikipedia.org/wiki/Separable_filter).
+# - Over multiple dimensions, filters are assumed to be [separable](https://en.wikipedia.org/wiki/Separable_filter).
 # - Although `resize` implements prefiltering, `resample` does not yet have it (and therefore
 #   may have aliased results if downsampling).
-# - Differentiability is only with respect to the grid values,
+# - Differentiability is with respect to the grid values,
 #   not wrt the `resize()` shape, scale, and translation, or wrt the `resample()` coordinates.
 
 
@@ -237,7 +238,7 @@
 # - The [**resize**](#Resize) operation converts a *source grid* to
 #   a *destination grid* as the composition of reconstruction and sampling (Figure 1).
 #   Such [sample rate conversion](https://en.wikipedia.org/wiki/Sample-rate_conversion)
-#   enables # [downsampling](https://en.wikipedia.org/wiki/Downsampling_(signal_processing))
+#   enables [downsampling](https://en.wikipedia.org/wiki/Downsampling_(signal_processing))
 #   and [upsampling](https://en.wikipedia.org/wiki/Upsampling).
 #   The operation also supports translation and non-uniform scaling
 #   from the source to the destination domain.
@@ -297,13 +298,13 @@
 # !command -v ffmpeg >/dev/null || conda install -y ffmpeg >&/dev/null || (apt update && apt install -y ffmpeg)
 
 # %%
-# !pip install -qU 'numba~=0.56.0' 'numpy<1.23'
+# !pip install -qU numba numpy
 
 # %%
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q autopep8 flake8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy pdoc Pillow pyink pylint pytest resampler scipy scikit-image tensorflow-cpu torch
+# !pip install -q autopep8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy pdoc Pillow pyink pylint pytest resampler scipy scikit-image tensorflow-cpu torch
 
 # %%
 # %load_ext autoreload
@@ -328,13 +329,20 @@ import warnings
 
 import hhoppe_tools as hh  # https://github.com/hhoppe/hhoppe-tools/blob/main/hhoppe_tools/__init__.py
 import IPython
+import jax
+import jax.config
+import jax.numpy as jnp
 import matplotlib
 import matplotlib.pyplot as plt
 import mediapy as media  # https://github.com/google/mediapy
 import numpy as np
 import pdoc
 import scipy.signal
+import skimage
 import skimage.metrics
+import tensorflow as tf
+import torch
+import torch.autograd
 
 import resampler
 
@@ -352,6 +360,7 @@ _AnyArray = resampler._AnyArray
 
 # %%
 def running_in_notebook() -> bool:
+  """Return True if we are running within a notebook kernel."""
   return IPython.get_ipython() is not None  # type: ignore
 
 
@@ -388,8 +397,6 @@ matplotlib.rcParams['figure.max_open_warning'] = 0
 # %%
 def enable_jax_float64() -> None:
   """Enable use of double-precision float in Jax; this only works at startup."""
-  import jax.config
-
   jax.config.update('jax_enable_x64', True)
 
 
@@ -406,6 +413,7 @@ def _check_eq(a: Any, b: Any) -> None:
 
 # %%
 def _numba_is_present() -> bool:
+  """Return True if numba jit acceleration is possible."""
   try:
     import numba
 
@@ -418,13 +426,13 @@ def _numba_is_present() -> bool:
 
 # %%
 def experiment_preload_arraylibs_for_accurate_timings() -> None:
+  """Perform library imports now so that later timings do not include this."""
   for arraylib in resampler.ARRAYLIBS:
     resampler._make_array(np.ones(1), arraylib)
 
 
 if EFFORT >= 1:
   experiment_preload_arraylibs_for_accurate_timings()
-# Try [gpu] ??
 
 # %%
 _URL_BASE = 'https://github.com/hhoppe/data/raw/main'
@@ -456,16 +464,17 @@ def example_vector_graphics_image() -> _NDArray:
 
 # %%
 def display_markdown(text: str) -> None:
+  """Show Markdown as output if within a notebook, or else noop."""
   IPython.display.display(IPython.display.Markdown(text))  # type: ignore
 
 
 # %%
-# Set Markdown width in Jupyterlab similar to Colab; https://stackoverflow.com/a/66278615.
-hh.display_html('<style>.jp-RenderedMarkdown { max-width: 950px!important; }</style>')
+hh.adjust_jupyterlab_markdown_width()
 
 
 # %%
 def show_var_docstring(module_dot_name: str) -> None:
+  """Display a variable's documentation as formatted HTML."""
   modulename, name = module_dot_name.rsplit('.', 1)
   module = sys.modules[modulename]
   ast_info = pdoc.doc_ast.walk_tree(module)
@@ -478,7 +487,7 @@ def show_var_docstring(module_dot_name: str) -> None:
 
 # %%
 def must_be_int(x: _ArrayLike) -> _NDArray:
-  """Return float cast as int, asserting that there was no fractional part."""
+  """Return float cast as int, asserting that there is no fractional part."""
   result = np.asarray(x).astype(int, copy=False)
   _check_eq(result, x)
   return result
@@ -501,7 +510,7 @@ assert math.isclose(get_rms(0.2, 0.3), 0.1)
 
 # %%
 def get_psnr(a: _ArrayLike, b: _ArrayLike) -> float:
-  """Return the Peak-Signal-to-Noise-Ratio (dB) between [0.0, 1.0] values."""
+  """Return the Peak-Signal-to-Noise-Ratio (dB) between values, assuming a [0.0, 1.0] range."""
   rms = get_rms(a, b)
   psnr: float = 20 * np.log10(1.0 / (rms + 1e-10)).item()
   return psnr
@@ -517,16 +526,15 @@ def get_ssim(image1: _NDArray, image2: _NDArray) -> float:
   assert np.issubdtype(image2.dtype, np.floating)
   if 1:
     # Default win_size=7, no Gaussian weighting.
-    skimage_version = tuple(int(num) for num in skimage.__version__.split('.'))
+    skimage_version_string = skimage.__version__  # type: ignore[attr-defined]
+    skimage_version = tuple(int(num) for num in skimage_version_string.split('.'))
     kwargs = dict(channel_axis=2) if skimage_version >= (0, 19) else dict(multichannel=True)
     ssim: float = skimage.metrics.structural_similarity(
         image1, image2, data_range=1.0, **kwargs
-    ).item()
+    ).item()  # type: ignore[no-untyped-call]
     return ssim
 
   # Slower but with more functionality.
-  import tensorflow as tf
-
   # Default filter_size=11, filter_sigma=1.5.
   return float(tf.image.ssim(image1, image2, max_val=1.0))
 
@@ -644,6 +652,7 @@ def create_checkerboard(
 #   Use jacobian and prefilter in resample().
 # - Is lightness-space upsampling justified using experiments on natural images?
 #   (is linear-space downsampling justified using such experiments? it should be obvious.)
+# - Try [gpu].
 
 # %%
 # Useful resources:
@@ -653,7 +662,8 @@ def create_checkerboard(
 # # Library elements
 
 # %% [markdown]
-# ## <a name="Array-libraries"></a>Array libraries
+# ## Array libraries
+# <a name="Array-libraries"></a>
 
 # %% [markdown]
 # The [`resize`](#resize-function) and [`resample`](#Resample)
@@ -661,39 +671,30 @@ def create_checkerboard(
 # listed in `ARRAYLIBS`:
 
 # %%
-print(resampler.ARRAYLIBS)
-
-# %% [markdown]
-# - The library is selected automatically based on the type of the `array` parameter.
-#
-# - The class `_Arraylib` provides library-specific implementations of needed basic functions.
-#
-# - The `_arr_*()` functions dispatch the `_Arraylib` methods based on the array type.
-#
-#
-# (See also https://github.com/jonasrauber/eagerpy for a more complete
-# but less specialized library.)
-
-# %%
 show_var_docstring('resampler.ARRAYLIBS')
 
-# %%
-# It might be nice to switch to using eagerpy.
-# Here are features that are currently missing from eagerpy:
-# - support for `einsum()`, using str subscripts argument.
-# - extensibility (subclassing?), for `sparse_resize_matrix` and `sparse_dense_matmul`.
-# - support for `_make_array(array, arraylib)` and `arr_arraylib(array)`; use `ep.get_dummy(str)`?
-# - let `dtype` and `astype()` standardize on `np.dtype`.
-# - implement `moveaxis()` and `swapaxes()` in base class eagerpy.Tensor using `transpose()`.
-# - signature for `full(shape, value)` should indicate `value` to be scalar or tensor.
-
-# %%
-# Additional candidates for array libraries might be:
-# - cupy (cupy.ndarray and cupyx.scipy.sparse.csr_matrix).
-# For reference, `einops` is another nice cross-platform library.
+# %% [markdown]
+# Another array library that we could include is:
+# - `cupy` (with `cupy.ndarray` and `cupyx.scipy.sparse.csr_matrix`).
 
 # %% [markdown]
-# ## <a name="Grid-types--dual-and-primal-"></a>Grid-types (dual and primal)
+# We may consider switching to [`eagerpy`](https://github.com/jonasrauber/eagerpy) for cross-library support;
+# it is more complete but less specialized;
+# some missing features include:
+# - Support for `einsum()` using a `str` subscripts argument.
+# - The equivalent of `sparse_resize_matrix` and `sparse_dense_matmul`.
+# - Support for `_make_array(array, arraylib)` and `arr_arraylib(array)`; or use `ep.get_dummy(str)`?
+# - Alternatively, use of subclassing for extensibility.
+# - Use of `np.dtype` as a shared standard for `dtype` attributes and `astype(...)` functions.
+# - Implementations of `moveaxis()` and `swapaxes()` in the base class `eagerpy.Tensor` using `transpose()`.
+# - Fix of the type signature of `full(shape, value)` to indicate that `value` may be scalar or tensor.
+
+# %% [markdown]
+# And, [`einops`](https://einops.rocks/) is another nice cross-library interface, but its functionality is focused on `einsum()`.
+
+# %% [markdown]
+# ## Grid-types (dual and primal)
+# <a name="Grid-types--dual-and-primal-"></a>
 
 # %% [markdown]
 # Digital signal processing is commonly described with
@@ -721,7 +722,8 @@ show_var_docstring('resampler.ARRAYLIBS')
 show_var_docstring('resampler.GRIDTYPES')
 
 # %% [markdown]
-# ## <a name="Boundary-rules"></a>Boundary rules
+# ## Boundary rules
+# <a name="Boundary-rules"></a>
 
 # %% [markdown]
 # Reconstruction creates a field as a sum of filters
@@ -764,11 +766,14 @@ show_var_docstring('resampler.GRIDTYPES')
 show_var_docstring('resampler.BOUNDARIES')
 
 # %% [markdown]
-# ## <a name="Filter-kernels"></a>Filter kernels
+# ## Filter kernels
+# <a name="Filter-kernels"></a>
 
 # %% [markdown]
-# In 1D, the reconstructed field
-# $f(x) = \sum_{i\in\mathbb{Z}} \,a_i\, \phi(x - \frac{i+0.5}{N})$
+# Let us assume a dual grid in 1D, i.e. a domain $[0, 1]$ with sample values $a_i$ at positions $\frac{i+0.5}{N}$, $0\leq i < N$.
+#
+# The reconstructed field
+# $f(x) = \sum_{i\in\mathbb{Z}} \,a_i\, \phi((x-(i+0.5))\cdot N)$
 # is a sum of the grid samples $\{a_i\}$ weighted by a reconstruction
 # [*filter kernel*](https://en.wikipedia.org/wiki/Kernel_(statistics))
 # $\phi$.
@@ -816,12 +821,13 @@ show_var_docstring('resampler.FILTERS')
 # [*ringing*](https://en.wikipedia.org/wiki/Ringing_artifacts) artifacts.
 
 # %% [markdown]
-# ## <a name="Gamma-correction"></a>Gamma correction
+# ## Gamma correction
+# <a name="Gamma-correction"></a>
 
 # %% [markdown]
 # Quantized values (e.g., `uint8`) often lack sufficient precision,
 # causing [banding](https://en.wikipedia.org/wiki/Color_banding) artifacts in images.
-# To reduce this problem it is common to transform physical ("linear-space") intensities $l$
+# To reduce this problem, it is common to transform physical ("linear-space") intensities $l$
 # to more perceptual ("lightness space") values $e$
 # using a nonlinear transfer function
 # (a.k.a. [gamma correction](https://en.wikipedia.org/wiki/Gamma_correction)\)
@@ -844,7 +850,8 @@ show_var_docstring('resampler.GAMMAS')
 # For other data types, the default transfer function is `gamma='identity'`.
 
 # %% [markdown]
-# ## <a name="Resize"></a>Resize
+# ## Resize
+# <a name="Resize"></a>
 
 # %%
 hh.pdoc_help(resampler.resize)
@@ -914,7 +921,8 @@ if EFFORT >= 1:
   visualize_filters_on_checkerboard()
 
 # %% [markdown]
-# ## <a name="Resample"></a>Resample
+# ## Resample
+# <a name="Resample"></a>
 
 # %%
 hh.pdoc_help(resampler.resample)
@@ -1294,8 +1302,6 @@ if 1:
 
 # %%
 def test_that_resize_matrices_are_equal_across_arraylib() -> None:
-  import tensorflow as tf
-
   src_sizes = range(1, 6)
   dst_sizes = range(1, 6)
   for config in itertools.product(src_sizes, dst_sizes):
@@ -1388,9 +1394,6 @@ test_sparse_csr_matrix_duplicate_entries_are_summed()
 
 # %%
 def test_jax_jit_digital_filter() -> None:
-  import jax
-  import jax.numpy as jnp
-
   jitted = jax.jit(resampler._apply_digital_filter_1d, static_argnums=(1, 2, 3, 4, 5, 6))
   array = jnp.ones((5,))
   result = jitted(
@@ -1409,8 +1412,6 @@ if 0:  # Fails because resampler._apply_digital_filter_1d() is not jax-traceable
 
 # %%
 def test_apply_digital_filter_1d_quick() -> None:
-  import torch.autograd
-
   for boundary in 'reflect linear border'.split():
 
     def inverse_convolution(array: resampler._Array) -> resampler._Array:
@@ -2046,7 +2047,8 @@ test_scipy_ndimage_resize()
 
 # %%
 def test_skimage_transform_resize() -> None:
-  skimage_version = tuple(int(num) for num in skimage.__version__.split('.'))
+  skimage_version_string = skimage.__version__  # type: ignore[attr-defined]
+  skimage_version = tuple(int(num) for num in skimage_version_string.split('.'))
   if skimage_version < (0, 19):
     return  # There exist errors, likely due to boundary rules.
   boundaries = 'reflect wrap clamp border'.split()
@@ -2153,8 +2155,6 @@ test_torch_nn_resize()
 
 # %%
 def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7)) -> None:
-  import torch.autograd
-
   functions: dict[str, Callable[[_TorchTensor], _TorchTensor]] = {
       'interpolate linear AA': lambda array: torch.nn.functional.interpolate(
           array[None][None], dst_shape, mode='bilinear', align_corners=False, antialias=True
@@ -2564,7 +2564,8 @@ experiment_image_uniform_scaling()
 
 
 # %% [markdown]
-# ## <a name="Image-rotation"></a>Image rotation
+# ## Image rotation
+# <a name="Image-rotation"></a>
 
 
 # %%
@@ -2763,7 +2764,8 @@ if EFFORT >= 1:
 
 
 # %% [markdown]
-# ## <a name="Gradient-backpropagation"></a>Gradient backpropagation
+# ## Gradient backpropagation
+# <a name="Gradient-backpropagation"></a>
 
 # %% [markdown]
 # - Tensorflow gradient-descent optimization:
@@ -2779,8 +2781,6 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
     dst_shape=(16, 16),
     filter='triangle',
 ) -> None:
-  import tensorflow as tf
-
   array_np = np.full(src_shape, 0.5, np.float32)
   array = tf.Variable(tf.convert_to_tensor(array_np))
   desired = resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=np.float32)
@@ -2861,8 +2861,6 @@ if EFFORT >= 1:
 def test_torch_optimize_image_for_desired_upsampling(
     src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=30
 ) -> None:
-  import torch
-
   configs = [
       ('resize', 'reflect', 'triangle', 'float64'),
       ('resample', 'border', 'cubic', 'float64'),
@@ -2891,7 +2889,7 @@ def test_torch_optimize_image_for_desired_upsampling(
       return functions[operation]()
 
     def compute_loss(upsampled) -> _TorchTensor:
-      return torch.linalg.norm(upsampled - desired)
+      return torch.linalg.norm(upsampled - desired)  # pylint: disable=not-callable
 
     # https://pytorch.org/tutorials/beginner/basics/optimization_tutorial.html
     learning_rate = 0.2
@@ -2918,8 +2916,6 @@ if EFFORT >= 1:
 
 # %%
 def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -> None:
-  import torch.autograd
-
   filters = 'cubic cardinal3'.split()
   for filter in filters:
     coords = np.moveaxis(np.indices(dst_shape) + 0.5, 0, -1) / dst_shape
@@ -2945,9 +2941,6 @@ if EFFORT >= 1:
 def test_jax_optimize_image_for_desired_upsampling(
     src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=30
 ) -> None:
-  import jax
-  import jax.numpy as jnp
-
   configs = [
       ('resize', 'reflect', 'triangle', 'float64'),
       ('resample', 'border', 'cubic', 'float64'),
@@ -3002,9 +2995,6 @@ if EFFORT >= 1:
 
 # %%
 def test_jax0() -> None:  # ??
-  import jax
-  import jax.numpy as jnp
-
   array = jnp.ones((2, 2), 'float32')
   print(array.device_buffer.device())
   print(array, type(array), repr(array))
@@ -3027,8 +3017,6 @@ if 0:
 
 # %%
 def test_jax1(filter='cubic') -> None:
-  import jax.numpy as jnp
-
   array = jnp.ones((4_000,) * 2)
   hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_repeat=1)
   hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_repeat=1)
@@ -3046,9 +3034,6 @@ if 0:  # What is the error now, given that to_py() is removed??
 
 # %%
 def test_jax2() -> None:
-  import jax
-  import jax.numpy as jnp
-
   def resized_sum(array: resampler._Array) -> Any:
     return resampler.resize(array, (3, 3)).sum()
 
@@ -3063,9 +3048,6 @@ if EFFORT >= 1:
 
 # %%
 def test_jax() -> None:
-  import jax
-  import jax.numpy as jnp
-
   print(jax.default_backend())
   print(jax.devices())
   print(jax.local_devices())
@@ -3111,8 +3093,6 @@ def experiment_image_optimized_for_spiral_resampling(
     regularization_weight=0.0,
     smoothness_weight=0.0,
 ) -> None:
-  import tensorflow as tf
-
   array_np = np.full(src_shape, 0.5, np.float32)
   array = tf.Variable(tf.convert_to_tensor(array_np))
   desired = resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=np.float32)
@@ -3738,7 +3718,8 @@ elif EFFORT >= 1:
 # quadratic       22.09 dB
 
 # %% [markdown]
-# ## <a name="Best-filter-for-resize"></a>Best filter for resize
+# ## Best filter for resize
+# <a name="Best-filter-for-resize"></a>
 
 
 # %%
@@ -4277,8 +4258,6 @@ def _torch_symmetric_pad(array: _ArrayLike, padding: Iterable[int]) -> _TorchTen
   """Use reflection to pad each dimension."""
   # See https://github.com/pytorch/pytorch/issues/46240 and
   # https://discuss.pytorch.org/t/symmetric-padding/19866/3.
-  import torch
-
   a = torch.as_tensor(array)
   del array
   padding = tuple(padding)
@@ -4353,8 +4332,6 @@ def experiment_with_convolution() -> None:
 
   def tensorflow_convolve(array, filter, reflect=False) -> _NDArray:
     """Convolve the array [*dims, *sample_shape] with the filter [*dims]."""
-    import tensorflow as tf
-
     array = tf.convert_to_tensor(array)
     filter = tf.convert_to_tensor(filter)
     conv_ndim = filter.ndim
@@ -4377,8 +4354,6 @@ def experiment_with_convolution() -> None:
 
   def torch_convolve(array, filter, reflect=False) -> _NDArray:
     """Convolve the array [*dims, *sample_shape] with the filter [*dims]."""
-    import torch
-
     array = torch.as_tensor(array)
     filter = torch.as_tensor(filter)
     conv_ndim = filter.ndim
@@ -4413,7 +4388,7 @@ def experiment_with_convolution() -> None:
   filter1d = resampler.resize(
       [0.0, 0.0, 1.0, 0.0, 0.0], (11,), gridtype='primal', filter='cubic', dtype=np.float32
   )
-  filter1d = filter1d / filter1d.sum()
+  filter1d = filter1d / np.sum(filter1d)
   filter = np.outer(filter1d, filter1d)
   functions: dict[str, Callable[[], _NDArray]] = {
       'scipy_convolve': lambda: scipy_convolve(array, filter),  # zero-padding
@@ -4600,8 +4575,6 @@ def test_banded(debug=False) -> None:
     assert np.allclose(matrix.dot(new), array)
 
   if 1 and l == 1 and boundary == 'reflect':
-    import tensorflow as tf
-
     # tensorflow does not support general banded solver.
     # tf.linalg.banded_triangular_solve(): only upper or only lower diagonals.
     # tf.linalg.tridiagonal_solve(): 1 lower diagonal and 1 upper diagonal.
@@ -4626,7 +4599,6 @@ def test_banded(debug=False) -> None:
     assert np.allclose(matrix.dot(new), array)
 
   if 0:
-    # import torch
     # torch.linalg lacks solvers for banded, circulant, or sparse matrices.
     pass
 
@@ -4867,7 +4839,8 @@ visualize_rotational_symmetry_of_gaussian_filter()
 
 
 # %% [markdown]
-# # <a name="Creation-of-figure-images"></a>Creation of figure images
+# # Creation of figure images
+# <a name="Creation-of-figure-images"></a>
 
 
 # %%
@@ -5220,7 +5193,8 @@ visualize_boundary_rules_in_2d()
 # What about support for general resampling (not just resize)?
 
 # %% [markdown]
-# ## <a name="Test-other-libraries"></a>Test other libraries
+# ## Test other libraries
+# <a name="Test-other-libraries"></a>
 
 # %% [markdown]
 # ## Upsampling comparison

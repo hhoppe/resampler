@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.7.3'
+__version__ = '0.7.4'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -23,6 +23,7 @@ import numpy.typing as npt
 import scipy.interpolate
 import scipy.linalg
 import scipy.ndimage
+import scipy.sparse
 import scipy.sparse.linalg
 
 try:
@@ -75,7 +76,7 @@ def _real_precision(dtype: _DTypeLike, /) -> _DType:
 
 def _complex_precision(dtype: _DTypeLike, /) -> _DType:
   """Return a complex type to represent a non-complex type."""
-  return np.find_common_type([], [dtype, np.complex64])
+  return np.result_type(dtype, np.complex64)
 
 
 def _get_precision(
@@ -83,9 +84,7 @@ def _get_precision(
 ) -> _DType:
   """Return dtype based on desired precision or on data and weight types."""
   precision2 = np.dtype(
-      precision
-      if precision is not None
-      else np.find_common_type([], [np.float32, *dtypes, *weight_dtypes])
+      precision if precision is not None else np.result_type(np.float32, *dtypes, *weight_dtypes)
   )
   if not np.issubdtype(precision2, np.inexact):
     raise ValueError(f'Precision {precision2} is not floating or complex.')
@@ -234,7 +233,7 @@ _downsample_in_2d_using_box_filter = _DownsampleIn2dUsingBoxFilter()
 
 
 @dataclasses.dataclass
-class _Arraylib(Generic[_Array]):
+class _Arraylib(abc.ABC, Generic[_Array]):
   """Abstract base class for abstraction of array libraries."""
 
   arraylib: str
@@ -264,7 +263,7 @@ class _Arraylib(Generic[_Array]):
     return self.array.reshape(shape)
 
   def possibly_make_contiguous(self) -> _Array:
-    """Return an array which may be a contiguous copy of `self.array`."""
+    """Return a contiguous copy of `self.array` or just `self.array` if already contiguous."""
     return self.array
 
   @abc.abstractmethod
@@ -495,6 +494,9 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
     return tf.sparse.sparse_dense_matmul(sparse, dense)
 
 
+# pylint: disable=missing-function-docstring
+
+
 class _TorchArraylib(_Arraylib[_TorchTensor]):
   """Torch implementation of the array abstraction."""
 
@@ -554,7 +556,7 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
   def getitem(self, indices: Any) -> _TorchTensor:
     if not isinstance(indices, tuple):
       indices = indices.type(self.torch.int64)
-    return self.array[indices]
+    return self.array[indices]  # pylint: disable=unsubscriptable-object
 
   def where(self, if_true: Any, if_false: Any) -> _TorchTensor:
     condition = self.array
@@ -607,6 +609,9 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
     if np.issubdtype(_arr_dtype(dense), np.complexfloating):
       sparse = _arr_astype(sparse, _arr_dtype(dense))
     return sparse @ dense  # Calls torch.sparse.mm().
+
+
+# pylint: enable=missing-function-docstring
 
 
 class _JaxArraylib(_Arraylib[_JaxArray]):
@@ -706,7 +711,14 @@ _DICT_ARRAYLIBS = {
 }
 
 ARRAYLIBS = list(_DICT_ARRAYLIBS)
-"""Array libraries supported automatically in the resize and resampling operations."""
+"""Array libraries supported automatically in the resize and resampling operations.
+
+- The library is selected automatically based on the type of the `array` function parameter.
+
+- The class `_Arraylib` provides library-specific implementations of needed basic functions.
+
+- The `_arr_*()` functions dispatch the `_Arraylib` methods based on the array type.
+"""
 
 
 def _as_arr(array: _Array, /) -> _Arraylib[_Array]:
@@ -743,7 +755,7 @@ def _arr_reshape(array: _Array, shape: tuple[int, ...], /) -> _Array:
 
 
 def _arr_possibly_make_contiguous(array: _Array, /) -> _Array:
-  """Return an array which may be a contiguous copy of `array`."""
+  """Return a contiguous copy of `array` or just `array` if already contiguous."""
   return _as_arr(array).possibly_make_contiguous()
 
 
@@ -886,7 +898,7 @@ def _array_split(array: _Array, axis: int, num_sections: int) -> list[Any]:
 
 
 def _split_array_into_blocks(array: _Array, block_shape: Sequence[int], start_axis: int = 0) -> Any:
-  """Split an array into nested lists of blocks of size at most block_shape."""
+  """Split `array` into nested lists of blocks of size at most `block_shape`."""
   # See https://stackoverflow.com/a/50305924.  (If the block_shape is known to
   # exactly partition the array, see https://stackoverflow.com/a/16858283.)
   if len(block_shape) > len(array.shape):
@@ -900,14 +912,14 @@ def _split_array_into_blocks(array: _Array, block_shape: Sequence[int], start_ax
 
 
 def _map_function_over_blocks(blocks: Any, func: Callable[[Any], Any]) -> Any:
-  """Apply `func` to each block in the nested lists of blocks."""
+  """Apply `func` to each block in the nested lists of `blocks`."""
   if isinstance(blocks, list):
     return [_map_function_over_blocks(block, func) for block in blocks]
   return func(blocks)
 
 
 def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> _Array:
-  """Merge an array from nested lists of array blocks."""
+  """Merge an array from the nested lists of array blocks in `blocks`."""
   # More general than np.block() because the blocks can have additional dims.
   if isinstance(blocks, list):
     new_blocks = [_merge_array_from_blocks(block, axis + 1) for block in blocks]
@@ -916,7 +928,7 @@ def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> _Array:
 
 
 @dataclasses.dataclass(frozen=True)
-class Gridtype:
+class Gridtype(abc.ABC):
   """Abstract base class for grid-types such as `'dual'` and `'primal'`.
 
   In resampling operations, the grid-type may be specified separately as `src_gridtype` for the
@@ -927,7 +939,7 @@ class Gridtype:
     `resize(source, shape, gridtype='primal')`  # Sets both src and dst to be `'primal'` grids.
 
     `resize(source, shape, src_gridtype=['dual', 'primal'],
-           dst_gridtype='dual')`  # Source is `'dual'` in dim0 and `'primal'` in dim1.
+            dst_gridtype='dual')`  # Source is `'dual'` in dim0 and `'primal'` in dim1.
   """
 
   name: str
@@ -939,7 +951,7 @@ class Gridtype:
 
   @abc.abstractmethod
   def size_in_samples(self, size: int, /) -> int:
-    """Return the size of the domain in units of inter-sample spacing."""
+    """Return the domain size in units of inter-sample spacing."""
 
   @abc.abstractmethod
   def point_from_index(self, index: _NDArray, size: int, /) -> _NDArray:
@@ -1076,7 +1088,7 @@ def _get_gridtypes(
 
 
 @dataclasses.dataclass(frozen=True)
-class RemapCoordinates:
+class RemapCoordinates(abc.ABC):
   """Abstract base class for modifying the specified coordinates prior to evaluating the
   reconstruction kernels."""
 
@@ -1110,9 +1122,9 @@ class TileRemapCoordinates(RemapCoordinates):
 
 
 @dataclasses.dataclass(frozen=True)
-class ExtendSamples:
+class ExtendSamples(abc.ABC):
   """Abstract base class for replacing references to grid samples exterior to the unit domain by
-  affine combinations of interior sample(s) and possibly the constant value (cval)."""
+  affine combinations of interior sample(s) and possibly the constant value (`cval`)."""
 
   uses_cval: bool = False
   """True if some exterior samples are defined in terms of `cval`, i.e., if the computed weight
@@ -1291,7 +1303,7 @@ class OverrideExteriorValue:
   """Antialias the pixel values adjacent to the boundary of the extent."""
 
   uses_cval: bool = False
-  """Modify some weights to introduce references to `cval` constant value."""
+  """Modify some weights to introduce references to the `cval` constant value."""
 
   def __call__(self, weight: _NDArray, point: _NDArray, /) -> None:
     """For all `point` outside some extent, modify the weight to be zero."""
@@ -1326,7 +1338,7 @@ class NoOverrideExteriorValue(OverrideExteriorValue):
 
 
 class UnitDomainOverrideExteriorValue(OverrideExteriorValue):
-  """Values outside the unit interval [0, 1] are replaced by constant `cval`."""
+  """Values outside the unit interval [0, 1] are replaced by the constant `cval`."""
 
   def __init__(self, **kwargs: Any) -> None:
     super().__init__(uses_cval=True, **kwargs)
@@ -1360,14 +1372,14 @@ class Boundary:
 
   extend_samples: ExtendSamples = ReflectExtendSamples()
   """Define the value of each grid sample outside the unit domain as an affine combination of
-  interior sample(s) and possibly the constant value (cval)."""
+  interior sample(s) and possibly the constant value (`cval`)."""
 
   override_value: OverrideExteriorValue = NoOverrideExteriorValue()
-  """Set the value outside some extent to a constant value (cval)."""
+  """Set the value outside some extent to a constant value (`cval`)."""
 
   @property
   def uses_cval(self) -> bool:
-    """True if weights may be non-affine, involving the constant value (cval)."""
+    """True if weights may be non-affine, involving the constant value (`cval`)."""
     return self.extend_samples.uses_cval or self.override_value.uses_cval
 
   def preprocess_coordinates(self, point: _NDArray, /) -> _NDArray:
@@ -1443,13 +1455,15 @@ BOUNDARIES = list(_DICT_BOUNDARIES)
 These boundary rules may be specified per dimension.  See the source code for extensibility
 using the classes `RemapCoordinates`, `ExtendSamples`, and `OverrideExteriorValue`.
 
+**Boundary rules illustrated in 1D:**
+
 <center>
-Boundary rules illustrated in 1D:<br/>
 <img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_1D.png" width="100%"/>
 </center>
 
+**Boundary rules illustrated in 2D:**
+
 <center>
-Boundary rules illustrated in 2D:<br/>
 <img src="https://github.com/hhoppe/resampler/raw/main/media/boundary_rules_in_2D.png" width="100%"/>
 </center>
 """
@@ -1466,7 +1480,7 @@ def _get_boundary(boundary: str | Boundary, /) -> Boundary:
 
 
 @dataclasses.dataclass(frozen=True)
-class Filter:
+class Filter(abc.ABC):
   """Abstract base class for filter kernel functions.
 
   Each kernel is assumed to be a zero-phase filter, i.e., to be symmetric in a support
@@ -1489,7 +1503,7 @@ class Filter:
   """True if self(0) == 1.0 and self(i) == 0.0 for all nonzero integers i."""
 
   continuous: bool = True
-  """True if the kernel function has C^0 continuity."""
+  """True if the kernel function has $C^0$ continuity."""
 
   partition_of_unity: bool = True
   """True if the convolution of the kernel with a Dirac comb reproduces the
@@ -1757,9 +1771,9 @@ class BsplineFilter(Filter):
 
   Args:
     degree: The polynomial degree of the B-spline segments.
-      - With `degree=0`, it is like `BoxFilter` except with f(0.5) = f(-0.5) = 0.
-      - With `degree=1`, it is identical to `TriangleFilter`.
-      - With `degree >= 2`, it is no longer interpolating.
+      With `degree=0`, it is like `BoxFilter` except with f(0.5) = f(-0.5) = 0.
+      With `degree=1`, it is identical to `TriangleFilter`.
+      With `degree >= 2`, it is no longer interpolating.
 
   See [Carl de Boor.  A practical guide to splines.  Springer, 2001.]
   https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.BSpline.html
@@ -1964,8 +1978,9 @@ The names expand to:
 The comment label *GF* denotes a [generalized filter](https://hhoppe.com/proj/filtering/), formed
 as the composition of a finitely supported kernel and a discrete inverse convolution.
 
+**Some example filter kernels:**
+
 <center>
-Some example filter kernels:<br/><br/>
 <img src="https://github.com/hhoppe/resampler/raw/main/media/filter_summary.png" width="100%"/>
 </center>
 
@@ -2000,15 +2015,15 @@ def _from_float(array: _Array, /, dtype: _DTypeLike) -> _Array:
   assert np.issubdtype(_arr_dtype(array), np.floating)
   dtype = np.dtype(dtype)
   if dtype.type in (np.uint8, np.uint16):
-    return _arr_astype(array * np.float32(np.iinfo(dtype).max) + 0.5, dtype)
+    return typing.cast(_Array, _arr_astype(array * np.float32(np.iinfo(dtype).max) + 0.5, dtype))
   if dtype.type == np.uint32:
-    return _arr_astype(array * np.float64(np.iinfo(dtype).max) + 0.5, dtype)
+    return typing.cast(_Array, _arr_astype(array * np.float64(np.iinfo(dtype).max) + 0.5, dtype))
   assert np.issubdtype(dtype, np.floating)
   return _arr_astype(array, dtype)
 
 
 @dataclasses.dataclass(frozen=True)
-class Gamma:
+class Gamma(abc.ABC):
   """Abstract base class for transfer functions on sample values.
 
   Image/video content is often stored using a color component transfer function.
@@ -2102,7 +2117,9 @@ class SrgbGamma(Gamma):
   def encode(self, array: _Array, /, dtype: _DTypeLike) -> _Array:
     x = _arr_clip(array, 0.0, 1.0)
     # Unfortunately, exponentiation is slow, and np.digitize() is even slower.
+    # pytype: disable=wrong-arg-types
     x = _arr_where(x > 0.0031308, x ** (1.0 / 2.4) * 1.055 - (0.055 - 1e-17), x * 12.92)
+    # pytype: enable=wrong-arg-types
     return _from_float(x, dtype)
 
 
@@ -2173,7 +2190,7 @@ def _create_resize_matrix(
     translate: float = 0.0,
     dtype: _DTypeLike = np.float64,
     arraylib: str = 'numpy',
-) -> tuple[_Array, _Array]:
+) -> tuple[_Array, _Array | None]:
   """Compute affine weights for 1D resampling from `src_size` to `dst_size`.
 
   Compute a sparse matrix in which each row expresses a destination sample value as a combination
@@ -2553,15 +2570,27 @@ def resize(
     An array of the same class as the source `array`, with shape `shape + array.shape[len(shape):]`
       and data type `dtype`.
 
+  **Example of image upsampling:**
+
+  >>> array = np.random.default_rng(1).random((4, 6, 3))  # 4x6 RGB image.
+  >>> upsampled = resize(array, (128, 192))  # To 128x192 resolution.
+
   <center>
-  Example of image upsampling:
   <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_upsampled.png"/>
   </center>
 
+  **Example of image downsampling:**
+
+  >>> yx = (np.moveaxis(np.indices((96, 192)), 0, -1) + (0.5, 0.5)) / 96
+  >>> radius = np.linalg.norm(yx - (0.75, 0.5), axis=-1)
+  >>> array = np.cos((radius + 0.1) ** 0.5 * 70.0) * 0.5 + 0.5
+  >>> downsampled = resize(array, (24, 48))
+
   <center>
-  Example of image downsampling:
-  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_downsampled.png"/>
+  <img src="https://github.com/hhoppe/resampler/raw/main/media/example_array_downsampled2.png"/>
   </center>
+
+  **Unit test:**
 
   >>> result = resize([1.0, 4.0, 5.0], shape=(4,))
   >>> assert np.allclose(result, [0.74240461, 2.88088827, 4.68647155, 5.02641199])
@@ -2745,7 +2774,7 @@ def _create_jaxjit_resize() -> Callable[..., _Array]:
   """Lazily invoke `jax.jit` on `resize`."""
   import jax
 
-  jitted: Callable[..., _Array] = jax.jit(
+  jitted: Any = jax.jit(
       _original_resize, static_argnums=(1,), static_argnames=list(_original_resize.__kwdefaults__)
   )
   return jitted
@@ -2932,8 +2961,9 @@ def resample(
     `coords.shape[:-1] + array.shape[coords.shape[-1]:]`, of the same array library type as
     the source array.
 
+  **Example of resample operation:**
+
   <center>
-  Example of resample operation:<br/>
   <img src="https://github.com/hhoppe/resampler/raw/main/media/example_warp_coords.png"/>
   </center>
 
@@ -3158,10 +3188,10 @@ def resample_affine(
 ) -> _Array:
   """Resample a source array using an affinely transformed grid of given shape.
 
-  The `matrix` transformation can be linear:
-    source_point = matrix @ destination_point.
-  or it can be affine where the last matrix column is an offset vector:
-    source_point = matrix @ (destination_point, 1.0)
+  The `matrix` transformation can be linear,
+    `source_point = matrix @ destination_point`,
+  or it can be affine where the last matrix column is an offset vector,
+    `source_point = matrix @ (destination_point, 1.0)`.
 
   Args:
     array: Regular grid of source sample values, as an array object recognized by `ARRAYLIBS`.
@@ -3296,10 +3326,10 @@ def rotation_about_center_in_2d(
   The returned matrix accounts for the possibly non-square domain shapes.
 
   Args:
-    src_shape: Resolution (ny, nx) of the source domain grid.
+    src_shape: Resolution `(ny, nx)` of the source domain grid.
     angle: Angle in radians (positive from x to y axis) applied when mapping the source domain
       onto the destination domain.
-    new_shape: Resolution (ny, nx) of the destination domain grid; it defaults to `src_shape`.
+    new_shape: Resolution `(ny, nx)` of the destination domain grid; it defaults to `src_shape`.
     scale: Scaling factor applied when mapping the source domain onto the destination domain.
   """
 
@@ -3347,7 +3377,7 @@ def rotate_image_about_center(
     image: Source grid samples; the first two dimensions are spatial (ny, nx).
     angle: Angle in radians (positive from x to y axis) applied when mapping the source domain
       onto the destination domain.
-    new_shape: Resolution (ny, nx) of the output grid; it defaults to `image.shape[:2]`.
+    new_shape: Resolution `(ny, nx)` of the output grid; it defaults to `image.shape[:2]`.
     scale: Scaling factor applied when mapping the source domain onto the destination domain.
     num_rotations: Number of rotations (each by `angle`).  Successive resamplings are useful in
       analyzing the filtering quality.

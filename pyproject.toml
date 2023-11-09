@@ -75,6 +75,7 @@ disable = [
     "too-many-lines", "too-few-public-methods", "too-many-arguments", "too-many-locals",
     "too-many-statements", "too-many-branches", "too-many-nested-blocks", "use-dict-literal",
     "no-member",  # Some members unrecognized for 'torch', 'cv2'.
+    "duplicate-code",
 ]
 reports = false
 score = false
@@ -90,3 +91,10 @@ expected-line-ending-format = "LF"
 
 [tool.pytest.ini_options]
 addopts = "--ignore-glob '*.#*' --doctest-modules --ignore Old --ignore Other --ignore resampler_other.py --ignore resampler_other_big.py --ignore example_usage.py --ignore resampler_notebook.py"
+
+[tool.pytype]
+keep_going = true
+exclude = ['Other', 'resampler_other*']
+disable = [
+    # 'ignored-abstractmethod',
+]
