@@ -45,6 +45,13 @@ image = media.read_image('https://github.com/hhoppe/data/raw/main/image.png')
 downsampled = resampler.resize(image, (32, 32))
 media.show_images({'128x128': image, '32x32': downsampled}, height=128)
 
+# %%
+yx = (np.moveaxis(np.indices((96, 192)), 0, -1) + (0.5, 0.5)) / 96
+radius = np.linalg.norm(yx - (0.75, 0.5), axis=-1)
+array = np.cos((radius + 0.1) ** 0.5 * 70.0) * 0.5 + 0.5
+downsampled = resampler.resize(array, (24, 48))
+media.show_images({'96x192': array, '24x48': downsampled}, height=96, vmin=0, vmax=1)
+
 # %% [markdown]
 # ### Upsample a 1D array
 
