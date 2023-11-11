@@ -4919,15 +4919,15 @@ def visualize_unused() -> None:
 
   array = [3.0, 5.0, 8.0, 7.0]
 
-  def upsample_1d(ax, gridtype, ordinates) -> None:
-    upsampled = resampler.resize(array, (32,), gridtype=gridtype)
+  def upsample_1d(ax, gridtype, size, ordinates) -> None:
+    upsampled = resampler.resize(array, (size,), gridtype=gridtype)
     ax.plot(ordinates(array), array, 'o')
-    ax.plot((np.arange(len(upsampled)) + 0.5) / len(upsampled), upsampled, '.')
+    ax.plot(ordinates(upsampled), upsampled, '.')
     ax.set_title(f"gridtype='{gridtype}'")
 
   _, axs = plt.subplots(1, 2, figsize=(12, 2.5))
-  upsample_1d(axs[0], 'dual', lambda x: (np.arange(len(x)) + 0.5) / len(x))
-  upsample_1d(axs[1], 'primal', lambda x: np.arange(len(x)) / (len(x) - 1))
+  upsample_1d(axs[0], 'dual', 32, lambda x: (np.arange(len(x)) + 0.5) / len(x))
+  upsample_1d(axs[1], 'primal', 25, lambda x: np.arange(len(x)) / (len(x) - 1))
 
 
 visualize_unused()
@@ -5227,6 +5227,7 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200
       'resize_in_torch lanczos3': lambda: resampler.resize_in_torch(*a, filter='lanczos3'),
       'resize_in_jax lanczos3': lambda: resampler.resize_in_jax(*a, filter='lanczos3'),
       'jaxjit_resize lanczos3': lambda: resampler.jaxjit_resize(*a, filter='lanczos3'),
+      'jaxjit_resize cubic': lambda: resampler.jaxjit_resize(*a, filter='cubic'),
       'resample lanczos3': lambda: resampler._resize_using_resample(*a, filter='lanczos3'),
       'PIL.Image.resize lanczos3': lambda: resampler.pil_image_resize(*a, filter='lanczos3'),
       'PIL.Image.resize cubic': lambda: resampler.pil_image_resize(*a, filter='cubic'),
@@ -5283,7 +5284,7 @@ if EFFORT >= 3:
 # - `tf.resize` using `'lanczos5'` and `boundary='natural'` is slightly worse
 #   than `resampler.resize` using `'lanczos5'` and `boundary='reflect'` near the boundary.
 # - `resampler.resize` is generally very fast, but is not as fast as OpenCV for cubic upsampling.
-# - However, `resampler.jaxjit_resize` is even faster than `cv.resize` for Lanczos upsampling!
+# - However, `resampler.jaxjit_resize` is about the same speed as `cv.resize` for Lanczos upsampling!
 
 # %% [markdown]
 # ## Downsampling comparison
