@@ -250,7 +250,6 @@
 # - The [**resample**](#Resample) operation is a generalization in which
 #   the destination samples are mapped to *arbitrary* coordinates in the source domain:
 #   <center><img style="margin: 15px 0px 15px 0px;" src="https://github.com/hhoppe/resampler/raw/main/media/example_warp_coords.png"/></center>
-#   <!--TODO: antialias this result!-->
 #
 # - Efficient implementation of resize/resample is enabled by [two key
 #   observations](http://www2.eecs.berkeley.edu/Pubs/TechRpts/1989/CSD-89-516.pdf):
@@ -2575,7 +2574,7 @@ def experiment_rotate_image_about_center(scale=1.0) -> None:
     new_shapes = [original.shape[:2], image.shape[:2], (100, 200), (100, 50)]
     images = {
         f'{i}: {new_shape}': resampler.rotate_image_about_center(
-            image, np.radians(10), new_shape=new_shape, scale=scale, boundary='constant'
+            image, math.radians(10), new_shape=new_shape, scale=scale, boundary='constant'
         )
         for i, new_shape in enumerate(new_shapes)
     }
@@ -2662,7 +2661,7 @@ def experiment_visualize_rotation_boundaries(
 ) -> None:
   original_image = resampler.resize(EXAMPLE_IMAGE, (src_size,) * 2)
   matrix = resampler.rotation_about_center_in_2d(
-      original_image.shape[:2], np.radians(degrees), scale=scale
+      original_image.shape[:2], math.radians(degrees), scale=scale
   )
   images = {
       f"'{boundary}'": resampler.resample_affine(
@@ -2682,7 +2681,7 @@ experiment_visualize_rotation_boundaries()
 def experiment_with_boundary_antialiasing(degrees=8, scale=1.5, src_size=64, dst_size=128) -> None:
   original_image = resampler.resize(EXAMPLE_IMAGE, (src_size,) * 2)
   matrix = resampler.rotation_about_center_in_2d(
-      original_image.shape[:2], np.radians(degrees), scale=scale
+      original_image.shape[:2], math.radians(degrees), scale=scale
   )
   images = {}
   for boundary_antialiasing, gamma in [(False, 'power2'), (True, 'power2'), (True, 'identity')]:
@@ -2762,6 +2761,151 @@ def experiment_zoom_rotate_image(src_size=128, dst_size=128, num_frames=60) -> N
 if EFFORT >= 1:
   experiment_zoom_rotate_image()
 
+
+# %% [markdown]
+# ## Affine resample using shears
+
+# %% [markdown]
+# It would be useful to have a specialized implementation of `resample_affine()` that does not
+# involve the full generality (and expense) of `resample()`.
+# One idea is to implement `resample_affine()` as a sequence of 1D shears.
+#
+# However this presents several difficulties:
+#
+# - The resulting shears usually involve a non-unity scaling factor.
+#   Even though this scaling factor is uniform across the entire domain,
+#   it results in non-repetitive filter weights on all source pixels,
+#   so the shear computation cannot be expressed using a small sparse matrix
+#   as in the `_create_resize_matrix()` of `resize()`.
+#
+# - Filtering using a sequence of two 1D shears does not reproduce the 2D tensor-product filter,
+#   resulting in small errors (0.6 dB in the example below).
+#
+# - Correctly handling general boundary conditions would require expanding the domains
+#   of the intermediate results between successive shears.
+
+# %%
+# Given a general 2D affine matrix:
+#
+#     | a  b  t |
+# M = | c  d  u |
+#     | 0  0  1 |
+#
+# We can factor it as the product of two 1D shear-scale matrices, M = A * B,
+#
+# | 1  0  0 |     | h  i  j |     | h      i      j     |
+# | e  f  g |  *  | 0  1  0 |  =  | e*h    e*i+f  e*j+g |
+# | 0  0  1 |     | 0  0  1 |     | 0      0      1     |
+#
+# Given (a, b, c, d, t, u), we obtain:
+# e = c / a
+# f = d - c / a * b
+# g = u - c / a * t
+# h, i, j = a, b, t
+
+# Note that for a rotation matrix, the factorization involves non-unity scaling factors:
+#
+# | C  -S  0 |    | 1    0        0 |     | C  -S  0 |
+# | S   C  0 | =  | S/C  C+S^2/C  0 |  *  | 0   1  0 |
+# | 0   0  1 |    | 0    0        1 |     | 0   0  1 |
+
+# Alternatively, e.g., if a = 0, we can use:
+#
+#         | h+e*i  f*i    g*i+j |
+# B * A = | e      f      g     |
+#         | 0      0      1     |
+#
+# e, f, g = c, d, u
+# h = a - c * b / d
+# i = b / d
+# j = t - u * b / d
+
+# What if a = d = 0, e.g., a 90-degree rotation?
+# In that case it is best to include an initial explicit 90-degree CCW rotation R:
+#
+#     | 0  -1   1 |
+# R = | 1   0   0 |
+#     | 0   0   1 |
+#
+#                     | i       -h     h+j       |
+# so that A * B * R = | e*i+f   -e*h   e*h+e*j+g |
+#                     | 0       0      1         |
+#
+# e = d / b
+# f = c - d / b * a
+# g = u - d / b * t
+# h = -b
+# i = a
+# j = t + b
+
+# Instead of a rotation R, we can also consider an initial transpose T:
+#
+#     | 0   1   0 |
+# T = | 1   0   0 |
+#     | 0   0   1 |
+#
+#                     | i      h     j     |
+# so that A * B * T = | e*i+f  e*h   e*j+g |
+#                     | 0      0     1     |
+#
+# e = d / b
+# f = c - d / b * a
+# g = u - d / b * t
+# h, i, j = b, a, t
+# The only (minor) difference is that the initial X shear has a reflection and translation.
+# So just applying a transpose is simpler and does not have any drawback.
+
+# We can also apply the transpose after the two shears:
+#
+#                     | e*h   e*i+f  e*j+g |
+# so that T * A * B = | h     i      j     |
+#                     | 0     0      1     |
+#
+# e = a / c
+# f = b - a / c * d
+# g = t - a / c * d
+# h, i, j = c, d, u
+
+# Overall, we can just use A*B and choose a pre-transposisition and a post-transposition,
+# for a total of 4 possibilities in 2D.  The goal is to maximize the scaling factor h for A*B.
+
+
+# %%
+def experiment_shear_image(degrees=30, show_compare=False, **kwargs):
+  original = media.to_float01(EXAMPLE_PHOTO[40:, -440:])
+  image = resampler.resize(original, np.array(original.shape[:2]) // 2, filter='lanczos10')
+  matrix = resampler.rotation_about_center_in_2d(image.shape[:2], math.radians(degrees))
+  kwargs2 = kwargs | dict(filter='lanczos10')
+  original2 = resampler.resample_affine(original, original.shape[:2], matrix[:-1], **kwargs2)
+  reference = resampler.resize(original2, image.shape[:2], filter='lanczos10')
+  # `matrix` maps destination points to source points.
+  # source_pos = matrix * destination_pos = (shear2 * shear1) * destination_pos
+  # source_pos = shear2 * destination_a_pos
+  # destination_a_pos = shear1 * destination_pos
+  image2 = resampler.resample_affine(image, image.shape[:2], matrix[:-1], **kwargs)
+  (a, b, t), (c, d, u) = matrix[:2]
+  e, f, g = c / a, d - c / a * b, u - c / a * t
+  shear1 = np.array([[a, b, t], [0, 1, 0], [0, 0, 1]], float)
+  shear2 = np.array([[1, 0, 0], [e, f, g], [0, 0, 1]], float)
+  assert np.allclose(shear2 @ shear1, matrix)
+  image3a = resampler.resample_affine(image, image.shape[:2], shear2[:-1], **kwargs)
+  image3 = resampler.resample_affine(image3a, image.shape[:2], shear1[:-1], **kwargs)
+  if show_compare:
+    media.compare_images([image2, image3])
+    return
+  images = {
+      'source': image,
+      f'rotated (PSNR={get_psnr(image2, reference):.2f} dB)': image2,
+      '1shear': image3a,
+      f'2shears (PSNR={get_psnr(image3, reference):.2f} dB)': image3,
+      'error': hh.rms(image3 - image2, axis=-1) * 2.0,
+  }
+  media.show_images(images, height=image.shape[0] * 1)
+
+
+experiment_shear_image(filter='cubic', boundary='constant')  # Small errors in the interior.
+experiment_shear_image(filter='cubic', boundary='reflect')  # Plus large boundary errors.
+experiment_shear_image(filter='cubic', boundary='reflect', show_compare=True)
 
 # %% [markdown]
 # ## Gradient backpropagation
@@ -3146,7 +3290,7 @@ def test_blocking_using_image_rotation(max_block_size, src_size=64, dst_size=256
 
     def rotate_image(degrees=8, scale=2.2, **kwargs) -> resampler._Array:
       matrix = resampler.rotation_about_center_in_2d(
-          original_image.shape[:2], np.radians(degrees), scale=scale
+          original_image.shape[:2], math.radians(degrees), scale=scale
       )
       return resampler.resample_affine(
           original_image, (dst_size,) * 2, matrix[:-1], boundary='reflect', **kwargs
@@ -3176,7 +3320,7 @@ def experiment_find_the_best_max_block_size(src_size=64, dst_size=4096) -> None:
 
       def rotate_image(degrees=8, scale=2.2) -> resampler._Array:
         matrix = resampler.rotation_about_center_in_2d(
-            original_image.shape[:2], np.radians(degrees), scale=scale
+            original_image.shape[:2], math.radians(degrees), scale=scale
         )
         return resampler.resample_affine(
             original_image,
@@ -3246,8 +3390,6 @@ if EFFORT >= 2:
 # %% [markdown]
 # The kernel is usually interpolating,
 # i.e., it has value $1$ at $x=0$ and value $0$ at all other integer coordinates.
-#
-# TODO: more..
 
 
 # %%
@@ -3377,7 +3519,7 @@ visualize_cardinal_bsplines()
 
 
 # %%
-class TestBsplineRouhani2015(resampler.Filter):
+class _TestBsplineRouhani2015(resampler.Filter):
   """Examine the cubic B-spline defined in [Rouhani et al. 2015]."""
 
   def __init__(self) -> None:
@@ -3408,7 +3550,7 @@ class TestBsplineRouhani2015(resampler.Filter):
     )
 
 
-class TestSubmission(resampler.Filter):
+class _TestSubmission(resampler.Filter):
   """Examine the cubic B-spline defined in a submission."""
 
   def __init__(self) -> None:
@@ -3437,8 +3579,8 @@ class TestSubmission(resampler.Filter):
 
 _filters = {
     'bspline3': resampler.BsplineFilter(degree=3),
-    'rouhani2015': TestBsplineRouhani2015(),
-    'submission': TestSubmission(),
+    'rouhani2015': _TestBsplineRouhani2015(),
+    'submission': _TestSubmission(),
 }
 visualize_filters(_filters)
 
