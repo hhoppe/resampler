@@ -119,7 +119,7 @@ def _sinc(x: _ArrayLike, /) -> _NDArray:
     return result.item() if x_is_scalar else result
 
 
-def _is_symmetric(matrix: _NDArray, /, tol: float = 1e-10) -> bool:
+def _is_symmetric(matrix: scipy.sparse.spmatrix, /, tol: float = 1e-10) -> bool:
   """Return True if the sparse matrix is symmetric."""
   norm: float = scipy.sparse.linalg.norm(matrix - matrix.T, np.inf)
   return norm <= tol
@@ -294,6 +294,10 @@ class _Arraylib(abc.ABC, Generic[_Array]):
   def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     """Return the best order in which to process dims for resizing `self.array` to `dst_shape`."""
 
+  @abc.abstractmethod
+  def premult_with_sparse(self, sparse: Any) -> _Array:
+    """Return the multiplication of the `sparse` matrix and `self.array`."""
+
   @staticmethod
   @abc.abstractmethod
   def concatenate(arrays: Sequence[_Array], axis: int) -> _Array:
@@ -310,12 +314,7 @@ class _Arraylib(abc.ABC, Generic[_Array]):
       data: _NDArray, row_ind: _NDArray, col_ind: _NDArray, shape: tuple[int, int]
   ) -> _Array:
     """Return the equivalent of `scipy.sparse.csr_matrix(data, (row_ind, col_ind), shape=shape)`.
-    However, indices must be ordered and unique."""
-
-  @staticmethod
-  @abc.abstractmethod
-  def sparse_dense_matmul(sparse: Any, dense: _Array) -> _Array:
-    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
+    However, the indices must be ordered and unique."""
 
 
 class _NumpyArraylib(_Arraylib[_NDArray]):
@@ -370,6 +369,14 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
 
     return sorted(range(len(src_shape)), key=priority)
 
+  def premult_with_sparse(self, sparse: scipy.sparse.csr_matrix) -> _NDArray:
+    # Calls _spbase.__matmul__() -> _spbase._mul_dispatch() -> _cs_matrix._mul_multivector() ->
+    # scipy.sparse._sparsetools.csr_matvecs() in
+    # https://github.com/scipy/scipy/blob/main/scipy/sparse/sparsetools/csr.h
+    # which iteratively calls the (in theory, LEVEL 1 BLAS) function axpy() in
+    # https://github.com/scipy/scipy/blob/main/scipy/sparse/sparsetools/dense.h
+    return sparse @ self.array
+
   @staticmethod
   def concatenate(arrays: Sequence[_NDArray], axis: int) -> _NDArray:
     return np.concatenate(arrays, axis)
@@ -383,14 +390,6 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
       data: _NDArray, row_ind: _NDArray, col_ind: _NDArray, shape: tuple[int, int]
   ) -> _NDArray:
     return scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape=shape)
-
-  @staticmethod
-  def sparse_dense_matmul(sparse: scipy.sparse.csr_matrix, dense: _NDArray) -> _NDArray:
-    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
-    # Calls scipy.sparse._sparsetools.csr_matvecs() in
-    # https://github.com/scipy/scipy/blob/main/scipy/sparse/sparsetools/csr.h
-    # which iteratively calls the LEVEL 1 BLAS function axpy().
-    return sparse @ dense
 
 
 class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
@@ -462,6 +461,13 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
       dims[:2] = [1, 0]
     return dims
 
+  def premult_with_sparse(self, sparse: tf.sparse.SparseTensor) -> _TensorflowTensor:
+    import tensorflow as tf
+
+    if np.issubdtype(_arr_dtype(self.array), np.complexfloating):
+      sparse = sparse.with_values(_arr_astype(sparse.values, _arr_dtype(self.array)))
+    return tf.sparse.sparse_dense_matmul(sparse, self.array)
+
   @staticmethod
   def concatenate(arrays: Sequence[_TensorflowTensor], axis: int) -> _TensorflowTensor:
     import tensorflow as tf
@@ -482,16 +488,6 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
 
     indices = np.vstack((row_ind, col_ind)).T
     return tf.sparse.SparseTensor(indices, data, shape)
-
-  @staticmethod
-  def sparse_dense_matmul(
-      sparse: tf.sparse.SparseTensor, dense: _TensorflowTensor
-  ) -> _TensorflowTensor:
-    import tensorflow as tf
-
-    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
-      sparse = sparse.with_values(_arr_astype(sparse.values, _arr_dtype(dense)))
-    return tf.sparse.sparse_dense_matmul(sparse, dense)
 
 
 # pylint: disable=missing-function-docstring
@@ -577,6 +573,11 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
 
     return sorted(range(len(src_shape)), key=priority)
 
+  def premult_with_sparse(self, sparse: Any) -> _TorchTensor:
+    if np.issubdtype(_arr_dtype(self.array), np.complexfloating):
+      sparse = _arr_astype(sparse, _arr_dtype(self.array))
+    return sparse @ self.array  # Calls torch.sparse.mm().
+
   @staticmethod
   def concatenate(arrays: Sequence[_TorchTensor], axis: int) -> _TorchTensor:
     import torch
@@ -603,12 +604,6 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
     indices = np.vstack((row_ind, col_ind))
     return torch.sparse_coo_tensor(torch.as_tensor(indices), torch.as_tensor(data), shape)
     # .coalesce() is unnecessary because indices/data are already merged.
-
-  @staticmethod
-  def sparse_dense_matmul(sparse: Any, dense: _TorchTensor) -> _TorchTensor:
-    if np.issubdtype(_arr_dtype(dense), np.complexfloating):
-      sparse = _arr_astype(sparse, _arr_dtype(dense))
-    return sparse @ dense  # Calls torch.sparse.mm().
 
 
 # pylint: enable=missing-function-docstring
@@ -673,6 +668,10 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
       dims[:2] = [1, 0]
     return dims
 
+  def premult_with_sparse(self, sparse: jax.experimental.sparse.BCOO) -> _Array:
+    """Return the multiplication of the `sparse` matrix and `self.array` matrix."""
+    return sparse @ self.array  # Calls jax.bcoo_multiply_dense().
+
   @staticmethod
   def concatenate(arrays: Sequence[_JaxArray], axis: int) -> _JaxArray:
     import jax.numpy as jnp
@@ -696,11 +695,6 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
     return jax.experimental.sparse.BCOO(
         (data, indices), shape=shape, indices_sorted=True, unique_indices=True
     )
-
-  @staticmethod
-  def sparse_dense_matmul(sparse: jax.experimental.sparse.BCOO, dense: _Array) -> _Array:
-    """Return the multiplication of the `sparse` matrix and `dense` matrix."""
-    return sparse @ dense  # Calls jax.bcoo_multiply_dense().
 
 
 _DICT_ARRAYLIBS = {
@@ -794,6 +788,11 @@ def _arr_best_dims_order_for_resize(array: _Array, dst_shape: tuple[int, ...], /
   return _as_arr(array).best_dims_order_for_resize(dst_shape)
 
 
+def _arr_matmul_sparse_dense(sparse: Any, dense: _Array, /) -> _Array:
+  """Return the multiplication of the `sparse` and `dense` matrices."""
+  return _as_arr(dense).premult_with_sparse(sparse)
+
+
 def _arr_concatenate(arrays: Sequence[_Array], axis: int, /) -> _Array:
   """Return the equivalent of `np.concatenate(arrays, axis)`."""
   arraylib = _arr_arraylib(arrays[0])
@@ -831,12 +830,6 @@ def _make_sparse_matrix(
   """Return the equivalent of `scipy.sparse.csr_matrix(data, (row_ind, col_ind), shape=shape)`.
   However, indices must be ordered and unique."""
   return _DICT_ARRAYLIBS[arraylib].make_sparse_matrix(data, row_ind, col_ind, shape)  # type: ignore
-
-
-def _arr_sparse_dense_matmul(sparse: Any, dense: _Array, /) -> _Array:
-  """Return the multiplication of the `sparse` and `dense` matrices."""
-  arraylib = _arr_arraylib(dense)
-  return _DICT_ARRAYLIBS[arraylib].sparse_dense_matmul(sparse, dense)  # type: ignore
 
 
 def _make_array(array: _ArrayLike, arraylib: str, /) -> _Array:
@@ -2711,7 +2704,7 @@ def resize(
           array_flat, src_gridtype2[dim], boundary_dim, cval, filter2[dim]
       )
 
-    array_flat = _arr_sparse_dense_matmul(resize_matrix, array_flat)
+    array_flat = _arr_matmul_sparse_dense(resize_matrix, array_flat)
     if cval_weight is not None:
       cval_flat = np.broadcast_to(cval, array_dim.shape[1:]).reshape(-1)
       if np.issubdtype(array_dtype, np.complexfloating):
