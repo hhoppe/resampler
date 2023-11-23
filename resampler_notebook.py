@@ -315,6 +315,7 @@ from __future__ import annotations
 
 import collections
 from collections.abc import Callable, Iterable, Mapping, Sequence
+import concurrent.futures
 import copy
 import functools
 import itertools
@@ -322,6 +323,7 @@ import math
 import os
 import pathlib
 import sys
+import types
 import typing
 from typing import Any, Literal, TypeVar
 import warnings
@@ -344,6 +346,13 @@ import torch
 import torch.autograd
 
 import resampler
+
+try:
+  import numba
+except ModuleNotFoundError:
+  numba = sys.modules['numba'] = types.ModuleType('numba')
+  numba.njit = hh.noop_decorator
+using_numba = hasattr(numba, 'jit')
 
 # pylint: disable=protected-access, missing-function-docstring
 # mypy: allow-incomplete-defs, allow-untyped-defs
@@ -408,19 +417,6 @@ def _check_eq(a: Any, b: Any) -> None:
   are_equal = np.all(a == b) if isinstance(a, np.ndarray) else a == b
   if not are_equal:
     raise AssertionError(f'{a!r} == {b!r}')
-
-
-# %%
-def _numba_is_present() -> bool:
-  """Return True if numba jit acceleration is possible."""
-  try:
-    import numba
-
-    _ = numba
-    return True
-
-  except ModuleNotFoundError:
-    return False
 
 
 # %%
@@ -681,7 +677,7 @@ show_var_docstring('resampler.ARRAYLIBS')
 # it is more complete but less specialized;
 # some missing features include:
 # - Support for `einsum()` using a `str` subscripts argument.
-# - The equivalent of `sparse_resize_matrix` and `sparse_dense_matmul`.
+# - The equivalent of `_make_sparse_matrix` and `_arr_matmul_sparse_dense`.
 # - Support for `_make_array(array, arraylib)` and `arr_arraylib(array)`; or use `ep.get_dummy(str)`?
 # - Alternatively, use of subclassing for extensibility.
 # - Use of `np.dtype` as a shared standard for `dtype` attributes and `astype(...)` functions.
@@ -1088,7 +1084,7 @@ def test_downsample_in_2d_using_box_filter() -> None:
     assert np.allclose(new, 1.0)
 
 
-if EFFORT >= 1 and _numba_is_present():
+if EFFORT >= 1 and using_numba:
   test_downsample_in_2d_using_box_filter()
 
 
@@ -1098,7 +1094,7 @@ def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
   hh.print_time(lambda: resampler._downsample_in_2d_using_box_filter(array, shape), max_time=0.4)
 
 
-if _numba_is_present():
+if using_numba:
   test_profile_downsample_in_2d_using_box_filter()
 # 8.9 ms
 
@@ -2247,6 +2243,284 @@ if EFFORT >= 1:
 
 
 # %%
+def experiment_parallelism() -> None:
+  """Determine how much multithreaded parallelism each array library uses."""
+  shape = (1024, 1024, 3)
+  size = 8_192
+  new_shape = (size, size, 3)
+  array = np.ones(shape, np.uint8)
+  for arraylib in resampler.ARRAYLIBS:
+    for _ in range(1):
+      with hh.timing(f'# {arraylib=:<10}'):
+        resampler.resize_in_arraylib(array, new_shape[:2], arraylib=arraylib)
+
+
+experiment_parallelism()
+# arraylib=numpy     : 1.190824
+# arraylib=tensorflow: 0.980665  17.12x
+# arraylib=torch     : 0.827926   9.45x
+# arraylib=jax       : 1.638556   3.57x
+
+# %%
+# We see that numpy/scipy does not provide multithreading speedup for resize().
+# The reason is that the bottleneck is the multiplication of a scipy.sparse.csr_matrix with a dense
+# numpy matrix, and this operation is not multithreaded:
+# See the 2 nested "for" loops in scipy.sparse._sparsetools.csr_matvecs() in
+# https://github.com/scipy/scipy/blob/main/scipy/sparse/sparsetools/csr.h
+# which iteratively calls the LEVEL 1 BLAS function axpy().
+# It is called from _cs_matrix._mul_multivector(), called from _spbase._mul_dispatch(),
+# called from _spbase.__matmul__().
+
+# https://stackoverflow.com/questions/16814273/how-to-parallelise-scipy-sparse-matrix-multiplication
+# suggests using Cython and demonstrates it for a csc_matrix times a dense numpy matrix in Fortran order.
+# See the compact implementation in https://gist.github.com/rmcgibbo/6019670 which uses an OpenMP
+# parallel "prange" and calls a function "cs_gaxpy()".  However, it is an inefficient decomposition.
+# For R[N*P] = X[N*M] * W[M*P], it distributes threads over P (the columns of W).
+# So, each thread traverses the entire CSC matrix and must accumulate contributions in the rows of
+# the result matrix using a scatter (and hopefully do so atomically!).
+# Instead we want to use a CSR matrix and distribute threads over N so that each thread writes to
+# a slice of rows in the result R by gathering a (sparse) set of rows from W.
+
+# pyRSB described in [this paper](https://web.archive.org/web/20210713202752id_/http://conference.scipy.org/proceedings/scipy2021/pdfs/martone_bacchio_pyrsb.pdf)
+# is designed for large sparse csr matrices and is built on [librsb](https://librsb.sourceforge.net/).
+
+# Idea: use threads because numpy and scipy native code releases the global interpreter lock (GIL).
+# See https://stackoverflow.com/a/35456820
+
+
+# %%
+@numba.njit(nogil=True, fastmath=True)  # type: ignore[misc]
+def numba_csr_dense_mult(indptr, indices, data, src, dst) -> None:
+  """Faster version of scipy.sparse._sparsetools.csr_matvecs(), which can be run per thread."""
+  assert indptr.ndim == indices.ndim == data.ndim == 1 and src.ndim == dst.ndim == 2
+  assert len(indptr) == dst.shape[0] + 1 and src.shape[1] == dst.shape[1]
+  acc = data[0] * src[0]  # Dummy initialization value, to infer correct shape and dtype.
+  for i in range(dst.shape[0]):
+    acc[:] = 0
+    for jj in range(indptr[i], indptr[i + 1]):
+      j = indices[jj]
+      acc += data[jj] * src[j]
+    dst[i] = acc
+
+
+# %%
+# I tried using the "minimal" "parallel=" config but this did not result in any jit speedup:
+#  parallel=dict(comprehension=False, prange=True, numpy=True, reduction=False, setitem=False, stencil=False, fusion=False)
+@numba.njit(parallel=True, fastmath=True)  # type: ignore[misc]
+def numba_parallel_csr_dense_mult(indptr, indices, data, src, dst) -> None:
+  """Faster version of scipy.sparse._sparsetools.csr_matvecs(), which uses omp threads."""
+  # See also https://stackoverflow.com/questions/46924092
+  assert indptr.ndim == indices.ndim == data.ndim == 1 and src.ndim == dst.ndim == 2
+  assert len(indptr) == dst.shape[0] + 1 and src.shape[1] == dst.shape[1]
+  acc0 = data[0] * src[0]  # Dummy initialization value, to infer correct shape and dtype.
+  # Default is static scheduling, which is fine.
+  for i in numba.prange(dst.shape[0]):  # pylint: disable=not-an-iterable
+    acc = np.zeros_like(acc0)  # Numba automatically hoists the allocation outside the loop.
+    for jj in range(indptr[i], indptr[i + 1]):
+      j = indices[jj]
+      acc += data[jj] * src[j]
+    dst[i] = acc
+
+
+# %%
+def test_jit_timing() -> None:
+  indptr, indices, data = np.array([0, 1, 2]), np.array([0, 1]), np.array([1, 1], np.float32)
+  src, dst = np.ones((2, 2), np.float32), np.ones((2, 2), np.float32)
+  with hh.timing('numba_csr_dense_mult'):
+    numba_csr_dense_mult(indptr, indices, data, src, dst)
+  with hh.timing('numba_parallel_csr_dense_mult'):
+    numba_parallel_csr_dense_mult(indptr, indices, data, src, dst)
+
+
+test_jit_timing()  # 0.3 s; ~3.0 s!
+
+
+# %%
+@numba.njit(parallel=True, fastmath=True)  # type: ignore[misc]
+def unhelpful_numba_parallel_csr_dense_mult(indptr, indices, data, src, dst) -> None:
+  """Version that assigns threads to vertical swaths of src and dst for cache coherence."""
+  assert indptr.ndim == indices.ndim == data.ndim == 1 and src.ndim == dst.ndim == 2
+  assert len(indptr) == dst.shape[0] + 1 and src.shape[1] == dst.shape[1]
+  width = src.shape[1]
+  swath_width = math.ceil(width / numba.get_num_threads())
+  num_swaths = math.ceil(width / swath_width)
+  # with numba.parallel_chunksize(1):  # Unsupported with default numba.threading_layer() == 'omp'.
+  for swath_index in numba.prange(num_swaths):  # pylint: disable=not-an-iterable
+    src_swath = src[:, swath_index * swath_width : min(width, (swath_index + 1) * swath_width)]
+    dst_swath = dst[:, swath_index * swath_width : min(width, (swath_index + 1) * swath_width)]
+    acc = data[0] * src_swath[0]  # Dummy initialization value, to infer correct shape and dtype.
+    for i0 in range(dst.shape[0]):
+      i = (i0 + swath_index * 17) % dst.shape[0]  # Try staggering writes to reduce false sharing.
+      acc[:] = 0
+      for jj in range(indptr[i], indptr[i + 1]):
+        j = indices[jj]
+        acc += data[jj] * src_swath[j]
+      dst_swath[i] = acc
+
+
+# %%
+def test_multithreading(tiny_test=False, verbose=False) -> None:
+  matvecs = getattr(scipy.sparse._sparsetools, 'csr_matvecs')
+  src_size, dst_size, width = 1024, 8096, 4096 * 3
+  if tiny_test:
+    src_size, dst_size, width = 4, 16, 4
+  src = np.random.default_rng(1).random((src_size, width), dtype=np.float32)
+  resize_matrix, unused_cval_weight = resampler._create_resize_matrix(
+      src_size,
+      dst_size,
+      src_gridtype=resampler.DualGridtype(),
+      dst_gridtype=resampler.DualGridtype(),
+      boundary=resampler._get_boundary('reflect'),
+      filter=resampler._get_filter('cubic'),
+      dtype=np.float32,
+  )
+
+  def single_threaded_resize() -> _NDArray:
+    csr = resize_matrix
+    (m, n), (n2, n_vecs) = csr.shape, src.shape
+    assert n == n2
+    if 0:  # Old default.
+      return csr @ src
+    if 0:  # The time overhead due to copy is about 1.35x.
+      dst = np.empty((m, n_vecs), np.float32)
+      dst[:] = csr @ src
+      return dst
+    if 0:  # The time overhead is eliminated.
+      dst = np.zeros((m, n_vecs), np.float32)  # Must zero because matvecs() does "+=".
+      matvecs(m, n, n_vecs, csr.indptr, csr.indices, csr.data, src.ravel(), dst.ravel())
+      return dst
+    if 1:  # About 2x faster than the C++ code in scipy matvecs().
+      dst = np.empty((m, n_vecs), np.float32)
+      numba_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
+      return dst
+    raise AssertionError
+
+  single_threaded_resize()  # Pre-jit.
+  with hh.timing('# Single-threaded', enabled=verbose):
+    time1, dst1 = hh.get_time_and_result(single_threaded_resize)
+
+  def multi_threaded_resize() -> _NDArray:
+    dst2 = np.empty((dst_size, width), np.float32)
+
+    def task(sl: slice):
+      csr = resize_matrix[sl]
+      dst = dst2[sl]
+      if 0:
+        # Unfortunately, _cs_matrix._mul_multivector() allocates a separate buffer.
+        # See https://github.com/scipy/scipy/blob/main/scipy/sparse/_compressed.py
+        # and axpy() in https://github.com/scipy/scipy/blob/main/scipy/sparse/sparsetools/dense.h
+        dst[:] = csr @ src
+      elif 0:  # 1.5x faster.
+        (m, n), (n2, n_vecs) = csr.shape, src.shape
+        assert n == n2 and dst.shape == (m, n_vecs)
+        assert dst.dtype == scipy.sparse._sputils.upcast_char(csr.dtype.char, src.dtype.char)
+        dst[:] = 0  # Because matvecs() does "+=".
+        matvecs(m, n, n_vecs, csr.indptr, csr.indices, csr.data, src.ravel(), dst.ravel())
+      else:  # Another 1.6x speedup.
+        numba_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
+
+    num_threads = 6  # 4 is already good.  Default is too large.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+      executor.map(task, hh.divide_slice(slice(0, dst_size), num_threads))
+
+    return dst2
+
+  with hh.timing('# Multi-threaded ', enabled=verbose):
+    time2, dst2 = hh.get_time_and_result(multi_threaded_resize)
+
+  def numba_threaded_resize() -> _NDArray:  # ~1.05x faster than ThreadPoolExecutor
+    csr = resize_matrix
+    dst = np.empty((dst_size, width), np.float32)
+    numba.set_num_threads(6)  # Faster than default numba.config.NUMBA_NUM_THREADS (24).
+    numba_parallel_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
+    return dst
+
+  numba_threaded_resize()  # Pre-jit.
+  with hh.timing('# Numba-threaded ', enabled=verbose):
+    time3, dst3 = hh.get_time_and_result(numba_threaded_resize)
+
+  print(f'# single:{time1*1000:7.3f} ms  executor:{time2*1000:7.3f} ms  numba:{time3*1000:7.3f} ms')
+  assert dst1.shape == dst2.shape == (dst_size, width)
+  assert dst1.dtype == dst2.dtype == np.float32
+  assert np.allclose(dst1, dst2)
+  assert np.allclose(dst1, dst3)
+
+
+if using_numba:
+  test_multithreading()
+  test_multithreading(tiny_test=True)  # The overhead is very small for numba_threaded:
+# single:104.405 ms  executor: 39.445 ms  numba: 39.770 ms
+# single:  0.002 ms  executor:  0.903 ms  numba:  0.005 ms
+
+# %%
+# Conclusions:
+# - Compared to the standard "csr @ src", we can get a small speedup (1.35x) by calling the C++
+#   scipy.sparse._sparsetools.csr_matvecs directly; however, it is a private scipy function.
+# - A jitted numba function provides a larger speedup (1.6x); however it requires initial jitting.
+# - The numba prange() multithreading (default "omp') is slightly faster (1.05x) than
+#   a ThreadPoolExecutor.
+# - Moreover, the numba multithreading has lower overhead, possibly because it reuses the threads.
+
+# %%
+if 0:
+  hh.show(numba.config.THREADING_LAYER)
+  # numba.config.THREADING_LAYER = default
+  hh.show(numba.config.THREADING_LAYER_PRIORITY)
+  # numba.config.THREADING_LAYER_PRIORITY = ['tbb', 'omp', 'workqueue']
+  hh.show(numba.threading_layer(), numba.get_num_threads())
+  # numba.threading_layer() = omp, numba.get_num_threads() = 6
+
+# %%
+if 0:
+  numba_parallel_csr_dense_mult.parallel_diagnostics(level=4)  # Shows hoisting of np.empty().
+
+# %%
+if 0:
+  # Crazy long; lots of SIMD instructions it seems.
+  print(list(numba_parallel_csr_dense_mult.inspect_llvm().values())[0])
+
+# %%
+if 0:
+  numba_csr_dense_mult.inspect_types()  # Wow, very informative.
+  # Shows ops on Array(float32, 2, 'C', False, aligned=True), i.e. array(float32, 1d, C).
+
+# %%
+if 0:
+  print(numba_csr_dense_mult.inspect_disasm_cfg())  # Missing module r2pipe.
+
+
+# %%
+def experiment_measure_executor_overhead(task=lambda _: None):
+  for num_threads in [24, 12, 6, 1]:
+
+    def run_executor():
+      with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        executor.map(task, hh.divide_slice(slice(0, 8096), num_threads))
+
+    with hh.timing(f'# {num_threads=:2}', enabled=False):  # (As expected, shows no parallelism.)
+      elapsed_time = hh.get_time(run_executor)
+    print(f'# {num_threads=:2}  {elapsed_time * 1000:4.2f} ms')
+
+
+if 0:
+  experiment_measure_executor_overhead()
+  # num_threads=24  1.11 ms
+  # num_threads=12  0.61 ms
+  # num_threads= 6  0.41 ms
+  # num_threads= 1  0.10 ms
+  experiment_measure_executor_overhead(task=lambda _: np.dot(np.ones((1, 1)), np.ones((1, 1))))
+  # num_threads=24  1.39 ms
+  # num_threads=12  0.81 ms
+  # num_threads= 6  0.51 ms
+  # num_threads= 1  0.12 ms
+
+# %%
+# https://stackoverflow.com/questions/39611045  # multiprocessing.Array(..., lock=False); multiprocessing.Pool(initargs=...); np.frombuffer().
+# https://stackoverflow.com/questions/7894791  # np.frombuffer(mp.Array.get_obj()) get_obj() no longer needed?  multiprocessing.shared_memory.SharedMemory() np.frombuffer(shared_mem.buf, ...)
+# https://stackoverflow.com/questions/17785275/  # not that useful
+
+
+# %%
 def test_gamma_conversion_from_and_to_uint8_timings() -> None:
   dtypes = 'float32 float64'.split()
   for config in itertools.product(dtypes, resampler.GAMMAS, resampler.ARRAYLIBS):
@@ -2533,7 +2807,6 @@ if EFFORT >= 2:
   test_profile_upsampling((1024, 1024, 3), (2048, 2048), filter='cubic')
   test_profile_upsampling((1024, 1024, 3), (2048, 2048), filter='triangle')
   # test_profile_upsampling((100, 200, 3), (200, 400))
-
 
 # %% [markdown]
 # Conclusions:
@@ -2871,7 +3144,7 @@ if EFFORT >= 1:
 
 
 # %%
-def experiment_shear_image(degrees=30, show_compare=False, **kwargs):
+def experiment_shear_image(degrees=30, show_compare=False, **kwargs) -> None:
   original = media.to_float01(EXAMPLE_PHOTO[40:, -440:])
   image = resampler.resize(original, np.array(original.shape[:2]) // 2, filter='lanczos10')
   matrix = resampler.rotation_about_center_in_2d(image.shape[:2], math.radians(degrees))
@@ -3138,7 +3411,7 @@ if EFFORT >= 1:
 
 
 # %%
-def test_jax0() -> None:  # ??
+def test_jax0() -> None:
   array = jnp.ones((2, 2), 'float32')
   print(array.device_buffer.device())
   print(array, type(array), repr(array))
@@ -3162,18 +3435,19 @@ if 0:
 # %%
 def test_jax1(filter='cubic') -> None:
   array = jnp.ones((4_000,) * 2)
-  hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_repeat=1)
-  hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_repeat=1)
-  hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_repeat=1)
-  hh.print_time(lambda: resampler.jaxjit_resize(array, (3, 3), filter=filter), max_repeat=1)
-  hh.print_time(lambda: resampler.jaxjit_resize(array, (3, 3), filter=filter), max_repeat=1)
-  hh.print_time(lambda: resampler.jaxjit_resize(array, (3, 3), filter=filter), max_repeat=1)
+  hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_time=0)
+  hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_time=0)
+  hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_time=0)
+  if not resampler._get_filter(filter).requires_digital_filter:
+    # Else: TracerArrayConversionError in np.asarray() in jax_inverse_convolution().
+    hh.print_time(lambda: resampler.jaxjit_resize(array, (3, 3), filter=filter), max_time=0)
+    hh.print_time(lambda: resampler.jaxjit_resize(array, (3, 3), filter=filter), max_time=0)
+    hh.print_time(lambda: resampler.jaxjit_resize(array, (3, 3), filter=filter), max_time=0)
 
 
 if EFFORT >= 1:
   test_jax1()
-if 0:  # What is the error now, given that to_py() is removed??
-  test_jax1(filter='cardinal3')  # Not traceable; 'ShapedArray' object has no attribute 'to_py'.
+  test_jax1(filter='cardinal3')
 
 
 # %%
@@ -3214,7 +3488,7 @@ if 0:
 
 
 # %%
-# # ??
+# # ?
 
 # func_value_and_grad = jax.value_and_grad(fun[, argnums, has_aux, ...])
 
