@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.7.4'
+__version__ = '0.8.0'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -15,6 +15,9 @@ import dataclasses
 import functools
 import itertools
 import math
+import multiprocessing
+import sys
+import types
 import typing
 from typing import Any, Generic, Literal, Union
 
@@ -26,13 +29,21 @@ import scipy.ndimage
 import scipy.sparse
 import scipy.sparse.linalg
 
+
+def _noop_decorator(*args: Any, **kwargs: Any) -> Any:
+  """Return function decorated with no-operation; invokable with or without args."""
+  if len(args) != 1 or not callable(args[0]) or kwargs:
+    return _noop_decorator  # Decorator is invoked with arguments; ignore them.
+  func: Callable[..., Any] = args[0]
+  return func
+
+
 try:
   import numba
 except ModuleNotFoundError:
-  pass
-except ImportError as e:
-  if 0:
-    print(f'(Could not import numba: {e})', flush=True)  # e.g. "Numba needs NumPy 1.22 or less".
+  numba = sys.modules['numba'] = types.ModuleType('numba')
+  numba.njit = _noop_decorator
+using_numba = hasattr(numba, 'jit')
 
 if typing.TYPE_CHECKING:
   import jax.numpy
@@ -91,8 +102,8 @@ def _get_precision(
   check_complex = [precision2, *dtypes]
   is_complex = [np.issubdtype(dtype, np.complexfloating) for dtype in check_complex]
   if len(set(is_complex)) != 1:
-    types = ','.join(str(dtype) for dtype in check_complex)
-    raise ValueError(f'Types {types} must be all real or all complex.')
+    s_types = ','.join(str(dtype) for dtype in check_complex)
+    raise ValueError(f'Types {s_types} must be all real or all complex.')
   return precision2
 
 
@@ -165,7 +176,7 @@ class _DownsampleIn2dUsingBoxFilter:
     self._jitted_function: dict[tuple[_DType, int, int, int], Callable[[_NDArray], _NDArray]] = {}
 
   def __call__(self, array: _NDArray, shape: tuple[int, int]) -> _NDArray:
-    assert 'numba' in globals()
+    assert using_numba
     assert array.ndim in (2, 3), array.ndim
     _check_eq(len(shape), 2)
     dtype = array.dtype
@@ -182,7 +193,7 @@ class _DownsampleIn2dUsingBoxFilter:
       result = np.empty((new_height, new_width, ch), dtype)
       totals = np.empty(ch, dtype)
       factor = dtype.type(1.0 / (block_height * block_width))
-      for y in range(new_height):
+      for y in numba.prange(new_height):  # pylint: disable=not-an-iterable
         for x in range(new_width):
           # Introducing "y2, x2 = y * block_height, x * block_width" is actually slower.
           if ch == 1:  # All the branches involve compile-time constants.
@@ -224,12 +235,65 @@ class _DownsampleIn2dUsingBoxFilter:
     if not jitted_function:
       if 0:
         print(f'Creating numba jit-wrapper for {signature}.')
-      jitted_function = self._jitted_function[signature] = numba.njit(func)
+      jitted_function = numba.njit(func, parallel=True, fastmath=True, cache=True)
+      self._jitted_function[signature] = jitted_function
     result = jitted_function(a)
     return result[..., 0] if array.ndim == 2 else result
 
 
 _downsample_in_2d_using_box_filter = _DownsampleIn2dUsingBoxFilter()
+
+
+@numba.njit(nogil=True, fastmath=True, cache=True)  # type: ignore[misc]
+def _numba_serial_csr_dense_mult(
+    indptr: _NDArray,
+    indices: _NDArray,
+    data: _NDArray,
+    src: _NDArray,
+    dst: _NDArray,
+) -> None:
+  """Faster version of scipy.sparse._sparsetools.csr_matvecs().
+
+  The single-threaded numba-jitted code is about 2x faster than the scipy C++.
+  """
+  assert indptr.ndim == indices.ndim == data.ndim == 1 and src.ndim == dst.ndim == 2
+  assert len(indptr) == dst.shape[0] + 1 and src.shape[1] == dst.shape[1]
+  acc = data[0] * src[0]  # Dummy initialization value, to infer correct shape and dtype.
+  for i in range(dst.shape[0]):
+    acc[:] = 0
+    for jj in range(indptr[i], indptr[i + 1]):
+      j = indices[jj]
+      acc += data[jj] * src[j]
+    dst[i] = acc
+
+
+# I tried using the "minimal" "parallel=" config but this did not result in any jit speedup:
+#  parallel=dict(comprehension=False, prange=True, numpy=True, reduction=False,
+#                setitem=False, stencil=False, fusion=False)
+@numba.njit(parallel=True, fastmath=True, cache=True)  # type: ignore[misc]
+def _numba_parallel_csr_dense_mult(
+    indptr: _NDArray,
+    indices: _NDArray,
+    data: _NDArray,
+    src: _NDArray,
+    dst: _NDArray,
+) -> None:
+  """Faster version of scipy.sparse._sparsetools.csr_matvecs().
+
+  The single-threaded numba-jitted code is about 2x faster than the scipy C++.
+  The introduction of parallel omp threads provides another 2-4x speedup.
+  However, "parallel=True" leads to slow jitting (~3 s), so we cache the jitted code on disk.
+  """
+  assert indptr.ndim == indices.ndim == data.ndim == 1 and src.ndim == dst.ndim == 2
+  assert len(indptr) == dst.shape[0] + 1 and src.shape[1] == dst.shape[1]
+  acc0 = data[0] * src[0]  # Dummy initialization value, to infer correct shape and dtype.
+  # Default is static scheduling, which is fine.
+  for i in numba.prange(dst.shape[0]):  # pylint: disable=not-an-iterable
+    acc = np.zeros_like(acc0)  # Numba automatically hoists the allocation outside the loop.
+    for jj in range(indptr[i], indptr[i + 1]):
+      j = indices[jj]
+      acc += data[jj] * src[j]
+    dst[i] = acc
 
 
 @dataclasses.dataclass
@@ -370,7 +434,23 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
     return sorted(range(len(src_shape)), key=priority)
 
   def premult_with_sparse(self, sparse: scipy.sparse.csr_matrix) -> _NDArray:
-    # Calls _spbase.__matmul__() -> _spbase._mul_dispatch() -> _cs_matrix._mul_multivector() ->
+    assert self.array.ndim == sparse.ndim == 2 and sparse.shape[1] == self.array.shape[0]
+    if using_numba:
+      src = np.ascontiguousarray(self.array)  # Like .ravel() in _mul_multivector().
+      dtype = np.result_type(sparse.dtype, src.dtype)
+      dst = np.empty((sparse.shape[0], src.shape[1]), dtype)
+      num_scalar_multiplies = len(sparse.data) * src.shape[1]
+      is_small_size = num_scalar_multiplies < 200_000
+      if is_small_size:
+        _numba_serial_csr_dense_mult(sparse.indptr, sparse.indices, sparse.data, src, dst)
+      else:
+        # Faster than default numba.config.NUMBA_NUM_THREADS (e.g., 24).
+        numba.set_num_threads(min(6, multiprocessing.cpu_count()))
+        _numba_parallel_csr_dense_mult(sparse.indptr, sparse.indices, sparse.data, src, dst)
+      return dst
+
+    # Note that sicpy.sparse does not use multithreading.  The "@" operation
+    # calls _spbase.__matmul__() -> _spbase._mul_dispatch() -> _cs_matrix._mul_multivector() ->
     # scipy.sparse._sparsetools.csr_matvecs() in
     # https://github.com/scipy/scipy/blob/main/scipy/sparse/sparsetools/csr.h
     # which iteratively calls the (in theory, LEVEL 1 BLAS) function axpy() in
@@ -2637,7 +2717,7 @@ def resize(
   array = src_gamma2.decode(array, precision)
 
   can_use_fast_box_downsampling = (
-      'numba' in globals()
+      using_numba
       and arraylib == 'numpy'
       and len(shape2) == 2
       and array_ndim in (2, 3)
@@ -3432,7 +3512,11 @@ def cv_resize(array: _ArrayLike, /, shape: Iterable[int], *, filter: str) -> _ND
       'sharpcubic': cv.INTER_CUBIC,
       'lanczos4': cv.INTER_LANCZOS4,
   }[filter]
-  return cv.resize(array, shape[::-1], interpolation=interpolation)
+  result = cv.resize(array, shape[::-1], interpolation=interpolation)
+  if array.ndim == 3 and result.ndim == 2:
+    assert array.shape[2] == 1
+    return result[..., None]  # Add back the last dimension dropped by cv.resize().
+  return result
 
 
 def scipy_ndimage_resize(
