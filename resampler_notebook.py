@@ -392,10 +392,9 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 warnings.filterwarnings('ignore', message='IProgress not found')  # category=tqdm.TqdmWarning
 
 # %%
-if 1:  # Silence "No GPU/TPU found, falling back to CPU."
-  # See https://github.com/google/jax/issues/6805.
-  os.environ['JAX_PLATFORM_NAME'] = 'cpu'
-  os.environ['JAX_PLATFORMS'] = 'cpu'
+# Silence "...but a CUDA-enabled jaxlib is not installed. Falling back to cpu."
+# See https://github.com/google/jax/issues/6805.
+jax.config.update('jax_platforms', 'cpu')
 
 # %%
 # Silence "RuntimeWarning: More than 20 figures have been opened." when run as script.
@@ -418,16 +417,6 @@ def _check_eq(a: Any, b: Any) -> None:
   if not are_equal:
     raise AssertionError(f'{a!r} == {b!r}')
 
-
-# %%
-def experiment_preload_arraylibs_for_accurate_timings() -> None:
-  """Perform library imports now so that later timings do not include this."""
-  for arraylib in resampler.ARRAYLIBS:
-    resampler._make_array(np.ones(1), arraylib)
-
-
-if EFFORT >= 1:
-  experiment_preload_arraylibs_for_accurate_timings()
 
 # %%
 _URL_BASE = 'https://github.com/hhoppe/data/raw/main'
@@ -632,6 +621,16 @@ def create_checkerboard(
 
 
 # %%
+def experiment_preload_arraylibs_for_accurate_timings() -> None:
+  """Perform library imports now so that later timings do not include this."""
+  for arraylib in resampler.ARRAYLIBS:
+    resampler._make_array(np.ones(1), arraylib)
+
+
+if EFFORT >= 1:
+  experiment_preload_arraylibs_for_accurate_timings()
+
+# %%
 # TODO:
 # - Plot frequency responses of filters.
 #   (Magnitude (dB) vs Normalized frequency (\pi radians/sample) [0, 1]).
@@ -642,8 +641,7 @@ def create_checkerboard(
 # - Optimize the case of an affine map:
 #   convolve the source grid with a prefilter using FFT (if any dim is downsampling),
 #   then proceed as before.  Slow!
-# - Let resample handle minification;
-#   create anisotropic footprint of destination within source domain.
+# - For an affine map, create an anisotropic footprint of destination within the source domain.
 #   Use jacobian and prefilter in resample().
 # - Is lightness-space upsampling justified using experiments on natural images?
 #   (is linear-space downsampling justified using such experiments? it should be obvious.)
@@ -2246,7 +2244,7 @@ if EFFORT >= 1:
 def experiment_parallelism() -> None:
   """Determine how much multithreaded parallelism each array library uses."""
   shape = (1024, 1024, 3)
-  size = 8_192
+  size = 4096
   new_shape = (size, size, 3)
   array = np.ones(shape, np.uint8)
   for arraylib in resampler.ARRAYLIBS:
@@ -2256,21 +2254,12 @@ def experiment_parallelism() -> None:
 
 
 experiment_parallelism()
-# arraylib=numpy     : 1.190824
-# arraylib=tensorflow: 0.980665  17.12x
-# arraylib=torch     : 0.827926   9.45x
-# arraylib=jax       : 1.638556   3.57x
+# arraylib=numpy     : 0.277488   1.78x
+# arraylib=tensorflow: 0.326846  15.86x
+# arraylib=torch     : 0.259070  10.02x
+# arraylib=jax       : 0.688079   2.86x
 
 # %%
-# We see that numpy/scipy does not provide multithreading speedup for resize().
-# The reason is that the bottleneck is the multiplication of a scipy.sparse.csr_matrix with a dense
-# numpy matrix, and this operation is not multithreaded:
-# See the 2 nested "for" loops in scipy.sparse._sparsetools.csr_matvecs() in
-# https://github.com/scipy/scipy/blob/main/scipy/sparse/sparsetools/csr.h
-# which iteratively calls the LEVEL 1 BLAS function axpy().
-# It is called from _cs_matrix._mul_multivector(), called from _spbase._mul_dispatch(),
-# called from _spbase.__matmul__().
-
 # https://stackoverflow.com/questions/16814273/how-to-parallelise-scipy-sparse-matrix-multiplication
 # suggests using Cython and demonstrates it for a csc_matrix times a dense numpy matrix in Fortran order.
 # See the compact implementation in https://gist.github.com/rmcgibbo/6019670 which uses an OpenMP
@@ -2284,42 +2273,12 @@ experiment_parallelism()
 # pyRSB described in [this paper](https://web.archive.org/web/20210713202752id_/http://conference.scipy.org/proceedings/scipy2021/pdfs/martone_bacchio_pyrsb.pdf)
 # is designed for large sparse csr matrices and is built on [librsb](https://librsb.sourceforge.net/).
 
-# Idea: use threads because numpy and scipy native code releases the global interpreter lock (GIL).
+# One idea is to use scipy.sparse._sparsetools.csr_matvecs() but call it over slices of rows
+# using a thread pool.  (Fortunately, both numpy and scipy native code release the GIL.)
 # See https://stackoverflow.com/a/35456820
-
-
-# %%
-@numba.njit(nogil=True, fastmath=True)  # type: ignore[misc]
-def numba_csr_dense_mult(indptr, indices, data, src, dst) -> None:
-  """Faster version of scipy.sparse._sparsetools.csr_matvecs(), which can be run per thread."""
-  assert indptr.ndim == indices.ndim == data.ndim == 1 and src.ndim == dst.ndim == 2
-  assert len(indptr) == dst.shape[0] + 1 and src.shape[1] == dst.shape[1]
-  acc = data[0] * src[0]  # Dummy initialization value, to infer correct shape and dtype.
-  for i in range(dst.shape[0]):
-    acc[:] = 0
-    for jj in range(indptr[i], indptr[i + 1]):
-      j = indices[jj]
-      acc += data[jj] * src[j]
-    dst[i] = acc
-
-
-# %%
-# I tried using the "minimal" "parallel=" config but this did not result in any jit speedup:
-#  parallel=dict(comprehension=False, prange=True, numpy=True, reduction=False, setitem=False, stencil=False, fusion=False)
-@numba.njit(parallel=True, fastmath=True)  # type: ignore[misc]
-def numba_parallel_csr_dense_mult(indptr, indices, data, src, dst) -> None:
-  """Faster version of scipy.sparse._sparsetools.csr_matvecs(), which uses omp threads."""
-  # See also https://stackoverflow.com/questions/46924092
-  assert indptr.ndim == indices.ndim == data.ndim == 1 and src.ndim == dst.ndim == 2
-  assert len(indptr) == dst.shape[0] + 1 and src.shape[1] == dst.shape[1]
-  acc0 = data[0] * src[0]  # Dummy initialization value, to infer correct shape and dtype.
-  # Default is static scheduling, which is fine.
-  for i in numba.prange(dst.shape[0]):  # pylint: disable=not-an-iterable
-    acc = np.zeros_like(acc0)  # Numba automatically hoists the allocation outside the loop.
-    for jj in range(indptr[i], indptr[i + 1]):
-      j = indices[jj]
-      acc += data[jj] * src[j]
-    dst[i] = acc
+# Another idea is to replace csr_matvecs() by numba-jitted code -- it is in fact faster.
+# And morever, to use njit(parallel=True) and numba.prange for multithreading -- its
+# multithreading overhead is tiny in comparison to using concurrent.futures.ThreadPoolExecutor.
 
 
 # %%
@@ -2327,38 +2286,19 @@ def test_jit_timing() -> None:
   indptr, indices, data = np.array([0, 1, 2]), np.array([0, 1]), np.array([1, 1], np.float32)
   src, dst = np.ones((2, 2), np.float32), np.ones((2, 2), np.float32)
   with hh.timing('numba_csr_dense_mult'):
-    numba_csr_dense_mult(indptr, indices, data, src, dst)
+    resampler._numba_serial_csr_dense_mult(indptr, indices, data, src, dst)
   with hh.timing('numba_parallel_csr_dense_mult'):
-    numba_parallel_csr_dense_mult(indptr, indices, data, src, dst)
+    resampler._numba_parallel_csr_dense_mult(indptr, indices, data, src, dst)
 
 
+# We can re-save the file ./resampler/__init__.py to force rejitting.
+# Cached signatures in ./resampler/__pycache__/__init__._numba_serial_csr_dense_mult-*.py310.nbi
 test_jit_timing()  # 0.3 s; ~3.0 s!
 
 
 # %%
-@numba.njit(parallel=True, fastmath=True)  # type: ignore[misc]
-def unhelpful_numba_parallel_csr_dense_mult(indptr, indices, data, src, dst) -> None:
-  """Version that assigns threads to vertical swaths of src and dst for cache coherence."""
-  assert indptr.ndim == indices.ndim == data.ndim == 1 and src.ndim == dst.ndim == 2
-  assert len(indptr) == dst.shape[0] + 1 and src.shape[1] == dst.shape[1]
-  width = src.shape[1]
-  swath_width = math.ceil(width / numba.get_num_threads())
-  num_swaths = math.ceil(width / swath_width)
-  # with numba.parallel_chunksize(1):  # Unsupported with default numba.threading_layer() == 'omp'.
-  for swath_index in numba.prange(num_swaths):  # pylint: disable=not-an-iterable
-    src_swath = src[:, swath_index * swath_width : min(width, (swath_index + 1) * swath_width)]
-    dst_swath = dst[:, swath_index * swath_width : min(width, (swath_index + 1) * swath_width)]
-    acc = data[0] * src_swath[0]  # Dummy initialization value, to infer correct shape and dtype.
-    for i0 in range(dst.shape[0]):
-      i = (i0 + swath_index * 17) % dst.shape[0]  # Try staggering writes to reduce false sharing.
-      acc[:] = 0
-      for jj in range(indptr[i], indptr[i + 1]):
-        j = indices[jj]
-        acc += data[jj] * src_swath[j]
-      dst_swath[i] = acc
-
-
-# %%
+# This analysis is only for 1D resize; it fails to account for the fact that for 2D resize,
+# np.ascontiguous() becomes necessary for good performance, and can become the bottleneck.
 def test_multithreading(tiny_test=False, verbose=False) -> None:
   matvecs = getattr(scipy.sparse._sparsetools, 'csr_matvecs')
   src_size, dst_size, width = 1024, 8096, 4096 * 3
@@ -2391,13 +2331,13 @@ def test_multithreading(tiny_test=False, verbose=False) -> None:
       return dst
     if 1:  # About 2x faster than the C++ code in scipy matvecs().
       dst = np.empty((m, n_vecs), np.float32)
-      numba_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
+      resampler._numba_serial_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
       return dst
     raise AssertionError
 
   single_threaded_resize()  # Pre-jit.
   with hh.timing('# Single-threaded', enabled=verbose):
-    time1, dst1 = hh.get_time_and_result(single_threaded_resize)
+    time1, dst1 = hh.get_time_and_result(single_threaded_resize, max_time=0.2)
 
   def multi_threaded_resize() -> _NDArray:
     dst2 = np.empty((dst_size, width), np.float32)
@@ -2417,7 +2357,7 @@ def test_multithreading(tiny_test=False, verbose=False) -> None:
         dst[:] = 0  # Because matvecs() does "+=".
         matvecs(m, n, n_vecs, csr.indptr, csr.indices, csr.data, src.ravel(), dst.ravel())
       else:  # Another 1.6x speedup.
-        numba_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
+        resampler._numba_serial_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
 
     num_threads = 6  # 4 is already good.  Default is too large.
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
@@ -2426,18 +2366,18 @@ def test_multithreading(tiny_test=False, verbose=False) -> None:
     return dst2
 
   with hh.timing('# Multi-threaded ', enabled=verbose):
-    time2, dst2 = hh.get_time_and_result(multi_threaded_resize)
+    time2, dst2 = hh.get_time_and_result(multi_threaded_resize, max_time=0.2)
 
   def numba_threaded_resize() -> _NDArray:  # ~1.05x faster than ThreadPoolExecutor
     csr = resize_matrix
     dst = np.empty((dst_size, width), np.float32)
     numba.set_num_threads(6)  # Faster than default numba.config.NUMBA_NUM_THREADS (24).
-    numba_parallel_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
+    resampler._numba_parallel_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
     return dst
 
   numba_threaded_resize()  # Pre-jit.
   with hh.timing('# Numba-threaded ', enabled=verbose):
-    time3, dst3 = hh.get_time_and_result(numba_threaded_resize)
+    time3, dst3 = hh.get_time_and_result(numba_threaded_resize, max_time=0.2)
 
   print(f'# single:{time1*1000:7.3f} ms  executor:{time2*1000:7.3f} ms  numba:{time3*1000:7.3f} ms')
   assert dst1.shape == dst2.shape == (dst_size, width)
@@ -2472,21 +2412,22 @@ if 0:
 
 # %%
 if 0:
-  numba_parallel_csr_dense_mult.parallel_diagnostics(level=4)  # Shows hoisting of np.empty().
+  # Shows hoisting of np.empty().
+  resampler._numba_parallel_csr_dense_mult.parallel_diagnostics(level=4)
 
 # %%
 if 0:
   # Crazy long; lots of SIMD instructions it seems.
-  print(list(numba_parallel_csr_dense_mult.inspect_llvm().values())[0])
+  print(list(resampler._numba_parallel_csr_dense_mult.inspect_llvm().values())[0])
 
 # %%
 if 0:
-  numba_csr_dense_mult.inspect_types()  # Wow, very informative.
+  resampler._numba_serial_csr_dense_mult.inspect_types()  # Wow, very informative.
   # Shows ops on Array(float32, 2, 'C', False, aligned=True), i.e. array(float32, 1d, C).
 
 # %%
 if 0:
-  print(numba_csr_dense_mult.inspect_disasm_cfg())  # Missing module r2pipe.
+  print(resampler._numba_serial_csr_dense_mult.inspect_disasm_cfg())  # Missing module r2pipe.
 
 
 # %%
@@ -2540,7 +2481,8 @@ if EFFORT >= 2:
 
 # %%
 def test_best_dimension_ordering_for_resize_timing(dtype=np.float32) -> None:
-  for config in itertools.product(resampler.ARRAYLIBS, [True, False]):
+  arraylibs = resampler.ARRAYLIBS  # Or ['numpy'].
+  for config in itertools.product(arraylibs, [True, False]):
     arraylib, c_contiguous = config
 
     def run(src_shape, dst_shape) -> None:
@@ -2621,21 +2563,21 @@ def experiment_with_resize_timing() -> None:
 
 if EFFORT >= 2:
   experiment_with_resize_timing()
-# uint8   (1024,1024,1)->(4096,4096) np:0.071 tf:0.079 to:0.084 jax:0.175 jj:0.178 tfi:0.152 s
-# float32 (1024,1024,1)->(4096,4096) np:0.071 tf:0.035 to:0.061 jax:0.151 jj:0.190 tfi:0.142 s
-# float64 (1024,1024,1)->(4096,4096) np:0.114 tf:0.054 to:0.077 jax:0.275 jj:0.233 tfi:0.149 s
+# uint8   (1024,1024,1)->(4096,4096) np:0.065 tf:0.091 to:0.081 jax:0.139 jj:0.196 tfi:0.204 s
+# float32 (1024,1024,1)->(4096,4096) np:0.030 tf:0.029 to:0.041 jax:0.106 jj:0.202 tfi:0.199 s
+# float64 (1024,1024,1)->(4096,4096) np:0.042 tf:0.053 to:0.078 jax:0.211 jj:0.266 tfi:0.205 s
 
-# uint8   (1024,1024,3)->(4096,4096) np:0.280 tf:0.205 to:0.244 jax:0.515 jj:0.286 tfi:0.241 s
-# float32 (1024,1024,3)->(4096,4096) np:0.170 tf:0.080 to:0.163 jax:0.431 jj:0.284 tfi:0.227 s
-# float64 (1024,1024,3)->(4096,4096) np:0.367 tf:0.152 to:0.220 jax:0.861 jj:0.450 tfi:0.242 s
+# uint8   (1024,1024,3)->(4096,4096) np:0.172 tf:0.284 to:0.250 jax:0.630 jj:0.362 tfi:0.281 s
+# float32 (1024,1024,3)->(4096,4096) np:0.065 tf:0.087 to:0.124 jax:0.325 jj:0.289 tfi:0.273 s
+# float64 (1024,1024,3)->(4096,4096) np:0.113 tf:0.166 to:0.214 jax:0.701 jj:0.521 tfi:0.282 s
 
-# uint8   (1000,2000,3)->(100,200)   np:0.009 tf:0.011 to:0.020 jax:0.055 jj:0.022 tfi:0.020 s
-# float32 (1000,2000,3)->(100,200)   np:0.007 tf:0.007 to:0.015 jax:0.047 jj:0.024 tfi:0.012 s
-# float64 (1000,2000,3)->(100,200)   np:0.013 tf:0.012 to:0.016 jax:0.087 jj:0.043 tfi:0.039 s
+# uint8   (1000,2000,3)->(100,200)   np:0.006 tf:0.010 to:0.013 jax:0.047 jj:0.029 tfi:0.006 s
+# float32 (1000,2000,3)->(100,200)   np:0.005 tf:0.007 to:0.009 jax:0.035 jj:0.033 tfi:0.006 s
+# float64 (1000,2000,3)->(100,200)   np:0.007 tf:0.010 to:0.011 jax:0.082 jj:0.056 tfi:0.009 s
 
-# uint8   (8192,8192,3)->(2048,2048) np:0.673 tf:0.434 to:0.705 jax:1.879 jj:0.910 tfi:0.808 s
-# float32 (8192,8192,3)->(2048,2048) np:0.459 tf:0.224 to:0.549 jax:1.821 jj:1.075 tfi:0.556 s
-# float64 (8192,8192,3)->(2048,2048) np:0.832 tf:0.448 to:0.711 jax:3.755 jj:1.783 tfi:0.790 s
+# uint8   (8192,8192,3)->(2048,2048) np:0.361 tf:0.586 to:0.512 jax:1.782 jj:1.225 tfi:0.346 s
+# float32 (8192,8192,3)->(2048,2048) np:0.238 tf:0.220 to:0.286 jax:1.390 jj:1.202 tfi:0.359 s
+# float64 (8192,8192,3)->(2048,2048) np:0.434 tf:0.438 to:0.545 jax:3.109 jj:2.497 tfi:0.457 s
 
 
 # %%
@@ -2644,7 +2586,7 @@ def test_compare_timing_of_resize_and_media_show_image() -> None:
   time_resize = hh.get_time(lambda: resampler.resize(array, (256, 256)))
   time_pil = hh.get_time(lambda: media.show_image(array, height=256))
   print(f'Timing: resize:{time_resize:.1f} media_pil:{time_pil:.1f} s')
-  # Timing: resize:0.8 media_pil:4.0 s
+  # Timing: resize:0.1 media_pil:1.5 s
   assert 0.05 < time_resize / time_pil < 0.5
 
 
@@ -2737,13 +2679,17 @@ def test_profile_downsampling(
         'reduceat': reduceat,
     }
 
-  print(f'** {shape} -> {new_shape} {filter} {dtype}:')
+  print(f'# ** {shape} -> {new_shape} {filter} {dtype}:')
   expected = resampler.resize_in_numpy(array, new_shape, filter=filter)
   for name, function in functions.items():
     function()  # Pre-compile/jit the code.
-    elapsed, result = hh.get_time_and_result(function, max_time=0.2)
+    if 1:  # Min time over several iterations is more reliable.
+      elapsed, result = hh.get_time_and_result(function, max_time=0.2)
+      print(f'# {name:20}: {elapsed:5.3f} s')
+    else:
+      with hh.timing(f'# {name:20}'):
+        result = function()
     result = resampler._arr_numpy(result)
-    print(f'{name:20}: {elapsed:5.3f} s')
     _check_eq(result.dtype, dtype)
     _check_eq(result.shape, (*new_shape, ch))
     assert np.allclose(result, expected)
@@ -2765,11 +2711,36 @@ if EFFORT >= 2:
   test_profile_downsampling((8192, 8192, 1), (2048, 2048))
 
 
+# %%
+# ** (2000, 4000, 3) -> (100, 200) trapezoid float32:
+# resize_in_numpy     : 0.007 s
+# resize_in_tensorflow: 0.063 s
+# resize_in_torch     : 0.008 s
+# resize_in_jax       : 0.059 s
+# jaxjit_resize       : 0.021 s
+# tf_image_resize     : 0.064 s
+# reshape_mean        : 0.108 s
+# reshape2            : 0.107 s
+# reshape3            : 0.117 s
+# einsum              : 0.045 s
+# two_dots            : 0.045 s
+# reshape4            : 0.036 s
+# reshape5            : 0.028 s
+# reduceat            : 0.015 s
+# ** (2000, 4000, 3) -> (100, 200) lanczos3 float32:
+# resize_in_numpy     : 0.016 s
+# resize_in_tensorflow: 0.074 s
+# resize_in_torch     : 0.021 s
+# resize_in_jax       : 0.142 s
+# jaxjit_resize       : 0.122 s
+# tf_image_resize     : 0.070 s
+
 # %% [markdown]
 # Conclusions:
-# - For `'box'`/`'trapezoid'` downsampling, the numba-jitted special path used in `resampler.resize_in_numpy` is
-#   the fastest --- even faster than the C++ code in `tf.image.resize`.
-# - For `'lanczos3'` downsampling, `resampler.resize_in_numpy` is slightly faster than `tf.image.resize`.
+# - For `'box'`/`'trapezoid'` downsampling, the numba-jitted _DownsampleIn2dUsingBoxFilter path used
+#   in `resampler.resize_in_numpy` is the fastest --- even faster than the C++ code in
+#   `tf.image.resize`.
+# - For `'lanczos3'` downsampling, `resampler.resize_in_numpy` is the fastest, thanks to _numba_parallel_csr_dense_mult().
 
 
 # %%
@@ -2779,6 +2750,8 @@ def test_profile_upsampling(
   _check_eq(len(shape), 3)
   array = np.ones(shape, dtype)
   a = array, new_shape
+  cv_filter = {'lanczos3': 'lanczos4', 'cubic': 'sharpcubic'}.get(filter, filter)
+  torch_filter = {'cubic': 'sharpcubic'}.get(filter, filter)
   functions: dict[str, Callable[[], _AnyArray]] = {
       'resize_in_numpy': lambda: resampler.resize_in_numpy(*a, filter=filter),
       'resize_in_tensorflow': lambda: resampler.resize_in_tensorflow(*a, filter=filter),
@@ -2786,13 +2759,18 @@ def test_profile_upsampling(
       'resize_in_jax': lambda: resampler.resize_in_jax(*a, filter=filter),
       'jaxjit_resize': lambda: resampler.jaxjit_resize(*a, filter=filter),
       'tf_image_resize': lambda: resampler.tf_image_resize(*a, filter=filter, antialias=False),
+      'cv_resize': lambda: resampler.cv_resize(*a, filter=cv_filter),
   }
-  print(f'** {shape} -> {new_shape} {filter} {dtype}:')
+  if filter in ['cubic', 'triangle', 'trapezoid']:
+    functions['torch.nn.interp'] = lambda: resampler.torch_nn_resize(
+        *a, filter=torch_filter, antialias=False
+    )
+  print(f'# ** {shape} -> {new_shape} {filter} {dtype}:')
   expected = resampler.resize_in_numpy(array, new_shape, filter=filter)
   for name, function in functions.items():
     function()  # Pre-compile/jit.
-    elapsed, result = hh.get_time_and_result(function, max_time=0.2)
-    print(f'{name:20}: {elapsed:5.3f} s')
+    elapsed, result = hh.get_time_and_result(function, max_time=0.5)
+    print(f'# {name:20}: {elapsed:5.3f} s')
     result = resampler._arr_numpy(result)
     assert np.allclose(result, expected)
     _check_eq(result.dtype, dtype)
@@ -2800,19 +2778,46 @@ def test_profile_upsampling(
       hh.prun(function, top=2)
 
 
+# %%
 if EFFORT >= 1:
   test_profile_upsampling((1024, 1024, 1), (2048, 2048), also_prun=True)
+
+# %%
+# ** (1024, 1024, 1) -> (2048, 2048) lanczos3 float32:
+# OLD resize_in_numpy     : 0.018 s
+# Prun: tottime    0.020 overall_cumtime
+#         0.011    0.011 numpy.ndarray.ravel
+#         0.005    0.005 scipy.sparse._sparsetools.csr_matvecs (built-in)
+
+# BEFORE np.ascontiguous()
+# ** (1024, 1024, 1) -> (2048, 2048) lanczos3 float32:
+# resize_in_numpy     : 0.132 s
+# Prun: tottime    0.133 overall_cumtime
+#         0.130    0.130 _numba_serial_csr_dense_mult (/mnt/c/Users/hhoppe/Dropbox/proj/resampler/resampler/__init__.py:246)
+#         0.000    0.003 _create_resize_matrix (/mnt/c/Users/hhoppe/Dropbox/proj/resampler/resampler/__init__.py:2248)
+
+# AFTER np.ascontiguous()
+# ** (1024, 1024, 1) -> (2048, 2048) lanczos3 float32:
+# resize_in_numpy     : 0.015 s
+# Prun: tottime    0.016 overall_cumtime
+#         0.010    0.010 numpy.ascontiguousarray (built-in)
+#         0.002    0.002 _numba_parallel_csr_dense_mult (/mnt/c/Users/hhoppe/Dropbox/proj/resampler/resampler/__init__.py:269)
+
+# %%
 if EFFORT >= 2:
   test_profile_upsampling((1024, 1024, 3), (2048, 2048))
   test_profile_upsampling((1024, 1024, 3), (2048, 2048), filter='cubic')
   test_profile_upsampling((1024, 1024, 3), (2048, 2048), filter='triangle')
+  test_profile_upsampling((1024, 1024, 3), (2048, 2048), filter='trapezoid', also_prun=True)
   # test_profile_upsampling((100, 200, 3), (200, 400))
+# For the simple filters (e.g., 'trapezoid'), the matrix reshape is the bottleneck and it would be
+# better to instead process directly in 2D, as in _DownsampleIn2dUsingBoxFilter for downsampling.
 
 # %% [markdown]
 # Conclusions:
 # - For `'lanczos3'` upsampling, `resampler.resize` is faster than `tf.image.resize`.
-# - For the hardcoded `'cubic'` and `'triangle'` implementations (invoked only when
-#   `antialias=False`), `tf.image.resize` is faster.
+# - Thanks to its hardcoded `'cubic'` and `'triangle'` implementations (invoked only when
+#   `antialias=False`), `tf.image.resize` is faster, but not by that much.
 
 # %% [markdown]
 # # Applications and experiments
@@ -2827,7 +2832,6 @@ def experiment_image_uniform_scaling() -> None:
   for image in source_images:
     images = {f'{image.shape[:2]}': image}
     for shape in [(250, 250), (250, 100), (100, 250), (100, 40), (30, 80)]:
-      # normal_resized = resampler.resize(image, shape)
       images[f'uniform {shape}'] = resampler.uniform_resize(image, shape, cval=0.8)
     media.show_images(images)
 
@@ -5617,7 +5621,9 @@ visualize_boundary_rules_in_2d()
 
 
 # %%
-def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200, 400)) -> None:
+def experiment_compare_upsampling_with_other_libraries(gridscale=2.0) -> None:
+  shape = 200, 400
+  shape = 400, 800
   # All filtering is done in lightness space (i.e. with gamma='identity').
   original = resampler.resize(
       media.to_float01(example_tissot_image()), shape, filter='trapezoid', dtype=np.float32
@@ -5665,7 +5671,7 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200
       'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(*a, filter='lanczos3'),
       'jax.image.resize triangle': lambda: resampler.jax_image_resize(*a, filter='triangle'),
       'cv.resize lanczos4': lambda: resampler.cv_resize(*a, filter='lanczos4'),
-      'cv.resize (sharp)cubic': lambda: resampler.cv_resize(*a, filter='sharpcubic'),
+      'cv.resize sharpcubic': lambda: resampler.cv_resize(*a, filter='sharpcubic'),
   }
   images = {}
   for name, func in funcs.items():
@@ -5690,17 +5696,20 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0, shape=(200
 
 if EFFORT >= 1:
   experiment_compare_upsampling_with_other_libraries()
+
+
+# %%
 if EFFORT >= 3:
   experiment_compare_upsampling_with_other_libraries(gridscale=1.9)
-
 
 # %% [markdown]
 # Conclusions for upsampling:
 # - The cardinal spline of `order=3` does as well as `'lanczos3'`.
 # - `tf.resize` using `'lanczos5'` and `boundary='natural'` is slightly worse
 #   than `resampler.resize` using `'lanczos5'` and `boundary='reflect'` near the boundary.
-# - `resampler.resize` is generally very fast, but is not as fast as OpenCV for cubic upsampling.
-# - However, `resampler.jaxjit_resize` is about the same speed as `cv.resize` for Lanczos upsampling!
+# - `jaxjit_resize` gives good speedups.
+# - `resampler.resize` is generally fast, but is not as fast as `torch.nn.interp` for cubic upsampling or
+#   as fast as OpenCV for cubic and Lanczos upsampling.
 
 # %% [markdown]
 # ## Downsampling comparison
@@ -5752,13 +5761,13 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
       'tf.resize trapezoid': lambda: resampler.tf_image_resize(*a, filter='trapezoid'),
       # 'torch.nn.interpolate cubic': lambda: resampler.torch_nn_resize(*a, filter='sharpcubic'),
       # 'torch.nn.interpolate triangle': lambda: resampler.torch_nn_resize(*a, filter='triangle'),
-      'torch.nn.interp trapezoid': lambda: resampler.torch_nn_resize(*a, filter='trapezoid'),
       'torch.nn.interp cubic AA': lambda: resampler.torch_nn_resize(
           *a, filter='sharpcubic', antialias=True
       ),
       'torch.nn.interp triangle AA': lambda: resampler.torch_nn_resize(
           *a, filter='triangle', antialias=True
       ),
+      'torch.nn.interp trapezoid': lambda: resampler.torch_nn_resize(*a, filter='trapezoid'),
       'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(*a, filter='lanczos3'),
       'jax.image.resize triangle': lambda: resampler.jax_image_resize(*a, filter='triangle'),
       'cv.resize lanczos4': lambda: resampler.cv_resize(*a, filter='lanczos4'),  # Aliased.
@@ -5766,8 +5775,7 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
   }
   images = {}
   for name, func in funcs.items():
-    if name == 'resize trapezoid' or 'jax' in name:
-      func()  # Pre-compile/jit the code.
+    func()  # Pre-compile/jit the code.
     elapsed, image = hh.get_time_and_result(func, max_time=0.05)
     image = resampler._arr_numpy(image)
     upsampled = resampler._original_resize(image, original.shape[:2], filter='lanczos5')
@@ -5785,6 +5793,8 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
 
 if EFFORT >= 1:
   experiment_compare_downsampling_with_other_libraries()
+
+# %%
 if EFFORT >= 3:
   experiment_compare_downsampling_with_other_libraries(gridscale=1 / 8)
   experiment_compare_downsampling_with_other_libraries(gridscale=0.1007)

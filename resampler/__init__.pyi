@@ -345,6 +345,9 @@ class _DownsampleIn2dUsingBoxFilter:
 
 _downsample_in_2d_using_box_filter: _DownsampleIn2dUsingBoxFilter
 
+def _numba_serial_csr_dense_mult(indptr: _NDArray, indices: _NDArray, data: _NDArray, src: _NDArray, dst: _NDArray,) -> None: ...
+def _numba_parallel_csr_dense_mult(indptr: _NDArray, indices: _NDArray, data: _NDArray, src: _NDArray, dst: _NDArray,) -> None: ...
+
 _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER: dict[str, str]
 _OFTUSED_BOUNDARIES: list[str]
 _DICT_GRIDTYPES: dict[str, Gridtype]
