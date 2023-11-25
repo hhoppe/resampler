@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.8.0'
+__version__ = '0.8.1'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -359,7 +359,7 @@ class _Arraylib(abc.ABC, Generic[_Array]):
     """Return the best order in which to process dims for resizing `self.array` to `dst_shape`."""
 
   @abc.abstractmethod
-  def premult_with_sparse(self, sparse: Any) -> _Array:
+  def premult_with_sparse(self, sparse: Any, num_threads: int | Literal['auto']) -> _Array:
     """Return the multiplication of the `sparse` matrix and `self.array`."""
 
   @staticmethod
@@ -433,19 +433,22 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
 
     return sorted(range(len(src_shape)), key=priority)
 
-  def premult_with_sparse(self, sparse: scipy.sparse.csr_matrix) -> _NDArray:
+  def premult_with_sparse(
+      self, sparse: scipy.sparse.csr_matrix, num_threads: int | Literal['auto']
+  ) -> _NDArray:
     assert self.array.ndim == sparse.ndim == 2 and sparse.shape[1] == self.array.shape[0]
+    # Empirically faster than with default numba.config.NUMBA_NUM_THREADS (e.g., 24).
     if using_numba:
+      num_threads2 = min(6, multiprocessing.cpu_count()) if num_threads == 'auto' else num_threads
       src = np.ascontiguousarray(self.array)  # Like .ravel() in _mul_multivector().
       dtype = np.result_type(sparse.dtype, src.dtype)
       dst = np.empty((sparse.shape[0], src.shape[1]), dtype)
       num_scalar_multiplies = len(sparse.data) * src.shape[1]
       is_small_size = num_scalar_multiplies < 200_000
-      if is_small_size:
+      if is_small_size or num_threads2 == 1:
         _numba_serial_csr_dense_mult(sparse.indptr, sparse.indices, sparse.data, src, dst)
       else:
-        # Faster than default numba.config.NUMBA_NUM_THREADS (e.g., 24).
-        numba.set_num_threads(min(6, multiprocessing.cpu_count()))
+        numba.set_num_threads(num_threads2)
         _numba_parallel_csr_dense_mult(sparse.indptr, sparse.indices, sparse.data, src, dst)
       return dst
 
@@ -541,9 +544,12 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
       dims[:2] = [1, 0]
     return dims
 
-  def premult_with_sparse(self, sparse: tf.sparse.SparseTensor) -> _TensorflowTensor:
+  def premult_with_sparse(
+      self, sparse: tf.sparse.SparseTensor, num_threads: int | Literal['auto']
+  ) -> _TensorflowTensor:
     import tensorflow as tf
 
+    del num_threads
     if np.issubdtype(_arr_dtype(self.array), np.complexfloating):
       sparse = sparse.with_values(_arr_astype(sparse.values, _arr_dtype(self.array)))
     return tf.sparse.sparse_dense_matmul(sparse, self.array)
@@ -653,7 +659,8 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
 
     return sorted(range(len(src_shape)), key=priority)
 
-  def premult_with_sparse(self, sparse: Any) -> _TorchTensor:
+  def premult_with_sparse(self, sparse: Any, num_threads: int | Literal['auto']) -> _TorchTensor:
+    del num_threads
     if np.issubdtype(_arr_dtype(self.array), np.complexfloating):
       sparse = _arr_astype(sparse, _arr_dtype(self.array))
     return sparse @ self.array  # Calls torch.sparse.mm().
@@ -748,8 +755,10 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
       dims[:2] = [1, 0]
     return dims
 
-  def premult_with_sparse(self, sparse: jax.experimental.sparse.BCOO) -> _Array:
-    """Return the multiplication of the `sparse` matrix and `self.array` matrix."""
+  def premult_with_sparse(
+      self, sparse: jax.experimental.sparse.BCOO, num_threads: int | Literal['auto']
+  ) -> _Array:
+    del num_threads
     return sparse @ self.array  # Calls jax.bcoo_multiply_dense().
 
   @staticmethod
@@ -868,9 +877,12 @@ def _arr_best_dims_order_for_resize(array: _Array, dst_shape: tuple[int, ...], /
   return _as_arr(array).best_dims_order_for_resize(dst_shape)
 
 
-def _arr_matmul_sparse_dense(sparse: Any, dense: _Array, /) -> _Array:
+def _arr_matmul_sparse_dense(
+    sparse: Any, dense: _Array, /, *, num_threads: int | Literal['auto'] = 'auto'
+) -> _Array:
   """Return the multiplication of the `sparse` and `dense` matrices."""
-  return _as_arr(dense).premult_with_sparse(sparse)
+  assert num_threads == 'auto' or num_threads >= 1
+  return _as_arr(dense).premult_with_sparse(sparse, num_threads)
 
 
 def _arr_concatenate(arrays: Sequence[_Array], axis: int, /) -> _Array:
@@ -2574,6 +2586,7 @@ def resize(
     precision: _DTypeLike = None,
     dtype: _DTypeLike = None,
     dim_order: Iterable[int] | None = None,
+    num_threads: int | Literal['auto'] = 'auto',
 ) -> _Array:
   """Resample `array` (a grid of sample values) onto a grid with resolution `shape`.
 
@@ -2638,6 +2651,8 @@ def resize(
       to the uint range.
     dim_order: Override the automatically selected order in which the grid dimensions are resized.
       Must contain a permutation of `range(len(shape))`.
+    num_threads: Used to determine multithread parallelism if `array` is from `numpy`.  If set to
+      `'auto'`, it is selected automatically.  Otherwise, it must be a positive integer.
 
   Returns:
     An array of the same class as the source `array`, with shape `shape + array.shape[len(shape):]`
@@ -2784,7 +2799,7 @@ def resize(
           array_flat, src_gridtype2[dim], boundary_dim, cval, filter2[dim]
       )
 
-    array_flat = _arr_matmul_sparse_dense(resize_matrix, array_flat)
+    array_flat = _arr_matmul_sparse_dense(resize_matrix, array_flat, num_threads=num_threads)
     if cval_weight is not None:
       cval_flat = np.broadcast_to(cval, array_dim.shape[1:]).reshape(-1)
       if np.issubdtype(array_dtype, np.complexfloating):

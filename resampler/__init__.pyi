@@ -4,7 +4,7 @@ import abc
 from collections.abc import Callable, Iterable, Sequence
 import dataclasses
 import typing
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -41,7 +41,7 @@ __version_info__: tuple[int, ...]
 ARRAYLIBS: list[str]
 
 @dataclasses.dataclass(frozen=True)
-class Gridtype(metaclass=abc.ABCMeta):
+class Gridtype(abc.ABC):
   name: str
   @abc.abstractmethod
   def min_size(self) -> int: ...
@@ -81,7 +81,7 @@ class PrimalGridtype(Gridtype):
 GRIDTYPES: list[str]
 
 @dataclasses.dataclass(frozen=True)
-class RemapCoordinates(metaclass=abc.ABCMeta):
+class RemapCoordinates(abc.ABC):
   @abc.abstractmethod
   def __call__(self, point: _NDArray) -> _NDArray: ...
 
@@ -95,42 +95,62 @@ class TileRemapCoordinates(RemapCoordinates):
   def __call__(self, point: _NDArray) -> _NDArray: ...
 
 @dataclasses.dataclass(frozen=True)
-class ExtendSamples(metaclass=abc.ABCMeta):
+class ExtendSamples(abc.ABC):
   uses_cval: bool = ...
   @abc.abstractmethod
-  def __call__(self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype) -> tuple[_NDArray, _NDArray]: ...
+  def __call__(
+      self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype
+  ) -> tuple[_NDArray, _NDArray]: ...
   # def __init__(self, uses_cval: bool) -> None: ...
 
 class ReflectExtendSamples(ExtendSamples):
-  def __call__(self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype) -> tuple[_NDArray, _NDArray]: ...
+  def __call__(
+      self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype
+  ) -> tuple[_NDArray, _NDArray]: ...
 
 class WrapExtendSamples(ExtendSamples):
-  def __call__(self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype) -> tuple[_NDArray, _NDArray]: ...
+  def __call__(
+      self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype
+  ) -> tuple[_NDArray, _NDArray]: ...
 
 class ClampExtendSamples(ExtendSamples):
-  def __call__(self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype) -> tuple[_NDArray, _NDArray]: ...
+  def __call__(
+      self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype
+  ) -> tuple[_NDArray, _NDArray]: ...
 
 class ReflectClampExtendSamples(ExtendSamples):
-  def __call__(self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype) -> tuple[_NDArray, _NDArray]: ...
+  def __call__(
+      self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype
+  ) -> tuple[_NDArray, _NDArray]: ...
 
 class BorderExtendSamples(ExtendSamples):
-  def __call__(self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype) -> tuple[_NDArray, _NDArray]: ...
+  def __call__(
+      self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype
+  ) -> tuple[_NDArray, _NDArray]: ...
 
 class ValidExtendSamples(ExtendSamples):
-  def __call__(self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype) -> tuple[_NDArray, _NDArray]: ...
+  def __call__(
+      self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype
+  ) -> tuple[_NDArray, _NDArray]: ...
 
 class LinearExtendSamples(ExtendSamples):
-  def __call__(self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype) -> tuple[_NDArray, _NDArray]: ...
+  def __call__(
+      self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype
+  ) -> tuple[_NDArray, _NDArray]: ...
 
 class QuadraticExtendSamples(ExtendSamples):
-  def __call__(self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype) -> tuple[_NDArray, _NDArray]: ...
+  def __call__(
+      self, index: _NDArray, weight: _NDArray, size: int, gridtype: Gridtype
+  ) -> tuple[_NDArray, _NDArray]: ...
 
 @dataclasses.dataclass(frozen=True)
 class OverrideExteriorValue:
   boundary_antialiasing: bool = ...
   uses_cval: bool = ...
   def __call__(self, weight: _NDArray, point: _NDArray) -> None: ...
-  def override_using_signed_distance(self, weight: _NDArray, point: _NDArray, signed_distance: _NDArray) -> None: ...
+  def override_using_signed_distance(
+      self, weight: _NDArray, point: _NDArray, signed_distance: _NDArray
+  ) -> None: ...
 
 class NoOverrideExteriorValue(OverrideExteriorValue):
   def __call__(self, weight: _NDArray, point: _NDArray) -> None: ...
@@ -150,13 +170,15 @@ class Boundary:
   @property
   def uses_cval(self) -> bool: ...
   def preprocess_coordinates(self, point: _NDArray) -> _NDArray: ...
-  def apply(self, index: _NDArray, weight: _NDArray, point: _NDArray, size: int, gridtype: Gridtype) -> tuple[_NDArray, _NDArray]: ...
+  def apply(
+      self, index: _NDArray, weight: _NDArray, point: _NDArray, size: int, gridtype: Gridtype
+  ) -> tuple[_NDArray, _NDArray]: ...
   def override_reconstruction(self, weight: _NDArray, point: _NDArray) -> None: ...
 
 BOUNDARIES: list[str]
 
 @dataclasses.dataclass(frozen=True)
-class Filter(metaclass=abc.ABCMeta):
+class Filter(abc.ABC):
   name: str
   radius: float
   interpolating: bool = ...
@@ -239,7 +261,7 @@ class NarrowBoxFilter(Filter):
 FILTERS: list[str]
 
 @dataclasses.dataclass(frozen=True)
-class Gamma(metaclass=abc.ABCMeta):
+class Gamma(abc.ABC):
   name: str
   @abc.abstractmethod
   def decode(self, array: _Array, dtype: _DTypeLike = ...) -> _Array: ...
@@ -266,28 +288,149 @@ GAMMAS: list[str]
 
 _DEFAULT_FILTER: str = 'lanczos3'
 
-def resize(array: _Array, shape: Iterable[int], *, gridtype: str | Gridtype | None = None, src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None, dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None, boundary: str | Boundary | Iterable[str | Boundary] = 'auto', cval: _ArrayLike = 0, filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER, prefilter: str | Filter | Iterable[str | Filter] | None = None, gamma: str | Gamma | None = None, src_gamma: str | Gamma | None = None, dst_gamma: str | Gamma | None = None, scale: float | Iterable[float] = 1.0, translate: float | Iterable[float] = 0.0, precision: _DTypeLike = None, dtype: _DTypeLike = None, dim_order: Iterable[int] | None = None) -> _Array: ...
-# def resize_in_arraylib(array: _NDArray, *args: Any, arraylib: str, **kwargs: Any) -> _NDArray: ...
-def resize_in_arraylib(array: _NDArray, shape: Iterable[int], *args: Any, arraylib: str, **kwargs: Any) -> _NDArray: ...
+def resize(
+    array: _Array,
+    /,
+    shape: Iterable[int],
+    *,
+    gridtype: str | Gridtype | None = None,
+    src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
+    dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
+    boundary: str | Boundary | Iterable[str | Boundary] = 'auto',
+    cval: _ArrayLike = 0,
+    filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
+    prefilter: str | Filter | Iterable[str | Filter] | None = None,
+    gamma: str | Gamma | None = None,
+    src_gamma: str | Gamma | None = None,
+    dst_gamma: str | Gamma | None = None,
+    scale: float | Iterable[float] = 1.0,
+    translate: float | Iterable[float] = 0.0,
+    precision: _DTypeLike = None,
+    dtype: _DTypeLike = None,
+    dim_order: Iterable[int] | None = None,
+    num_threads: int | Literal['auto'] = 'auto',
+) -> _Array:
+  ...
+# def resize_in_arraylib(array: _NDArray, /, *args: Any, arraylib: str, **kwargs: Any) -> _NDArray: ...
+def resize_in_arraylib(array: _NDArray, shape: Iterable[int], /, *args: Any, arraylib: str, **kwargs: Any) -> _NDArray: ...
 
-def resize_in_numpy(array: _NDArray, shape: Iterable[int], *args: Any, **kwargs: Any) -> _NDArray: ...
-def resize_in_tensorflow(array: _NDArray, shape: Iterable[int], *args: Any, **kwargs: Any) -> _NDArray: ...
-def resize_in_torch(array: _NDArray, shape: Iterable[int], *args: Any, **kwargs: Any) -> _NDArray: ...
-def resize_in_jax(array: _NDArray, shape: Iterable[int], *args: Any, **kwargs: Any) -> _NDArray: ...
+def resize_in_numpy(array: _NDArray, shape: Iterable[int], /, *args: Any, **kwargs: Any) -> _NDArray: ...
+def resize_in_tensorflow(array: _NDArray, shape: Iterable[int], /, *args: Any, **kwargs: Any) -> _NDArray: ...
+def resize_in_torch(array: _NDArray, shape: Iterable[int], /, *args: Any, **kwargs: Any) -> _NDArray: ...
+def resize_in_jax(array: _NDArray, shape: Iterable[int], /, *args: Any, **kwargs: Any) -> _NDArray: ...
 
-def jaxjit_resize(array: _Array, *args: Any, **kwargs: Any) -> _Array: ...
-def uniform_resize(array: _Array, shape: Iterable[int], *, gridtype: str | Gridtype | None = None, src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None, dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None, boundary: str | Boundary | Iterable[str | Boundary] = 'border', scale: float | Iterable[float] = 1.0, translate: float | Iterable[float] = 0.0, **kwargs: Any) -> _Array: ...
-def resample(array: _Array, coords: _ArrayLike, *, gridtype: str | Gridtype | Iterable[str | Gridtype] = 'dual', boundary: str | Boundary | Iterable[str | Boundary] = 'auto', cval: _ArrayLike = 0, filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER, prefilter: str | Filter | Iterable[str | Filter] | None = None, gamma: str | Gamma | None = None, src_gamma: str | Gamma | None = None, dst_gamma: str | Gamma | None = None, jacobian: _ArrayLike | None = None, precision: _DTypeLike = None, dtype: _DTypeLike = None, max_block_size: int = 40_000, debug: bool = False) -> _Array: ...
-def resample_affine(array: _Array, shape: Iterable[int], matrix: _ArrayLike, *, gridtype: str | Gridtype | None = 'dual', src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None, dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None, filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER, prefilter: str | Filter | Iterable[str | Filter] | None = None, precision: _DTypeLike = None, dtype: _DTypeLike = None, **kwargs: Any) -> _Array: ...
-def rotation_about_center_in_2d(src_shape: _ArrayLike, angle: float, *, new_shape: _ArrayLike | None = None, scale: float = 1.0) -> _NDArray: ...
-def rotate_image_about_center(image: _NDArray, angle: float, *, new_shape: _ArrayLike | None = None, scale: float = 1.0, num_rotations: int = 1, **kwargs: Any) -> _NDArray: ...
-def pil_image_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str) -> _NDArray: ...
-def cv_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str) -> _NDArray: ...
-def scipy_ndimage_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str, boundary: str = 'reflect', cval: float = 0) -> _NDArray: ...
-def skimage_transform_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str, boundary: str = 'reflect', cval: float = 0) -> _NDArray: ...
-def tf_image_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str, antialias: bool = True) -> _TensorflowTensor: ...
-def torch_nn_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str, antialias: bool = False) -> _TorchTensor: ...
-def jax_image_resize(array: _ArrayLike, shape: Iterable[int], *, filter: str, scale: float | Iterable[float] = 1.0, translate: float | Iterable[float] = 0.0) -> _JaxArray: ...
+def jaxjit_resize(array: _Array, /, *args: Any, **kwargs: Any) -> _Array: ...
+def uniform_resize(
+    array: _Array,
+    /,
+    shape: Iterable[int],
+    *,
+    object_fit: Literal['contain', 'cover'] = 'contain',
+    gridtype: str | Gridtype | None = None,
+    src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
+    dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
+    boundary: str | Boundary | Iterable[str | Boundary] = 'border',  # Instead of 'auto' default.
+    scale: float | Iterable[float] = 1.0,
+    translate: float | Iterable[float] = 0.0,
+    **kwargs: Any,
+) -> _Array:
+  ...
+def resample(
+    array: _Array,
+    /,
+    coords: _ArrayLike,
+    *,
+    gridtype: str | Gridtype | Iterable[str | Gridtype] = 'dual',
+    boundary: str | Boundary | Iterable[str | Boundary] = 'auto',
+    cval: _ArrayLike = 0,
+    filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
+    prefilter: str | Filter | Iterable[str | Filter] | None = None,
+    gamma: str | Gamma | None = None,
+    src_gamma: str | Gamma | None = None,
+    dst_gamma: str | Gamma | None = None,
+    jacobian: _ArrayLike | None = None,
+    precision: _DTypeLike = None,
+    dtype: _DTypeLike = None,
+    max_block_size: int = 40_000,
+    debug: bool = False,
+) -> _Array:
+  ...
+def resample_affine(
+    array: _Array,
+    /,
+    shape: Iterable[int],
+    matrix: _ArrayLike,
+    *,
+    gridtype: str | Gridtype | None = None,
+    src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
+    dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
+    filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
+    prefilter: str | Filter | Iterable[str | Filter] | None = None,
+    precision: _DTypeLike = None,
+    dtype: _DTypeLike = None,
+    **kwargs: Any,
+) -> _Array:
+  ...
+def rotation_about_center_in_2d(
+    src_shape: _ArrayLike,
+    /,
+    angle: float,
+    *,
+    new_shape: _ArrayLike | None = None,
+    scale: float = 1.0,
+) -> _NDArray:
+  ...
+def rotate_image_about_center(
+    image: _NDArray,
+    /,
+    angle: float,
+    *,
+    new_shape: _ArrayLike | None = None,
+    scale: float = 1.0,
+    num_rotations: int = 1,
+    **kwargs: Any,
+) -> _NDArray:
+  ...
+def pil_image_resize(array: _ArrayLike, /, shape: Iterable[int], *, filter: str) -> _NDArray: ...
+def cv_resize(array: _ArrayLike, /, shape: Iterable[int], *, filter: str) -> _NDArray: ...
+def scipy_ndimage_resize(
+    array: _ArrayLike,
+    /,
+    shape: Iterable[int],
+    *,
+    filter: str,
+    boundary: str = 'reflect',
+    cval: float = 0.0,
+) -> _NDArray:
+  ...
+def skimage_transform_resize(
+    array: _ArrayLike,
+    /,
+    shape: Iterable[int],
+    *,
+    filter: str,
+    boundary: str = 'reflect',
+    cval: float = 0.0,
+) -> _NDArray:
+  ...
+def tf_image_resize(
+    array: _ArrayLike, /, shape: Iterable[int], *, filter: str, antialias: bool = True
+) -> _TensorflowTensor:
+  ...
+def torch_nn_resize(
+    array: _ArrayLike, /, shape: Iterable[int], *, filter: str, antialias: bool = False
+) -> _TorchTensor:
+  ...
+def jax_image_resize(
+    array: _ArrayLike,
+    /,
+    shape: Iterable[int],
+    *,
+    filter: str,
+    scale: float | Iterable[float] = 1.0,
+    translate: float | Iterable[float] = 0.0,
+) -> _JaxArray:
+  ...
 
 def _check_eq(a: Any, b: Any, /) -> None: ...
 def _real_precision(dtype: _DTypeLike, /) -> _DType: ...
@@ -310,13 +453,12 @@ def _arr_getitem(array: _Array, indices: _Array, /) -> _Array: ...
 def _arr_where(condition: _Array, if_true: _Array, if_false: _Array, /) -> _Array: ...
 def _arr_transpose(array: _Array, axes: Sequence[int], /) -> _Array: ...
 def _arr_best_dims_order_for_resize(array: _Array, dst_shape: tuple[int, ...], /) -> list[int]: ...
+def _arr_matmul_sparse_dense(sparse: Any, dense: _Array, /, *, num_threads: int | Literal['auto'] = 'auto') -> _Array: ...
 def _arr_concatenate(arrays: Sequence[_Array], axis: int, /) -> _Array: ...
 def _arr_einsum(subscripts: str, /, *operands: _Array) -> _Array: ...
 def _arr_swapaxes(array: _Array, axis1: int, axis2: int, /) -> _Array: ...
 def _arr_moveaxis(array: _Array, source: int, destination: int, /) -> _Array: ...
-def _make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray, shape: tuple[int, int], arraylib: str, /
-) -> _Array: ...
-def _arr_sparse_dense_matmul(sparse: Any, dense: _Array, /) -> _Array: ...
+def _make_sparse_matrix(data: _NDArray, row_ind: _NDArray, col_ind: _NDArray, shape: tuple[int, int], arraylib: str, /) -> _Array: ...
 def _make_array(array: _ArrayLike, arraylib: str, /) -> _Array: ...
 def _block_shape_with_min_size(shape: tuple[int, ...], min_size: int, compact: bool = ...) -> tuple[int, ...]: ...
 def _array_split(array: _Array, axis: int, num_sections: int) -> list[Any]: ...

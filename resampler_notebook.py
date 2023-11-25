@@ -2277,7 +2277,7 @@ experiment_parallelism()
 # using a thread pool.  (Fortunately, both numpy and scipy native code release the GIL.)
 # See https://stackoverflow.com/a/35456820
 # Another idea is to replace csr_matvecs() by numba-jitted code -- it is in fact faster.
-# And morever, to use njit(parallel=True) and numba.prange for multithreading -- its
+# And moreover, to use njit(parallel=True) and numba.prange for multithreading -- its
 # multithreading overhead is tiny in comparison to using concurrent.futures.ThreadPoolExecutor.
 
 
@@ -2659,6 +2659,7 @@ def test_profile_downsampling(
 
   a = array, new_shape
   functions: dict[str, Callable[[], Any]] = {
+      'resize_serial': lambda: resampler.resize_in_numpy(*a, filter=filter, num_threads=1),
       'resize_in_numpy': lambda: resampler.resize_in_numpy(*a, filter=filter),
       'resize_in_tensorflow': lambda: resampler.resize_in_tensorflow(*a, filter=filter),
       'resize_in_torch': lambda: resampler.resize_in_torch(*a, filter=filter),
@@ -3143,7 +3144,7 @@ if EFFORT >= 1:
 # g = t - a / c * d
 # h, i, j = c, d, u
 
-# Overall, we can just use A*B and choose a pre-transposisition and a post-transposition,
+# Overall, we can just use A*B and choose a pre-transposition and a post-transposition,
 # for a total of 4 possibilities in 2D.  The goal is to maximize the scaling factor h for A*B.
 
 
@@ -5793,6 +5794,10 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
 
 if EFFORT >= 1:
   experiment_compare_downsampling_with_other_libraries()
+
+# %%
+# Occasional Numba error in 'resize trapezoid' when invoking jitted_function(a):
+# RuntimeError: In 'NRT_adapt_ndarray_to_python', 'descr' is NULL
 
 # %%
 if EFFORT >= 3:
