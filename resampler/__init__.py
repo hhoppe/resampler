@@ -3393,8 +3393,8 @@ def _resize_using_resample(
   # TODO: let resample() do prefiltering for proper downsampling.
   has_minification = np.any(np.array(shape) < array.shape[: len(shape)]) or np.any(scale < 1.0)
   filter2 = [_get_filter(f) for f in np.broadcast_to(np.array(filter), len(shape))]
-  has_trapezoid = any(f.name == 'trapezoid' for f in filter2)
-  if fallback and (has_minification or has_trapezoid):
+  has_auto_trapezoid = any(f.name == 'trapezoid' for f in filter2)
+  if fallback and (has_minification or has_auto_trapezoid):
     return _original_resize(array, shape, scale=scale, translate=translate, filter=filter, **kwargs)
   offset = -translate / scale
   matrix = np.concatenate([np.diag(1.0 / scale), offset[:, None]], axis=1)
