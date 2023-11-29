@@ -95,10 +95,10 @@
 # new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
 #
 # _, axs = plt.subplots(1, 2, figsize=(7, 1.5))
-# axs[0].set_title("gridtype='dual'")
+# axs[0].set(title="gridtype='dual'")
 # axs[0].plot((np.arange(len(array)) + 0.5) / len(array), array, 'o')
 # axs[0].plot((np.arange(len(new_dual)) + 0.5) / len(new_dual), new_dual, '.')
-# axs[1].set_title("gridtype='primal'")
+# axs[1].set(title="gridtype='primal'")
 # axs[1].plot(np.arange(len(array)) / (len(array) - 1), array, 'o')
 # axs[1].plot(np.arange(len(new_primal)) / (len(new_primal) - 1), new_primal, '.')
 # plt.show()
@@ -365,6 +365,8 @@ _JaxArray = resampler._JaxArray
 _Array = TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
 _AnyArray = resampler._AnyArray
 
+_UNICODE_DAGGER = '\u2020'
+
 
 # %%
 def running_in_notebook() -> bool:
@@ -509,17 +511,12 @@ def get_ssim(image1: _NDArray, image2: _NDArray) -> float:
   assert np.issubdtype(image1.dtype, np.floating)
   assert np.issubdtype(image2.dtype, np.floating)
   if 1:
-    # Default win_size=7, no Gaussian weighting.
-    skimage_version_string = skimage.__version__  # type: ignore[attr-defined]
-    skimage_version = tuple(int(num) for num in skimage_version_string.split('.'))
-    kwargs = dict(channel_axis=2) if skimage_version >= (0, 19) else dict(multichannel=True)
-    ssim: float = skimage.metrics.structural_similarity(
-        image1, image2, data_range=1.0, **kwargs
-    ).item()  # type: ignore[no-untyped-call]
-    return ssim
+    kwargs = dict(data_range=1.0, gaussian_weights=True, sigma=1.5, use_sample_covariance=False)
+    # Infers win_size=11.
+    func = skimage.metrics.structural_similarity
+    return float(func(image1, image2, channel_axis=2, **kwargs))  # type: ignore[no-untyped-call]
 
-  # Slower but with more functionality.
-  # Default filter_size=11, filter_sigma=1.5.
+  # Identical result but ~10x slower.  Default filter_size=11, filter_sigma=1.5.
   return float(tf.image.ssim(image1, image2, max_val=1.0))
 
 
@@ -531,12 +528,17 @@ def test_ssim() -> None:
   assert 0.99 < ssim < 1.0  # Change in mean value does not change structure.
   filter = np.ones((3, 3, 1)) / 9
   image3 = scipy.ndimage.convolve(image1, filter, mode='reflect')
-  ssim = get_ssim(image1, image3)
-  assert 0.75 < ssim < 0.9  # Blurring causes loss of structural detail.
+  time1, ssim1 = hh.get_time_and_result(lambda: get_ssim(image1, image3))
+  assert 0.75 < ssim1 < 0.9  # Blurring causes loss of structural detail.
+  time2, ssim2 = hh.get_time_and_result(lambda: float(tf.image.ssim(image1, image3, max_val=1.0)))
+  if EFFORT >= 2:
+    print(f'{ssim1=:.6f} {ssim2=:.6f}  {time1=:.4f} {time2=:.4f}')
+  assert abs(ssim1 - ssim2) < 0.0001
 
 
 if EFFORT >= 1:
   test_ssim()
+# ssim1=0.789012 ssim2=0.789010  time1=0.0029 time2=0.0354
 
 
 # %%
@@ -632,9 +634,6 @@ if EFFORT >= 1:
 
 # %%
 # TODO:
-# - Plot frequency responses of filters.
-#   (Magnitude (dB) vs Normalized frequency (\pi radians/sample) [0, 1]).
-#   See example analysis in https://numpy.org/doc/stable/reference/generated/numpy.kaiser.html.
 # - Compare trapezoid with opencv resize INTER_AREA.
 # - instead use default prefilter='trapezoid'.
 #   but then even more discontinuous at transition from minification to magnification?
@@ -1026,7 +1025,7 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
   def func2(x: _ArrayLike) -> _NDArray:
     return func(x)
 
-  def create_scipy_interpolant(
+  def create_scipy_interpolator(  # (Legacy interpolator.)
       func, xmin, xmax, num_samples=3_600
   ) -> Callable[[_NDArray], _NDArray]:
     samples_x = np.linspace(xmin, xmax, num_samples + 1, dtype=np.float32)
@@ -1037,16 +1036,34 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
     )
     return interpolator
 
-  scipy_interp = create_scipy_interpolant(func, -radius, radius)
+  scipy_interp = create_scipy_interpolator(func, -radius, radius)
+
+  def create_np_interpolator(func, xmin, xmax, num_samples=3_600) -> Callable[[_NDArray], _NDArray]:
+    samples_x = np.linspace(xmin, xmax, num_samples + 1, dtype=np.float32)
+    samples_func = func(samples_x)
+    assert np.all(samples_func[[0, -1]] == 0.0)
+
+    def evaluate(array: _NDArray) -> _NDArray:
+      return np.interp(array, samples_x, samples_func).astype(np.float32)
+
+    return evaluate
+
+  np_interp = create_np_interpolator(func, -radius, radius)
 
   shape = 2, 8_000
   rng = np.random.default_rng(0)
   array = rng.random(shape, np.float32) * 2 * radius - radius
-  result = {'expected': func(array), 'scipy': scipy_interp(array), 'obtained': func2(array)}
+  result = {
+      'expected': func(array),
+      'scipy': scipy_interp(array),
+      'np_interp': np_interp(array),
+      'obtained': func2(array),
+  }
 
   assert all(a.dtype == np.float32 for a in result.values())
   assert all(a.shape == shape for a in result.values())
   assert np.allclose(result['scipy'], result['expected'], rtol=0, atol=1e-6)
+  assert np.allclose(result['np_interp'], result['expected'], rtol=0, atol=1e-6)
   assert np.allclose(result['obtained'], result['expected'], rtol=0, atol=1e-6)
 
   if 0:
@@ -3673,11 +3690,11 @@ if EFFORT >= 2:
 
 # %%
 def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
-  def analyze_filter(name: str, filter: resampler.Filter, ax: Any = None) -> None:
+  def analyze_filter(name: str, filter: resampler.Filter, ax: Any) -> None:
     footnote = '*' if filter.requires_digital_filter else ''
-    if isinstance(filter, resampler.TrapezoidFilter) and filter.radius == 0.0:
+    if filter.name == 'trapezoid':
       filter = resampler.TrapezoidFilter(radius=0.75)  # Visualize some representative radius.
-      footnote = '\u2020'  # Unicode dagger.
+      footnote = _UNICODE_DAGGER
     radius = filter.radius
     # Mock that the filter is a partition of unity for accurate un-normalized integral
     # (e.g. 'lanczos3') and for raw interp_error (e.g. 'gaussian').
@@ -3717,11 +3734,9 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
       x_plot = np.concatenate(([-10.0], x[::subsample].tolist(), [10.0]))
       y_plot = np.concatenate(([0.0], y[::subsample].tolist(), [0.0]))
 
-    if ax is None:
-      _, ax = plt.subplots(figsize=(5, 3))
-
     ax.plot(x_plot, y_plot)
     ax.set(title=name, xlim=(-6.0, 6.0), ylim=(-0.25, 1.08))
+    ax.grid(True, lw=0.3)
     ax.yaxis.set_ticks([0.0, 1.0])
     ax.xaxis.set_ticks(np.arange(-6, 7, 2))
     info = [f'{radius=:.2f}{footnote}', f'{interp_err=:.4f}', f'{integral=:.5f}']
@@ -3740,10 +3755,10 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
 
   media.set_max_output_height(2000)
   num_columns = 3
-  num_rows = (len(filters) + num_columns - 1) // num_columns
+  num_rows = math.ceil(len(filters) / num_columns)
   fig, axs = plt.subplots(num_rows, num_columns, figsize=(4.0 * num_columns, 2.5 * num_rows))
   for i, (name, filter) in enumerate(filters.items()):
-    analyze_filter(name, filter, ax=axs.flat[i])
+    analyze_filter(name, filter, axs.flat[i])
   for i in range(len(filters), axs.size):
     fig.delaxes(axs.flat[i])  # Or: axs.flat[i].axis('off').
   fig.tight_layout()
@@ -3753,11 +3768,10 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
         r'\* The effective radius is actually infinite due to the inverse convolution'
         ' of the digital filter.'
     )
-  if any(
-      isinstance(filter, resampler.TrapezoidFilter) and filter.radius == 0.0
-      for filter in filters.values()
-  ):
-    display_markdown('\u2020 The radius for `trapezoid` is adjusted based on the scaling factor.')
+  if any(filter.name == 'trapezoid' for filter in filters.values()):
+    display_markdown(
+        f"{_UNICODE_DAGGER} The radius for `'trapezoid'` is adjusted based on the scaling factor."
+    )
 
 
 # %%
@@ -3772,6 +3786,99 @@ if EFFORT >= 1:
   visualize_filters({f"'{name}'": filter for name, filter in resampler._DICT_FILTERS.items()})
 
 
+# %% [markdown]
+# ## Frequency response of filters
+
+
+# %%
+def visualize_filter_frequency_response(filters: Mapping[str, resampler.Filter]) -> None:
+  def analyze_filter(name: str, filter: resampler.Filter, ax: Any) -> None:
+    if filter.name == 'impulse':
+      filter = resampler.NarrowBoxFilter(radius=1e-6)
+    if filter.name == 'trapezoid':
+      filter = resampler.TrapezoidFilter(radius=0.75)  # Assign some representative radius.
+      name = 'TrapezoidFilter(radius=0.75)'
+    effective_radius = filter.radius * (10 if filter.requires_digital_filter else 1)
+    pad = math.ceil(effective_radius)
+    src_size = pad * 2 + 1
+    impulse = np.eye(src_size)[pad]
+    scale = 100  # Dense enough for accurate discrete approximation of continuous impulse response.
+    dst_size = pad * 2 * scale + 1
+    # Compute the impulse response function h:
+    h = resampler.resize(impulse, (dst_size,), gridtype='primal', filter=filter) / scale
+    h /= h.sum()  # For 'impulse' and 'narrowbox'.
+    n = len(h) * 100  # Long enough for accurate frequency-domain representation.
+
+    freq = np.fft.rfftfreq(n, d=1 / scale)
+    magnitude = abs(np.fft.rfft(h, n=n))
+    power_db = 20 * np.log10(np.maximum(magnitude, 1e-10))  # Power spectrum.
+    db_at_half_freq = np.interp(0.5, freq, power_db)
+    low_freq_gain = power_db[freq < 0.5].mean()
+    high_freq_gain = power_db[(0.5 < freq) & (freq < 1.0)].mean()
+
+    ax.plot(freq, power_db)
+    ax.set(title=name, xlabel='Normalized frequency', ylabel='Gain (dB)')
+    ax.set(xlim=[0.0, 2.0], ylim=[-80, 8])
+    ax.grid(True, lw=0.3)
+    params1 = dict(colors='gray', ls='dotted', lw=2, color='green')
+    ax.vlines(x=0.5, ymin=-200, ymax=0, **params1)
+    ax.hlines(y=0, xmin=0, xmax=0.5, **params1)
+    bbox = dict(boxstyle='square,pad=0.2', fc='white', lw=0)
+    if 0:
+      text = f'{db_at_half_freq:.1f} dB'
+      params2 = dict(ha='right', fontsize=11, arrowprops=dict(arrowstyle='->', lw=1), bbox=bbox)
+      ax.annotate(text, xy=(0.5, db_at_half_freq), xytext=(0.42, -24), **params2)
+    info = [
+        f'[0.0, 0.5]: {low_freq_gain: 5.1f} dB ',
+        f'[0.5, 1.0]: {high_freq_gain: 5.1f} dB ',
+    ]
+    for i, line in enumerate(info):
+      ax.text(0.47, 0.9 - 0.13 * i, line, transform=ax.transAxes, fontsize=10.5, bbox=bbox)
+
+  media.set_max_output_height(2000)
+  num_columns = 3
+  num_rows = math.ceil(len(filters) / num_columns)
+  fig, axs = plt.subplots(num_rows, num_columns, figsize=(4.0 * num_columns, 2.5 * num_rows))
+  for i, (name, filter) in enumerate(filters.items()):
+    analyze_filter(name, filter, axs.flat[i])
+  for i in range(len(filters), axs.size):
+    fig.delaxes(axs.flat[i])  # Or: axs.flat[i].axis('off').
+  fig.tight_layout()
+  plt.show()
+
+
+# visualize_filter_frequency_response({'cubic': resampler._get_filter('cubic')})
+
+# %%
+if EFFORT >= 1:
+  visualize_filter_frequency_response(
+      {f"'{name}'": filter for name, filter in resampler._DICT_FILTERS.items()}
+      | {'LanczosFilter(radius=40)': resampler.LanczosFilter(radius=40)}
+  )
+
+
+# %% [markdown]
+# A good filter should have:
+# 1. Small loss (high gain) below the Nyquist frequency (0.5), to maximize sharpness.
+# 2. Strong attenuation (low gain) above the Nyquist frequency (0.5), to minimize aliasing.
+#
+# Correspondingly, in the plots above, we measure the average dB gain in the frequency ranges $[0.0, 0.5]$ and $[0.5, 1.0]$.
+#
+# These averages are computed in the space of dB values and are obtained using integrals over frequency.
+# (Alternatives would have been to average the magnitude directly and/or to integrate over log frequency.)
+# These current measurements ignore aliasing due to frequencies above 1.0.
+
+# %%
+# A faster FFT implementation for our case in which the input is both real and symmetric:
+# "An efficient FFT algorithm for real-symmetric data" https://ieeexplore.ieee.org/document/226669
+# but it is not available in numpy.
+# Also, https://tomroelandts.com/articles/how-to-plot-the-frequency-response-of-a-filter
+# https://reference.wolfram.com/language/ref/LanczosWindow.html
+
+# %% [markdown]
+# ## Try other filters
+
+
 # %%
 def visualize_trapezoid_filters() -> None:
   """This shows how the trapezoid filter morphs between the box and triangle filters."""
@@ -3780,6 +3887,7 @@ def visualize_trapezoid_filters() -> None:
       for radius in [0.6, 0.7, 0.9]
   }
   visualize_filters(filters)
+  visualize_filter_frequency_response(filters)
 
 
 visualize_trapezoid_filters()
@@ -3792,76 +3900,10 @@ def visualize_cardinal_bsplines() -> None:
       for degree in range(6)
   }
   visualize_filters(filters)
+  visualize_filter_frequency_response(filters)
 
 
 visualize_cardinal_bsplines()
-
-
-# %%
-class _TestBsplineRouhani2015(resampler.Filter):
-  """Examine the cubic B-spline defined in [Rouhani et al. 2015]."""
-
-  def __init__(self) -> None:
-    super().__init__(name='test_bspline1', radius=2.0, interpolating=False)
-
-  def __call__(self, x: _ArrayLike, /) -> _NDArray:
-    x = np.asarray(x)
-    u0, u1, u2, u3 = x + 2.0, x + 1.0, x, x - 1.0
-    return (
-        np.where(
-            x > 2.0,
-            0.0,
-            np.where(
-                x > 1.0,
-                (1 - u3) ** 3,
-                np.where(
-                    x > 0.0,
-                    3 * u2**3 - 6 * u2**2 + 4,
-                    np.where(
-                        x > -1.0,
-                        -3 * u1**3 + 3 * u1**2 + 3 * u1 + 1,
-                        np.where(x > -2.0, u0**3, 0.0),
-                    ),
-                ),
-            ),
-        )
-        / 6.0
-    )
-
-
-class _TestSubmission(resampler.Filter):
-  """Examine the cubic B-spline defined in a submission."""
-
-  def __init__(self) -> None:
-    super().__init__(name='test_bspline1', radius=2.0, interpolating=False)
-
-  def __call__(self, x: _ArrayLike, /) -> _NDArray:
-    x = np.asarray(x)
-    return np.where(
-        x > 2.0,
-        0.0,
-        np.where(
-            x > 1.0,
-            -1 / 6 * x**3 + x**2 - 2 * x + 4 / 3,
-            np.where(
-                x > 0.0,
-                1 / 2 * x**3 - x**2 + 2 / 3,
-                np.where(
-                    x > -1.0,
-                    -1 / 2 * x**3 - x**2 + 2 / 3,
-                    np.where(x > -2.0, 1 / 6 * x**3 + x**2 + 2 * x + 4 / 3, 0.0),
-                ),
-            ),
-        ),
-    )
-
-
-_filters = {
-    'bspline3': resampler.BsplineFilter(degree=3),
-    'rouhani2015': _TestBsplineRouhani2015(),
-    'submission': _TestSubmission(),
-}
-visualize_filters(_filters)
 
 
 # %%
@@ -3871,6 +3913,7 @@ def visualize_kaiser_filter_for_various_beta_values(radius=3.0) -> None:
       for beta in [1.0, 2.0, 4.0, 7.0, 10.0, 20.0]
   }
   visualize_filters(filters)
+  visualize_filter_frequency_response(filters)
 
 
 visualize_kaiser_filter_for_various_beta_values()
@@ -3922,7 +3965,6 @@ def test_kaiser_filter_fractional_radius(radius=3, s=2.0, n=12, debug=False) -> 
 
 
 test_kaiser_filter_fractional_radius()
-
 
 # %% [markdown]
 # ## Best boundary rule for resize
@@ -4193,34 +4235,34 @@ def experiment_best_downsampling_filter(scale=0.4, clip=False, debug=False) -> N
 if EFFORT >= 1:
   experiment_best_downsampling_filter()
 
+# %%
+# Copy of results 2023-11-25:
+# PSNR and SSIM results for (1) natural photos and (2) vector graphics:
+# box        PSNR:(23.89 18.29) mean=20.24  SSIM:(0.733 0.865) mean=0.799
+# trapezoid  PSNR:(24.24 18.76) mean=20.69  SSIM:(0.742 0.874) mean=0.808
+# triangle   PSNR:(23.87 18.02) mean=20.02  SSIM:(0.712 0.858) mean=0.785
+# mitchell   PSNR:(23.97 18.22) mean=20.20  SSIM:(0.719 0.860) mean=0.789
+# cubic      PSNR:(24.32 18.87) mean=20.79  SSIM:(0.744 0.870) mean=0.807
+# hamming3   PSNR:(24.44 19.07) mean=20.97  SSIM:(0.753 0.865) mean=0.809
+# cardinal3  PSNR:(24.46 19.10) mean=21.00  SSIM:(0.754 0.864) mean=0.809
+# lanczos3   PSNR:(24.47 19.12) mean=21.02  SSIM:(0.756 0.862) mean=0.809
+# omoms5     PSNR:(24.52 19.21) mean=21.10  SSIM:(0.759 0.853) mean=0.806
+# lanczos10  PSNR:(24.53 19.22) mean=21.11  SSIM:(0.759 0.834) mean=0.797
+
 
 # %% [markdown]
 # Conclusions for downsampling (including several surprises):
 # - The `'lanczos10'` filter has the best PSNR and SSIM result on natural photos.
 # - However, on *vector* graphics, **`'trapezoid'` has the best SSIM score**,
 #   and `'lanczos10'` is terrible due to ringing.
-# - The `'trapezoid'` filter has a PSNR result that exceeds that of `'cubic'`,
+# - The `'trapezoid'` filter has a PSNR result that is comparable to that of `'cubic'`,
 #   although it is not as good as `'lanczos3'`.
 # - The `'mitchell'` filter is inferior to `'cubic'` on all images, for both MSE and SSIM.
-# - Setting `clip=True` does not affect the photo.
+# - Clipping the image pixel values (to `[0, 1]` using `clip=True`) has little visual effect.
 #   For the vector graphics, it reduces PSNR but helps SSIM.
 # - The cardinal B-spline and O-MOMS filters behave similar to Lanczos.
-# - Overall, `'trapezoid'` is best for vector graphics, and
-#   `'lanczos3'` is good for natural images like photos.
-
-# %%
-# Copy of results 2021-10-23:
-# PSNR and SSIM results for (1) natural photos and (2) vector graphics:
-# box        PSNR:(23.89 18.29) mean=20.24  SSIM:(0.816 0.890) mean=0.853
-# trapezoid  PSNR:(24.24 18.76) mean=20.69  SSIM:(0.824 0.898) mean=0.861
-# triangle   PSNR:(23.87 18.02) mean=20.02  SSIM:(0.803 0.883) mean=0.843
-# mitchell   PSNR:(23.97 18.22) mean=20.20  SSIM:(0.808 0.886) mean=0.847
-# cubic      PSNR:(24.32 18.87) mean=20.79  SSIM:(0.827 0.897) mean=0.862
-# hamming3   PSNR:(24.44 19.07) mean=20.97  SSIM:(0.833 0.896) mean=0.864
-# cardinal3  PSNR:(24.46 19.10) mean=21.00  SSIM:(0.834 0.896) mean=0.865
-# lanczos3   PSNR:(24.47 19.12) mean=21.02  SSIM:(0.836 0.894) mean=0.865
-# omoms5     PSNR:(24.52 19.21) mean=21.10  SSIM:(0.838 0.892) mean=0.865
-# lanczos10  PSNR:(24.53 19.22) mean=21.11  SSIM:(0.839 0.884) mean=0.862
+# - Overall, `'trapezoid'` is best for downsampling vector graphics, and
+#   `'lanczos3'` is a good choice for downsampling natural images like photos.
 
 
 # %%
@@ -4270,20 +4312,6 @@ if EFFORT >= 1:
   experiment_best_upsampling_filter()
 
 
-# %% [markdown]
-# Conclusions:
-# - For upsampling, the filters `'box'`, `'trapezoid'`, and `'mitchell'`
-#   perform so poorly that they are omitted in these results.
-# - On natural photos, `'lanczos10'` has the best PSNR and SSIM,
-#   although `'lanczos3'` is not far behind.
-# - On vector graphics, `'lanczos5'` has the best PSNR,
-#   and `'lanczos3'` has the best SSIM.
-#   The problem is that the higher-order Lanczos filters introduce
-#   too much ringing near step discontinuities.
-# - The cardinal B-spline and O-MOMS filters have similar behavior to Lanczos.
-# - Overall, `'lanczos3'` performs well on all images,
-#   although `'lanczos10'` is best if the images are known to be natural photos.
-
 # %%
 # Copy of results 2021-10-23:
 # cubic      PSNR:(25.60 20.54) 22.37  SSIM:(0.874 0.935) 0.905
@@ -4293,6 +4321,20 @@ if EFFORT >= 1:
 # lanczos5   PSNR:(26.04 21.15) 22.94  SSIM:(0.888 0.930) 0.909
 # omoms5     PSNR:(26.04 21.15) 22.94  SSIM:(0.888 0.930) 0.909
 # lanczos10  PSNR:(26.09 21.11) 22.92  SSIM:(0.890 0.918) 0.904
+
+# %% [markdown]
+# Conclusions:
+# - For upsampling, the filters `'box'`, `'trapezoid'`, and `'mitchell'`
+#   perform so poorly that they are omitted in these results.
+# - On natural photos, `'lanczos10'` has the best PSNR and SSIM,
+#   although `'lanczos3'` is not too far behind.
+# - On vector graphics, `'lanczos5'` has the best PSNR,
+#   and `'cubic' / 'lanczos3'` have the best SSIM.
+#   The problem is that the higher-order Lanczos filters (`'lanczos5'` and `'lanczos10'`) introduce
+#   too much ringing near step discontinuities.
+# - The cardinal B-spline and O-MOMS filters have similar behavior to Lanczos.
+# - Overall, `'lanczos3'` performs well on all images,
+#   although `'lanczos10'` is best if the images are known to be natural photos.
 
 # %% [markdown]
 # ## Best gamma for resampling
@@ -4556,6 +4598,7 @@ def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=41) -> No
   _, ax = plt.subplots(figsize=(5, 3))
   ax.plot(degrees, psnrs, '.')
   ax.set(xlabel='Grid rotation (degrees)', ylabel='Reconstruction PSNR (dB)')
+  ax.grid(True, lw=0.3)
 
 
 if EFFORT >= 1:
@@ -4595,9 +4638,10 @@ def visualize_prefiltering_a_discontinuity_in_1D(size=400, x_step=0.5) -> None:
       ax.plot(x, array, '-', linewidth=0.7)
       ax.plot(downsample(x), downsample(array), 'o-')
       ax.set(xlim=(0.0, 1.0), ylim=(-0.17, 1.17))
+      ax.set(ylabel=f'new size {new_size}' if col_index == 0 else None)
+      ax.set(title=f"'{filter}'" if row_index == 0 else None)
       _ = ax.xaxis.set_ticks([]), ax.yaxis.set_ticks([])
-      ax.set_ylabel(f'new size {new_size}' if col_index == 0 else None)
-      ax.set_title(f"'{filter}'" if row_index == 0 else None)
+
   fig.tight_layout()
 
 
@@ -5265,6 +5309,14 @@ visualize_rotational_symmetry_of_gaussian_filter()
 
 
 # %%
+# The usage example images are created in the notebook example_usage.ipynb.
+
+# %%
+# Remember to set Windows -> Display -> "Make everything bigger" to 100% to avoid dwm dpi scaling
+# in screen captures.
+
+
+# %%
 def visualize_resampled_spiral_with_alpha() -> None:
   image = media.read_image('https://github.com/hhoppe/data/raw/main/image.png')
   image = crop_array(image, ((0, 0, 0), (0, 0, -1)), 255)  # Add alpha channel with value 255.
@@ -5344,7 +5396,7 @@ def visualize_unused() -> None:
     upsampled = resampler.resize(array, (size,), gridtype=gridtype)
     ax.plot(ordinates(array), array, 'o')
     ax.plot(ordinates(upsampled), upsampled, '.')
-    ax.set_title(f"gridtype='{gridtype}'")
+    ax.set(title=f"gridtype='{gridtype}'")
 
   _, axs = plt.subplots(1, 2, figsize=(12, 2.5))
   upsample_1d(axs[0], 'dual', 32, lambda x: (np.arange(len(x)) + 0.5) / len(x))
@@ -5397,7 +5449,7 @@ def visualize_example_filters(filters: Sequence[str], num=1_001) -> None:
   for index, filter_name in enumerate(filters):
     ax = axs.flat[index]
     filter = resampler._get_filter(filter_name)
-    if filter_name == 'trapezoid':
+    if filter.name == 'trapezoid':
       filter = resampler.TrapezoidFilter(radius=0.75)  # Some representative shape.
 
     x = resampler.resize(np.arange(-10.0, 11.0), (num,), gridtype='primal', filter='triangle')
@@ -5605,17 +5657,13 @@ visualize_boundary_rules_in_2d()
 # | `skimage.transform` | any | `np` | any | dual, primal | cardinal B-splines | Gaussian &#9785; | several | slow | Cython | no |
 # | `tf.image.resize` | 2D | `tf` | `float32` | dual | up to `'lanczos5'` | good | `'natural'` | average | C++ | yes |
 # | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `'trapezoid'`, `'triangle'`, `'cubic'` | `'natural'` | average | C++ | yes |
-# | `jax.image.resize` | any | `jax` | `float`, `complex` | dual | up to `'lanczos5'` | good but no `trapezoid` | `'natural'` | average | none | yes |
+# | `jax.image.resize` | any | `jax` | `float`, `complex` | dual | up to `'lanczos5'` | good but no `'trapezoid'` | `'natural'` | average | none | yes |
 #
 # The `resampler` library does not involve any new native code;
 # it instead leverages existing sparse matrix representations and operations.
 
 # %% [markdown]
 # What about support for general resampling (not just resize)?
-
-# %% [markdown]
-# ## Test other libraries
-# <a name="Test-other-libraries"></a>
 
 # %% [markdown]
 # ## Upsampling comparison
@@ -5643,6 +5691,7 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0) -> None:
       # 'resample lanczos5': lambda: resampler._resize_using_resample(*a, filter='lanczos5'),
       'resize lanczos5': lambda: resampler.resize(*a, filter='lanczos5'),
       'resize lanczos3': lambda: resampler.resize(*a, filter='lanczos3'),
+      # 'resize lanczos3 1thread': lambda: resampler.resize(*a, filter='lanczos3', num_threads=1),
       'resize cardinal3': lambda: resampler.resize(*a, filter='cardinal3'),
       'resize cubic': lambda: resampler.resize(*a, filter='cubic'),
       'resize triangle': lambda: resampler.resize(*a, filter='triangle'),
@@ -5736,6 +5785,7 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
   funcs: dict[str, Callable[[], _AnyArray]] = {
       # 'resize lanczos5': lambda: resampler.resize(*a, filter='lanczos5'),
       'resize lanczos3': lambda: resampler.resize(*a),
+      # 'resize lanczos3 1thread': lambda: resampler.resize(*a, num_threads=1),
       'resize cardinal3': lambda: resampler.resize(*a, filter='cardinal3'),
       'resize cubic': lambda: resampler.resize(*a, filter='cubic'),
       'resize triangle': lambda: resampler.resize(*a, filter='triangle'),
@@ -5797,7 +5847,8 @@ if EFFORT >= 1:
 
 # %%
 # Occasional Numba error in 'resize trapezoid' when invoking jitted_function(a):
-# RuntimeError: In 'NRT_adapt_ndarray_to_python', 'descr' is NULL
+# RuntimeError: In 'NRT_adapt_ndarray_to_python', 'descr' is NULL.
+# The solution was to delete resampler/__pycache__.
 
 # %%
 if EFFORT >= 3:
