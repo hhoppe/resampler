@@ -2270,7 +2270,8 @@ def experiment_parallelism() -> None:
         resampler.resize_in_arraylib(array, new_shape[:2], arraylib=arraylib)
 
 
-experiment_parallelism()
+if EFFORT >= 1:
+  experiment_parallelism()
 # arraylib=numpy     : 0.277488   1.78x
 # arraylib=tensorflow: 0.326846  15.86x
 # arraylib=torch     : 0.259070  10.02x
@@ -2403,7 +2404,7 @@ def test_multithreading(tiny_test=False, verbose=False) -> None:
   assert np.allclose(dst1, dst3)
 
 
-if using_numba:
+if using_numba and EFFORT >= 1:
   test_multithreading()
   test_multithreading(tiny_test=True)  # The overhead is very small for numba_threaded:
 # single:104.405 ms  executor: 39.445 ms  numba: 39.770 ms
@@ -3198,9 +3199,10 @@ def experiment_shear_image(degrees=30, show_compare=False, **kwargs) -> None:
   media.show_images(images, height=image.shape[0] * 1)
 
 
-experiment_shear_image(filter='cubic', boundary='constant')  # Small errors in the interior.
-experiment_shear_image(filter='cubic', boundary='reflect')  # Plus large boundary errors.
-experiment_shear_image(filter='cubic', boundary='reflect', show_compare=True)
+if EFFORT >= 1:
+  experiment_shear_image(filter='cubic', boundary='constant')  # Small errors in the interior.
+  experiment_shear_image(filter='cubic', boundary='reflect')  # Plus large boundary errors.
+  experiment_shear_image(filter='cubic', boundary='reflect', show_compare=True)
 
 # %% [markdown]
 # ## Gradient backpropagation
@@ -3903,7 +3905,8 @@ def visualize_cardinal_bsplines() -> None:
   visualize_filter_frequency_response(filters)
 
 
-visualize_cardinal_bsplines()
+if EFFORT >= 1:
+  visualize_cardinal_bsplines()
 
 
 # %%
@@ -3916,7 +3919,8 @@ def visualize_kaiser_filter_for_various_beta_values(radius=3.0) -> None:
   visualize_filter_frequency_response(filters)
 
 
-visualize_kaiser_filter_for_various_beta_values()
+if EFFORT >= 1:
+  visualize_kaiser_filter_for_various_beta_values()
 
 
 # %%
@@ -5651,10 +5655,10 @@ visualize_boundary_rules_in_2d()
 # | Library | `ndim` | Array type | Data type | Grid type | Upsample | Antialiased downsample | Boundary rule | Speed | Native code | Grad &nabla; |
 # |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 # | `resampler.resize` | any | `np`, `tf`, `torch`, `jax` | any | dual, primal | any filter | any filter | many | average | none | yes |
-# | `PIL.Image.resize` | 2D | custom | `float32`, `uint8` | dual | up to `'lanczos3'` | good | `'natural'` | average | C | no |
+# | `PIL.Image.resize` | 2D | custom | `float32`, `uint8` | dual | up to `'lanczos3'` | good | `'natural'` | slow | C | no |
 # | `cv.resize` | 2D | custom | `float32` | dual | up to `'lanczos4'` | `'trapezoid'` (AREA) | several | fast | C++ | no |
-# | `scipy.ndimage` | any | `np` | any | dual, primal | cardinal B-splines | aliased &#9785; | several | slow | C | no |
-# | `skimage.transform` | any | `np` | any | dual, primal | cardinal B-splines | Gaussian &#9785; | several | slow | Cython | no |
+# | `scipy.ndimage` | any | `np` | any | dual, primal | cardinal B-splines | aliased &#9785; | several | very slow | C | no |
+# | `skimage.transform` | any | `np` | any | dual, primal | cardinal B-splines | Gaussian &#9785; | several | very slow | Cython | no |
 # | `tf.image.resize` | 2D | `tf` | `float32` | dual | up to `'lanczos5'` | good | `'natural'` | average | C++ | yes |
 # | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `'trapezoid'`, `'triangle'`, `'cubic'` | `'natural'` | average | C++ | yes |
 # | `jax.image.resize` | any | `jax` | `float`, `complex` | dual | up to `'lanczos5'` | good but no `'trapezoid'` | `'natural'` | average | none | yes |
@@ -6012,51 +6016,59 @@ hh.show_notebook_cell_top_times()
 
 # %%
 # EFFORT=0
-# Total time: 9.81 s
-# In[240] def visualize_prefiltering_a_discontinuity_in_1D(size=400,   0.737 s
-# In[202] def experiment_plot_psnr_for_num_rotations(filter='lanczos5  0.711 s
-# In[223] def visualize_cardinal_bsplines() -> None:\n  visualize_     0.652 s
+# Total time: 15.08 s
+# In[ 39] hh.pdoc_help(resampler.resize)\nmedia.set_max_output_        3.358 s
+# In[181] def visualize_prefiltering_a_discontinuity_in_1D(size=400,   1.018 s
+# In[ 16] _URL_BASE = 'https://github.com/hhoppe/data/raw/main'        0.843 s
 
 # EFFORT=1
-# Total time: 126.37 s
-# In[253] if EFFORT >= 1:\n  run_lint('resampler_notebook.py')        38.567 s
-# In[254] if EFFORT >= 1:\n  run_lint('resampler/__init__.py',        23.998 s
-# In[134] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2)  5.386 s
-# In[182] def test_profile_downsampling(shape, new_shape, filter='     3.693 s
-# In[250] def run_spell_check(filename: str, commit_new_words: bool =  3.677 s
-# In[240] def experiment_compare_downsampling_with_other_libraries(    3.602 s
-# In[239] def experiment_compare_upsampling_with_other_libraries(      3.170 s
-# In[226] def test_inverse_convolution_2d(  # pylinX: disable=too-     2.676 s
-# In[224] def experiment_with_convolution() -> None:  # pylinX:        2.502 s
-# In[191] def experiment_zoom_image(original_image, num_frames=60) ->  2.370 s
-# In[202] if EFFORT >= 1:\n  visualize_filters(_DICT_FILTERS)          2.222 s
-# In[222] def visualize_prefiltering_as_scale_is_varied(\n    shape=(  2.048 s
+# Total time: 98.59 s
+# In[203] def experiment_compare_downsampling_with_other_libraries(    6.207 s
+# In[201] def experiment_compare_upsampling_with_other_libraries(      4.948 s
+# In[127] def test_profile_downsampling(\n    shape, new_shape,        4.888 s
+# In[144] def experiment_shear_image(degrees=30, show_compare=False,   3.774 s
+# In[130] if EFFORT >= 1:\n  test_profile_upsampling((1024, 1024, 1),  3.723 s
+# In[141] def experiment_zoom_image(original_image, num_frames=60) ->  3.718 s
+# In[159] if EFFORT >= 1:\n  visualize_filters({f"\'{name}\'":         3.713 s
+# In[ 39] hh.pdoc_help(resampler.resize)\nmedia.set_max_output_        3.563 s
+# In[187] def test_inverse_convolution_2d(\n    gridscale=2.0,         3.205 s
+# In[183] def visualize_prefiltering_as_scale_is_varied(\n    shape=(  2.845 s
+# In[185] def experiment_with_convolution() -> None:\n  # https://     2.696 s
+# In[180] def get_text_image(shape=(200,) * 2) -> _NDArray:\n  image   2.689 s
+# In[168] def compare_boundary_rules_on_cropped_windows_of_images(\n   2.613 s
+# In[114] # This analysis is only for 1D resize; it fails to account   2.557 s
+# In[ 83] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2)  2.539 s
+# In[161] if EFFORT >= 1:\n  visualize_filter_frequency_response(\n    2.285 s
+# In[145] def test_tensorflow_optimize_image_for_desired_upsampling(   2.216 s
+# In[148] def test_jax_optimize_image_for_desired_upsampling(\n        2.060 s
+# In[108] def test_jax_image_resize() -> None:\n  at_boundaries = [    1.716 s
+# In[ 66] def test_that_resize_matrices_are_equal_across_arraylib() -  1.709 s
 
-# EFFORT=2:
-# Total time: 647.77 s
-# In[138] def experiment_find_the_best_max_block_size(src_size=64,    196.382 s
-# In[ 98] def test_best_dimension_ordering_for_resize_timing(dtype=   165.904 s
-# In[145] def compare_boundary_rules_on_cropped_windows_of_images(\n  92.452 s
-# In[ 99] def experiment_with_resize_timing() -> None:\n\n  def run(  67.719 s
-# In[101] def test_profile_downsampling(shape, new_shape, filter='    28.924 s
-# In[ 75] def test_gamma_conversion_from_and_to_uint8_timings() ->    23.645 s
-# In[109] def experiment_with_convolution() -> None:  # pylinX:       14.962 s
-# In[124] def test_profile_resample() -> None:\n  def run(src_shape,   8.767 s
-# In[100] def test_compare_timing_of_resize_and_media_show_image() ->  4.752 s
-# In[102] def test_profile_upsampling(shape, new_shape, filter='       4.579 s
-# In[162] def test_inverse_convolution_2d(  # pylinX: disable=too-     4.233 s
-# In[118] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2)  3.671 s
-# In[184] def experiment_compare_upsampling_with_other_libraries(      2.590 s
-# In[140] # Export library: omit.\nvisualize_filters(FILTERS)          2.125 s
-# In[ 44] def test_cached_sampling_of_1d_function(radius=2.0) ->       1.821 s
-# In[169] def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:   1.776 s
-# In[156] def experiment_visualize_gamma_upsample_video(shape=(24, 48  1.743 s
-# In[ 47] def test_downsample_in_2d_using_box_filter() -> None:\n      1.575 s
-# In[ 51] def experiment_preload_arraylibs_for_accurate_timings() ->   1.528 s
-# In[157] def _get_pil_font(font_size: int, font_name: str = 'cmr10')  1.459 s
+# EFFORT=2
+# Total time: 998.51 s
+# In[156] def experiment_find_the_best_max_block_size(src_size=64,    310.206 s
+# In[168] def compare_boundary_rules_on_cropped_windows_of_images(\n  139.930 s
+# In[124] def test_best_dimension_ordering_for_resize_timing(dtype=   124.525 s
+# In[125] def experiment_with_resize_timing() -> None:\n  def run(    97.485 s
+# In[127] def test_profile_downsampling(\n    shape, new_shape,       60.355 s
+# In[208] def run_lint() -> None:\n  """Run checks on *.py notebook   47.285 s
+# In[123] def test_gamma_conversion_from_and_to_uint8_timings() ->    36.410 s
+# In[ 83] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2) 19.207 s
+# In[132] if EFFORT >= 2:\n  test_profile_upsampling((1024, 1024, 3), 18.416 s
+# In[185] def experiment_with_convolution() -> None:\n  # https://    15.975 s
+# In[203] def experiment_compare_downsampling_with_other_libraries(   10.548 s
+# In[187] def test_inverse_convolution_2d(\n    gridscale=2.0,         9.301 s
+# In[ 53] def test_profile_resample() -> None:\n  def run(src_shape,   6.527 s
+# In[ 57] def test_downsample_in_2d_using_box_filter() -> None:\n      5.268 s
+# In[126] def test_compare_timing_of_resize_and_media_show_image() ->  4.990 s
+# In[201] def experiment_compare_upsampling_with_other_libraries(      4.759 s
+# In[159] if EFFORT >= 1:\n  visualize_filters({f"\'{name}\'":         4.359 s
+# In[130] if EFFORT >= 1:\n  test_profile_upsampling((1024, 1024, 1),  4.175 s
+# In[141] def experiment_zoom_image(original_image, num_frames=60) ->  3.709 s
+# In[179] def experiment_visualize_gamma_upsample_video(shape=(24, 48  3.610 s
 
 # EFFORT=3
-# Total time: 668.15 s
+
 
 # %% [markdown]
 # # End
