@@ -634,14 +634,13 @@ if EFFORT >= 1:
 
 # %%
 # TODO:
-# - Compare trapezoid with opencv resize INTER_AREA.
 # - instead use default prefilter='trapezoid'.
-#   but then even more discontinuous at transition from minification to magnification?
+#   but then even more discontinuous at transition from minification to magnification?  Not really.
 # - Optimize the case of an affine map:
 #   convolve the source grid with a prefilter using FFT (if any dim is downsampling),
 #   then proceed as before.  Slow!
 # - For an affine map, create an anisotropic footprint of destination within the source domain.
-#   Use jacobian and prefilter in resample().
+# - Use jacobian and prefilter in resample().
 # - Is lightness-space upsampling justified using experiments on natural images?
 #   (is linear-space downsampling justified using such experiments? it should be obvious.)
 # - Try [gpu].
@@ -3819,7 +3818,7 @@ def visualize_filter_frequency_response(filters: Mapping[str, resampler.Filter])
     high_freq_gain = power_db[(0.5 < freq) & (freq < 1.0)].mean()
 
     ax.plot(freq, power_db)
-    ax.set(title=name, xlabel='Normalized frequency', ylabel='Gain (dB)')
+    ax.set(title=name, xlabel='Normalized frequency (cycles/sample)', ylabel='Gain (dB)')
     ax.set(xlim=[0.0, 2.0], ylim=[-80, 8])
     ax.grid(True, lw=0.3)
     params1 = dict(colors='gray', ls='dotted', lw=2, color='green')
@@ -3864,10 +3863,10 @@ if EFFORT >= 1:
 # 1. Small loss (high gain) below the Nyquist frequency (0.5), to maximize sharpness.
 # 2. Strong attenuation (low gain) above the Nyquist frequency (0.5), to minimize aliasing.
 #
-# Correspondingly, in the plots above, we measure the average dB gain in the frequency ranges $[0.0, 0.5]$ and $[0.5, 1.0]$.
+# Correspondingly, in the power spectrum plots above, we measure the average dB gain in the frequency ranges $[0.0, 0.5]$ and $[0.5, 1.0]$.
 #
-# These averages are computed in the space of dB values and are obtained using integrals over frequency.
-# (Alternatives would have been to average the magnitude directly and/or to integrate over log frequency.)
+# These averages are computed in the space of power dB values and are obtained using integrals over frequency.
+# (Alternatives would have been to average the amplitudes (or squared amplitudes) and/or to integrate over log frequency.)
 # These current measurements ignore aliasing due to frequencies above 1.0.
 
 # %%
@@ -5646,8 +5645,6 @@ visualize_boundary_rules_in_2d()
 #  mode='constant'  # or 'edge', 'linear_ramp', 'maximum', 'mean', 'median',
 #                   #   'minimum', 'reflect', 'symmetric', 'warp', 'empty'.
 #  reflect_type='even'  # or 'odd'; for 'reflect' and 'symmetric'.
-
-# TODO: Compare with my results and verify the assumptions on the parameters.
 
 # %% [markdown]
 # <font size="+1">**Comparison table for `resize` operation:**</font>

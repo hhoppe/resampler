@@ -2629,7 +2629,9 @@ def resize(
       name in `FILTERS` or a `Filter` instance.  It is used during upsampling (i.e., magnification).
     prefilter: The prefilter kernel for each dimension in `shape`, specified as either a filter
       name in `FILTERS` or a `Filter` instance.  It is used during downsampling
-      (i.e., minification).  If `None`, it inherits the value of `filter`.
+      (i.e., minification).  If `None`, it inherits the value of `filter`.  The default
+      `'lanczos3'` is good for natural images.  For vector graphics images, `'trapezoid'` is better
+      because it avoids ringing artifacts.
     gamma: Component transfer functions (e.g., gamma correction) applied when reading samples from
       `array` and when creating output grid samples.  It is specified as either a name in `GAMMAS`
       or a `Gamma` instance.  If both `array.dtype` and `dtype` are `uint`, the default is
