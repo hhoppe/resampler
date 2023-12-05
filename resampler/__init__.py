@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.8.1'
+__version__ = '0.8.2'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -1529,7 +1529,7 @@ BOUNDARIES = list(_DICT_BOUNDARIES)
 | `'tile'`               | like `'reflect'` within unit domain, then tile discontinuously |
 | `'clamp'`              | *clamped*, *nearest*, *edge*, *clamp-to-edge*, repeat last sample |
 | `'border'`             | *grid-constant*, use `cval` for samples outside unit domain |
-| `'natural'`            | *renormalize*, ignore samples outside unit domain |
+| `'natural'`            | *renormalize* using only interior samples, use `cval` outside domain |
 | `'reflect_clamp'`      | *mirror-clamp-to-edge* |
 | `'constant'`           | like `'reflect'` but replace by `cval` outside unit domain |
 | `'linear'`             | extrapolate from 2 last samples |
@@ -2884,7 +2884,7 @@ def uniform_resize(
     gridtype: str | Gridtype | None = None,
     src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
     dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
-    boundary: str | Boundary | Iterable[str | Boundary] = 'border',  # Instead of 'auto' default.
+    boundary: str | Boundary | Iterable[str | Boundary] = 'natural',  # Instead of 'auto' default.
     scale: float | Iterable[float] = 1.0,
     translate: float | Iterable[float] = 0.0,
     **kwargs: Any,
@@ -2893,8 +2893,8 @@ def uniform_resize(
 
   Calls function `resize` with `scale` and `translate` set such that the aspect ratio of `array`
   is preserved.  The effect is similar to CSS `object-fit: contain`.
-  The parameter `boundary` (whose default is changed to `'border'`) determines the values assigned
-  to the non-covered grid samples.
+  The parameter `boundary` (whose default is changed to `'natural'`) determines the values assigned
+  outside the source domain.
 
   Args:
     array: Regular grid of source sample values.
@@ -2906,11 +2906,11 @@ def uniform_resize(
     src_gridtype: Placement of the samples in the source domain grid for each dimension.
     dst_gridtype: Placement of the samples in the output domain grid for each dimension.
     boundary: The reconstruction boundary rule for each dimension in `shape`, specified as either
-      a name in `BOUNDARIES` or a `Boundary` instance.  The default is `'border'`, which assigns
-      `cval` to any non-covered samples of `shape`.
+      a name in `BOUNDARIES` or a `Boundary` instance.  The default is `'natural'`, which assigns
+      `cval` to output points that map outside the source unit domain.
     scale: Parameter may not be specified.
     translate: Parameter may not be specified.
-    **kwargs: Additional parameters for `resize` function.
+    **kwargs: Additional parameters for `resize` function (including `cval`).
 
   Returns:
     An array with shape `shape + array.shape[len(shape):]`.
@@ -3480,27 +3480,41 @@ def rotate_image_about_center(
   return image
 
 
-def pil_image_resize(array: _ArrayLike, /, shape: Iterable[int], *, filter: str) -> _NDArray:
+def pil_image_resize(
+    array: _ArrayLike,
+    /,
+    shape: Iterable[int],
+    *,
+    filter: str,
+    boundary: str = 'natural',
+    cval: float = 0.0,
+) -> _NDArray:
   """Invoke `PIL.Image.resize` using the same parameters as `resize`."""
   import PIL.Image
 
+  if boundary != 'natural':
+    raise ValueError(f"{boundary=} must equal 'natural'.")
+  del cval
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
   assert np.issubdtype(array.dtype, np.floating)
   shape = tuple(shape)
   _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
-    return pil_image_resize(array[None], (1, *shape), filter=filter)
+    return pil_image_resize(array[None], (1, *shape), filter=filter)[0]
   if not hasattr(PIL.Image, 'Resampling'):  # Pillow<9.0
     PIL.Image.Resampling = PIL.Image
-  pil_resample = {
+  filters = {
       'impulse': PIL.Image.Resampling.NEAREST,
       'box': PIL.Image.Resampling.BOX,
       'triangle': PIL.Image.Resampling.BILINEAR,
       'hamming1': PIL.Image.Resampling.HAMMING,
       'cubic': PIL.Image.Resampling.BICUBIC,
       'lanczos3': PIL.Image.Resampling.LANCZOS,
-  }[filter]
+  }
+  if filter not in filters:
+    raise ValueError(f'{filter=} not in {filters=}.')
+  pil_resample = filters[filter]
   if array.ndim == 2:
     return np.array(
         PIL.Image.fromarray(array).resize(shape[::-1], resample=pil_resample), array.dtype
@@ -3512,23 +3526,37 @@ def pil_image_resize(array: _ArrayLike, /, shape: Iterable[int], *, filter: str)
   return np.dstack(stack)
 
 
-def cv_resize(array: _ArrayLike, /, shape: Iterable[int], *, filter: str) -> _NDArray:
+def cv_resize(
+    array: _ArrayLike,
+    /,
+    shape: Iterable[int],
+    *,
+    filter: str,
+    boundary: str = 'clamp',
+    cval: float = 0.0,
+) -> _NDArray:
   """Invoke `cv.resize` using the same parameters as `resize`."""
   import cv2 as cv
 
+  if boundary != 'clamp':
+    raise ValueError(f"{boundary=} must equal 'clamp'.")
+  del cval
   array = np.asarray(array)
   assert 1 <= array.ndim <= 3
   shape = tuple(shape)
   _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
     return cv_resize(array[None], (1, *shape), filter=filter)[0]
-  interpolation = {
+  filters = {
       'impulse': cv.INTER_NEAREST,  # Or consider cv.INTER_NEAREST_EXACT.
       'triangle': cv.INTER_LINEAR_EXACT,  # Or just cv.INTER_LINEAR.
       'trapezoid': cv.INTER_AREA,
       'sharpcubic': cv.INTER_CUBIC,
       'lanczos4': cv.INTER_LANCZOS4,
-  }[filter]
+  }
+  if filter not in filters:
+    raise ValueError(f'{filter=} not in {filters=}.')
+  interpolation = filters[filter]
   result = cv.resize(array, shape[::-1], interpolation=interpolation)
   if array.ndim == 3 and result.ndim == 2:
     assert array.shape[2] == 1
@@ -3544,23 +3572,27 @@ def scipy_ndimage_resize(
     filter: str,
     boundary: str = 'reflect',
     cval: float = 0.0,
+    scale: float | Iterable[float] = 1.0,
+    translate: float | Iterable[float] = 0.0,
 ) -> _NDArray:
   """Invoke `scipy.ndimage.map_coordinates` using the same parameters as `resize`."""
   array = np.asarray(array)
   shape = tuple(shape)
   assert 1 <= len(shape) <= array.ndim
-  order = {'box': 0, 'triangle': 1, 'cardinal2': 2, 'cardinal3': 3, 'cardinal4': 4, 'cardinal5': 5}[
-      filter
-  ]
-  mode = {'reflect': 'reflect', 'wrap': 'grid-wrap', 'clamp': 'nearest', 'border': 'constant'}[
-      boundary
-  ]
+  filters = {'box': 0, 'triangle': 1} | {f'cardinal{i}': i for i in range(2, 6)}
+  if filter not in filters:
+    raise ValueError(f'{filter=} not in {filters=}.')
+  order = filters[filter]
+  boundaries = {'reflect': 'reflect', 'wrap': 'grid-wrap', 'clamp': 'nearest', 'border': 'constant'}
+  if boundary not in boundaries:
+    raise ValueError(f'{boundary=} not in {boundaries=}.')
+  mode = boundaries[boundary]
   shape_all = shape + array.shape[len(shape) :]
-  # We could introduce scale and translate parameters.
-  gridscale = np.array(
-      [array.shape[dim] / shape[dim] if dim < len(shape) else 1.0 for dim in range(len(shape_all))]
-  )
-  coords = ((np.indices(shape_all).T + 0.5) * gridscale - 0.5).T
+  coords = np.moveaxis(np.indices(shape_all, array.dtype), 0, -1)
+  coords[..., : len(shape)] = (
+      (coords[..., : len(shape)] + 0.5) / shape - translate
+  ) / scale * np.array(array.shape)[: len(shape)] - 0.5
+  coords = np.moveaxis(coords, -1, 0)
   return scipy.ndimage.map_coordinates(array, coords, order=order, mode=mode, cval=cval)
 
 
@@ -3579,10 +3611,14 @@ def skimage_transform_resize(
   array = np.asarray(array)
   shape = tuple(shape)
   assert 1 <= len(shape) <= array.ndim
-  order = {'box': 0, 'triangle': 1, 'cardinal2': 2, 'cardinal3': 3, 'cardinal4': 4, 'cardinal5': 5}[
-      filter
-  ]
-  mode = {'reflect': 'symmetric', 'wrap': 'wrap', 'clamp': 'edge', 'border': 'constant'}[boundary]
+  filters = {'box': 0, 'triangle': 1} | {f'cardinal{i}': i for i in range(2, 6)}
+  if filter not in filters:
+    raise ValueError(f'{filter=} not in {filters=}.')
+  order = filters[filter]
+  boundaries = {'reflect': 'symmetric', 'wrap': 'wrap', 'clamp': 'edge', 'border': 'constant'}
+  if boundary not in boundaries:
+    raise ValueError(f'{boundary=} not in {boundaries=}.')
+  mode = boundaries[boundary]
   shape_all = shape + array.shape[len(shape) :]
   # Default anti_aliasing=None automatically enables (poor) Gaussian prefilter if downsampling.
   return skimage.transform.resize(array, shape_all, order=order, mode=mode, cval=cval, clip=False)
@@ -3601,11 +3637,23 @@ _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
 
 
 def tf_image_resize(
-    array: _ArrayLike, /, shape: Iterable[int], *, filter: str, antialias: bool = True
+    array: _ArrayLike,
+    /,
+    shape: Iterable[int],
+    *,
+    filter: str,
+    boundary: str = 'natural',
+    cval: float = 0.0,
+    antialias: bool = True,
 ) -> _TensorflowTensor:
   """Invoke `tf.image.resize` using the same parameters as `resize`."""
   import tensorflow as tf
 
+  if filter not in _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER:
+    raise ValueError(f'{filter=} not in {_TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER=}.')
+  if boundary != 'natural':
+    raise ValueError(f"{boundary=} must equal 'natural'.")
+  del cval
   array2 = tf.convert_to_tensor(array)
   ndim = len(array2.shape)
   del array
@@ -3629,11 +3677,23 @@ _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
 
 
 def torch_nn_resize(
-    array: _ArrayLike, /, shape: Iterable[int], *, filter: str, antialias: bool = False
+    array: _ArrayLike,
+    /,
+    shape: Iterable[int],
+    *,
+    filter: str,
+    boundary: str = 'clamp',
+    cval: float = 0.0,
+    antialias: bool = False,
 ) -> _TorchTensor:
   """Invoke `torch.nn.functional.interpolate` using the same parameters as `resize`."""
   import torch
 
+  if filter not in _TORCH_INTERPOLATE_MODE_FROM_FILTER:
+    raise ValueError(f'{filter=} not in {_TORCH_INTERPOLATE_MODE_FROM_FILTER=}.')
+  if boundary != 'clamp':
+    raise ValueError(f"{boundary=} must equal 'clamp'.")
+  del cval
   a = torch.as_tensor(array)
   del array
   assert 1 <= a.ndim <= 3
@@ -3662,6 +3722,8 @@ def jax_image_resize(
     shape: Iterable[int],
     *,
     filter: str,
+    boundary: str = 'natural',
+    cval: float = 0.0,
     scale: float | Iterable[float] = 1.0,
     translate: float | Iterable[float] = 0.0,
 ) -> _JaxArray:
@@ -3669,7 +3731,17 @@ def jax_image_resize(
   import jax.image
   import jax.numpy as jnp
 
-  assert filter in 'triangle cubic lanczos3 lanczos5'.split(), filter
+  filters = 'triangle cubic lanczos3 lanczos5'.split()
+  if filter not in filters:
+    raise ValueError(f'{filter=} not in {filters=}.')
+  if boundary != 'natural':
+    raise ValueError(f"{boundary=} must equal 'natural'.")
+  # When `scale` or `translate` are applied, any region outside the unit domain is assigned value 0.
+  # To be consistent, the parameter `cval` must be zero.
+  if scale != 1.0 and cval != 0.0:
+    raise ValueError(f'Non-unity {scale=} requires that {cval=} be zero.')
+  if translate != 0.0 and cval != 0.0:
+    raise ValueError(f'Nonzero {translate=} requires that {cval=} be zero.')
   array2 = jnp.asarray(array)
   del array
   shape = tuple(shape)

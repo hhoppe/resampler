@@ -317,7 +317,9 @@ import collections
 from collections.abc import Callable, Iterable, Mapping, Sequence
 import concurrent.futures
 import copy
+import dataclasses
 import functools
+import heapq
 import itertools
 import math
 import os
@@ -508,13 +510,16 @@ assert math.isclose(get_psnr(0.2, 0.3), 20.0)
 # %%
 def get_ssim(image1: _NDArray, image2: _NDArray) -> float:
   """Return the structural similarity metric [0.0, 1.0] between two images."""
+  _check_eq(image1.shape, image2.shape)
   assert np.issubdtype(image1.dtype, np.floating)
   assert np.issubdtype(image2.dtype, np.floating)
   if 1:
-    kwargs = dict(data_range=1.0, gaussian_weights=True, sigma=1.5, use_sample_covariance=False)
-    # Infers win_size=11.
     func = skimage.metrics.structural_similarity
-    return float(func(image1, image2, channel_axis=2, **kwargs))  # type: ignore[no-untyped-call]
+    kwargs = dict(data_range=1.0, gaussian_weights=True, sigma=1.5, use_sample_covariance=False)
+    if image1.ndim == 3:
+      kwargs |= dict(channel_axis=2)
+    # Infers win_size=11.
+    return float(func(image1, image2, **kwargs))  # type: ignore[no-untyped-call]
 
   # Identical result but ~10x slower.  Default filter_size=11, filter_sigma=1.5.
   return float(tf.image.ssim(image1, image2, max_val=1.0))
@@ -862,7 +867,7 @@ hh.pdoc_help(resampler.resize_in_arraylib)
 hh.pdoc_help(resampler.jaxjit_resize)
 
 # %%
-# display_markdown(resampler.resize.__doc__)  # It does not show parameter types and defaults.
+# display_markdown(resampler.resize.__doc__)  # It omits the function parameters and defaults.
 
 # %%
 if 0:  # For testing.
@@ -974,18 +979,18 @@ def test_profile_resample() -> None:
 if EFFORT >= 2:
   test_profile_resample()
 # The bottleneck is the memory gather:
-# Prun: tottime    3.186 overall_cumtime
-#         1.864    2.816 resample (/tmp/ipykernel:1)
-#         0.412    0.841 numpy.core._multiarray_umath.implement_array_function (built-in)
-#         0.331    0.331 numpy.core._multiarray_umath.c_einsum (built-in)
-#         0.178    0.245 interpolate_using_cached_samples (/tmp/ipykernel:20)
-#         0.133    0.133 numpy.ufunc.reduce
-# Prun: tottime    2.900 overall_cumtime
-#         1.886    2.863 resample (/tmp/ipykernel:1)
-#         0.349    0.349 numpy.core._multiarray_umath.c_einsum (built-in)
-#         0.180    0.247 interpolate_using_cached_samples (/tmp/ipykernel:20)
-#         0.134    0.134 numpy.ufunc.reduce
-#         0.094    0.532 numpy.core._multiarray_umath.implement_array_function (built-in)
+# Prun: tottime    3.441 overall_cumtime
+#         1.694    1.694 getitem (/mnt/c/Users/hhoppe/Dropbox/proj/resampler/resampler/__init__.py:345)
+#         0.398    0.398 numpy.core._multiarray_umath.c_einsum (built-in)
+#         0.361    0.361 ones (numpy/core/numeric.py:136)
+#         0.279    3.007 resample (/mnt/c/Users/hhoppe/Dropbox/proj/resampler/resampler/__init__.py:2956)
+#         0.185    0.247 interpolate_using_cached_samples (/mnt/c/Users/hhoppe/Dropbox/proj/resampler/resampler/__init__.py:158)
+# Prun: tottime    2.986 overall_cumtime
+#         1.659    1.659 getitem (/mnt/c/Users/hhoppe/Dropbox/proj/resampler/resampler/__init__.py:345)
+#         0.384    0.384 numpy.core._multiarray_umath.c_einsum (built-in)
+#         0.280    2.936 resample (/mnt/c/Users/hhoppe/Dropbox/proj/resampler/resampler/__init__.py:2956)
+#         0.182    0.245 interpolate_using_cached_samples (/mnt/c/Users/hhoppe/Dropbox/proj/resampler/resampler/__init__.py:158)
+#         0.128    0.128 numpy.ufunc.reduce
 
 # %%
 if 0:  # For testing.
@@ -1005,10 +1010,8 @@ def test_precision() -> None:
   _check_eq(resampler._real_precision(np.dtype(np.complex64)), np.float32)
   _check_eq(resampler._real_precision(np.dtype(np.complex128)), np.float64)
 
-  _check_eq(
-      resampler._get_precision(None, [np.dtype(np.complex64)], [np.dtype(np.float64)]),
-      np.complex128,
-  )
+  t = resampler._get_precision(None, [np.dtype(np.complex64)], [np.dtype(np.float64)])
+  _check_eq(t, np.complex128)
 
 
 test_precision()
@@ -1110,7 +1113,7 @@ def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
 
 if using_numba:
   test_profile_downsample_in_2d_using_box_filter()
-# 8.9 ms
+# 3.43 ms
 
 
 # %%
@@ -1199,34 +1202,30 @@ def test_linear_boundary() -> None:
   weight = np.array([[1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [0.0], [0.0]])
   size = 2
   index, weight = resampler.LinearExtendSamples()(index, weight, size, resampler.DualGridtype())
-  assert np.allclose(
-      weight,
-      [
-          [0, 4, -3, 0, 0],
-          [0, 3, -2, 0, 0],
-          [0, 2, -1, 0, 0],
-          [1, 0, 0, 0, 0],
-          [1, 0, 0, 0, 0],
-          [0, 0, 0, -1, 2],
-          [0, 0, 0, -2, 3],
-          [0, 0, 0, 0, 0],
-          [0, 0, 0, 0, 0],
-      ],
-  )
-  assert np.all(
-      index
-      == [
-          [0, 0, 1, 0, 0],
-          [0, 0, 1, 0, 0],
-          [0, 0, 1, 0, 0],
-          [0, 0, 0, 0, 0],
-          [1, 1, 1, 1, 1],
-          [1, 1, 1, 0, 1],
-          [1, 1, 1, 0, 1],
-          [1, 1, 1, 1, 1],
-          [1, 1, 1, 1, 1],
-      ]
-  )
+  expected_weight = [
+      [0, 4, -3, 0, 0],
+      [0, 3, -2, 0, 0],
+      [0, 2, -1, 0, 0],
+      [1, 0, 0, 0, 0],
+      [1, 0, 0, 0, 0],
+      [0, 0, 0, -1, 2],
+      [0, 0, 0, -2, 3],
+      [0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0],
+  ]
+  assert np.allclose(weight, expected_weight)
+  expected_index = [
+      [0, 0, 1, 0, 0],
+      [0, 0, 1, 0, 0],
+      [0, 0, 1, 0, 0],
+      [0, 0, 0, 0, 0],
+      [1, 1, 1, 1, 1],
+      [1, 1, 1, 0, 1],
+      [1, 1, 1, 0, 1],
+      [1, 1, 1, 1, 1],
+      [1, 1, 1, 1, 1],
+  ]
+  assert np.all(index == expected_index)
 
 
 test_linear_boundary()
@@ -1280,6 +1279,7 @@ def test_create_resize_matrix_for_trapezoid_filter(src_size, dst_size, debug=Fal
     radius = 0.5 + 0.5 * min(scaling, 1.0 / scaling)
     print(radius)
     filter = resampler.TrapezoidFilter(radius=radius)
+
   resize_matrix, unused_cval_weight = resampler._create_resize_matrix(
       src_size,
       dst_size,
@@ -1359,11 +1359,8 @@ def test_that_resize_combinations_are_affine() -> None:
     )
     if cval_weight is None:
       row_sum = np.asarray(resize_matrix.sum(axis=1)).ravel()
-      assert np.allclose(row_sum, 1.0, rtol=0, atol=1e-6), (
-          config,
-          resize_matrix.todense(),
-          row_sum,
-      )
+      state = config, resize_matrix.todense(), row_sum
+      assert np.allclose(row_sum, 1.0, rtol=0, atol=1e-6), state
 
 
 test_that_resize_combinations_are_affine()
@@ -1383,7 +1380,8 @@ def test_that_very_large_cval_causes_numerical_noise_to_appear(debug: bool = Fal
   if debug:
     print(diff)  # [8.8817842e-16 0.0000000e+00 8.8817842e-16]
   assert 1e-17 < abs(diff).max() < 1e-15
-  # Note that setting cval=1e20 will cause this numerical noise to appear!
+  # The observation is that this small but nonzero error (non-affinity) due to numerical noise
+  # becomes greatly amplified if we were to set cval=1e20.
 
 
 test_that_very_large_cval_causes_numerical_noise_to_appear()
@@ -1621,15 +1619,12 @@ test_identity_resampling_with_many_boundary_rules(resampler.LanczosFilter(radius
 
 # %%
 def test_resample_scenario1() -> None:
-  # Resample a grayscale image with `array.shape = height, width` onto a new grayscale image
-  # with `new.shape = height2, width2` by using `coords.shape = height2, width2, 2`.
+  """Resample a grayscale image with `array.shape = height, width` onto a new grayscale image
+  with `new.shape = height2, width2` by using `coords.shape = height2, width2, 2`."""
   array = [[25, 75], [25, 75]]
   coords = (np.moveaxis(np.indices((4, 4)), 0, -1) + 0.5) / 4
   new = resampler.resample(array, coords, filter='triangle')
   assert np.allclose(new, [[25, 38, 63, 75]] * 4)
-
-
-test_resample_scenario1()
 
 
 def test_resample_scenario2() -> None:
@@ -1641,9 +1636,6 @@ def test_resample_scenario2() -> None:
   assert np.allclose(new, [[[25, 125, 225], [38, 138, 238], [63, 163, 263], [75, 175, 275]]] * 4)
 
 
-test_resample_scenario2()
-
-
 def test_resample_scenario3() -> None:
   """Sample an RGB image at `num` 2D points along a line segment by using
   `coords.shape = num, 2`."""
@@ -1653,17 +1645,11 @@ def test_resample_scenario3() -> None:
   assert np.allclose(new, [[10, 10, 10], [55, 23, 14], [94, 31, 31]])
 
 
-test_resample_scenario3()
-
-
 def test_resample_scenario4() -> None:
   """Sample an RGB image at a single 2D point by using `coords.shape = (2,)`."""
   array = [[[10, 10, 10], [100, 10, 10]], [[20, 200, 20], [80, 80, 80]]]  #
   new = resampler.resample(array, (0.25, 0.25))
   assert np.allclose(new, [10, 10, 10])
-
-
-test_resample_scenario4()
 
 
 def test_resample_scenario5() -> None:
@@ -1675,9 +1661,6 @@ def test_resample_scenario5() -> None:
   _check_eq(new.shape, (2, 2, 3, 3))
 
 
-test_resample_scenario5()
-
-
 def test_resample_scenario6() -> None:
   """Map a grayscale image through a color map by using `array.shape = 256, 3` and
   `coords.shape = height, width`."""
@@ -1687,6 +1670,11 @@ def test_resample_scenario6() -> None:
   assert np.allclose(new, [[998, 1060], [1583, 2040]])
 
 
+test_resample_scenario1()
+test_resample_scenario2()
+test_resample_scenario3()
+test_resample_scenario4()
+test_resample_scenario5()
 test_resample_scenario6()
 
 
@@ -1754,9 +1742,8 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
     resampled2 = resampler.resample(array2, coords, **kwargs)
     _check_eq(resampler._arr_arraylib(resized), 'numpy')
     assert resampler._arr_arraylib(resized2) == resampler._arr_arraylib(resampled2) == arraylib
-    assert (
-        resized.dtype == resampler._arr_dtype(resized2) == resampler._arr_dtype(resampled2) == dtype
-    )
+    _arr_dtype = resampler._arr_dtype
+    assert resized.dtype == _arr_dtype(resized2) == _arr_dtype(resampled2) == dtype
     assert np.allclose(resized2, resized, rtol=0, atol=atol), config
     assert np.allclose(resampled2, resized, rtol=0, atol=atol), config
 
@@ -1822,14 +1809,8 @@ def test_resize_using_resample(shape=(3, 2, 5), new_shape=(4, 2, 7), step=37) ->
   configs = itertools.product(*sequences)  # len(configs) = math.prod([2, 12, 19, 2]) = 912.
   for config in itertools.islice(configs, 0, None, step):
     gridtype, boundary, filter, gamma = config
-    kwargs = dict(
-        gridtype=gridtype,
-        boundary=boundary,
-        filter=filter,
-        gamma=gamma,
-        scale=scale,
-        translate=translate,
-    )
+    kwargs = dict(gridtype=gridtype, boundary=boundary, filter=filter)
+    kwargs |= dict(gamma=gamma, scale=scale, translate=translate)
     expected = resampler._original_resize(array, new_shape, **kwargs)
     new_array = resampler._resize_using_resample(array, new_shape, **kwargs)
     assert np.allclose(new_array, expected, rtol=0, atol=1e-7), config
@@ -1939,8 +1920,8 @@ if EFFORT >= 1:
 # https://docs.opencv.org/3.4/da/d54/group__imgproc__transform.html
 # https://docs.opencv.org/master/da/d6e/tutorial_py_geometric_transformations.html
 # https://github.com/opencv/opencv/blob/master/modules/imgproc/src/resize.cpp
-#  mode=cv.INTER_LINEAR  # or NEAREST, AREA, CUBIC, LANCZOS4 (r=4).
-# boundary: BORDER_REFLECT_101!  # or REFLECT, WRAP, REPLICATE, CONSTANT, TRANSPARENT, ISOLATED
+# mode=cv.INTER_LINEAR  # or NEAREST, AREA, CUBIC, LANCZOS4 (r=4).
+# Boundary is found empirically to be 'clamp'.
 # The CUBIC is sharpcubic.
 # Only 2D domain.
 # Only good downsampling prefilter is AREA, which is not too bad.
@@ -1959,20 +1940,9 @@ def test_cv_resize() -> None:
     original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
     result = resampler.cv_resize(original, shape, filter=filter)
-    filter2: str | resampler.Filter = (
-        resampler.LanczosFilter(radius=4) if filter == 'lanczos4' else filter
-    )
-    reference = resampler.resize(original, shape, filter=filter2, boundary='natural')
-    # Many discrepancies; perhaps due to different renormalization of weights at boundaries.
-    atol = (
-        0.15
-        if at_boundary
-        else 1e-2
-        if filter == 'lanczos4'
-        else 3e-6
-        if gridscale not in (2.0, 1.0, 0.5)
-        else 2e-7
-    )
+    filter2: Any = resampler.LanczosFilter(radius=4) if filter == 'lanczos4' else filter
+    reference = resampler.resize(original, shape, filter=filter2, boundary='clamp')
+    atol = 5e-6 if filter == 'lanczos4' else 2e-7
     assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
 
 
@@ -1980,7 +1950,7 @@ test_cv_resize()
 
 
 # %%
-def test_sharper_cubic_filter_in_opencv() -> None:
+def test_sharper_cubic_filter_in_opencv(debug=False) -> None:
   """Confirm that the OpenCV "cubic" is in fact the 'sharpcubic' filter."""
   # https://github.com/opencv/opencv/blob/master/modules/imgproc/src/resize.cpp#L908
   # const float A = -0.75f;
@@ -1988,7 +1958,7 @@ def test_sharper_cubic_filter_in_opencv() -> None:
   new_len = len(array) * 2
   reference = resampler.resize(array, (new_len,), filter='sharpcubic')
   new_array = resampler.cv_resize(array, (new_len,), filter='sharpcubic')
-  if 0:
+  if debug:
     with np.printoptions(linewidth=300):
       print(np.vstack([reference, new_array]))
   assert np.allclose(new_array, reference, rtol=0, atol=1e-7)
@@ -2028,7 +1998,7 @@ def test_scipy_ndimage_resize() -> None:
     boundary, at_boundary, gridscale, filter = config
     if gridscale < 1.0:
       continue  # Downsampling is aliased because there is no prefilter.
-    if boundary in ['clamp', 'border'] and filter in ['cardinal3', 'cardinal5']:
+    if boundary in ['clamp', 'border'] and filter.startswith('cardinal'):
       continue  # The inverse-convolution prefilter is not well-defined in these cases.
     if boundary in ['border'] and filter in ['box', 'triangle']:
       continue  # It produces seemingly incorrect results.
@@ -2068,7 +2038,7 @@ def test_skimage_transform_resize() -> None:
     boundary, at_boundary, gridscale, filter = config
     if gridscale < 1.0:
       continue  # Downsampling is poor due to the Gaussian prefilter.
-    if boundary in ['clamp', 'border'] and filter in ['cardinal3', 'cardinal5']:
+    if boundary in ['clamp', 'border'] and filter.startswith('cardinal'):
       continue  # The inverse-convolution prefilter is not well-defined in these cases.
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, np.float32)
@@ -2096,7 +2066,7 @@ test_skimage_transform_resize()
 
 
 # %%
-def test_tf_image_resize() -> None:
+def test_tf_image_resize(debug=False) -> None:
   # https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/image/resize_area_op.cc
   original_shape = 32, 32, 1
   array = np.random.default_rng(0).random(original_shape)
@@ -2115,7 +2085,8 @@ def test_tf_image_resize() -> None:
     # atol=4e-6 works most of the time, but fails intermittently, likely due to parallelism.
     assert np.allclose(tfi_result, reference, rtol=0, atol=1e-5), config
     rms = np.sqrt(np.mean(np.square(tfi_result - reference)))
-    # print(f'{filter:10} {antialias=:1}  {rms=:.2e}')
+    if debug:
+      print(f'{filter:10} {antialias=:1}  {rms=:.2e}')
     assert rms < 1e-6, (config, rms)
 
 
@@ -2132,7 +2103,7 @@ if EFFORT >= 1:
 # It does not apply prefiltering/antialiasing when downsampling:
 #  mode='nearest'  # or 'bilinear', 'bicubic' (sharpcubic), 'area'.
 #  Domain may be 1D, 2D, or 3D.
-#  Boundary rule is undocumented.
+#  Boundary rule found empirically to be 'clamp'.
 #  Dual grid using align_corners=False.
 # https://github.com/pytorch/vision/issues/2950#issuecomment-811787820.
 
@@ -2147,16 +2118,13 @@ def test_torch_nn_resize() -> None:
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, np.float32)
     if gridscale not in (2.0, 1.0, 0.5):
-      continue  # torch.nn code misbehaves for fractional gridscales.
-    if filter == 'impulse' and gridscale < 1.0:
-      continue  # Alignment of impulse looks incorrect.
+      continue  # torch.nn code misbehaves for non-power-of-two gridscales.
     if filter in ['triangle', 'sharpcubic'] and gridscale < 1.0:
       continue  # torch.nn code misbehaves; align_corners=False malfunctions for gridscale < 1.
     shape = (int(original.shape[0] * gridscale),)
     result = resampler.torch_nn_resize(original, shape, filter=filter).numpy()
-    reference = resampler.resize(original, shape, filter=filter, boundary='natural')
-    atol = 7e-2 if at_boundary else 0.0  # The boundary behavior is unexpected.
-    assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
+    reference = resampler.resize(original, shape, filter=filter, boundary='clamp')
+    assert np.allclose(result, reference, rtol=0, atol=0), (config, result, reference)
 
 
 test_torch_nn_resize()
@@ -2448,7 +2416,7 @@ if 0:
 
 
 # %%
-def experiment_measure_executor_overhead(task=lambda _: None):
+def experiment_measure_executor_overhead(task=lambda _: None) -> None:
   for num_threads in [24, 12, 6, 1]:
 
     def run_executor():
@@ -2460,7 +2428,7 @@ def experiment_measure_executor_overhead(task=lambda _: None):
     print(f'# {num_threads=:2}  {elapsed_time * 1000:4.2f} ms')
 
 
-if 0:
+if EFFORT >= 2:
   experiment_measure_executor_overhead()
   # num_threads=24  1.11 ms
   # num_threads=12  0.61 ms
@@ -2845,13 +2813,23 @@ if EFFORT >= 2:
 
 
 # %%
-def experiment_image_uniform_scaling() -> None:
-  source_images = [EXAMPLE_IMAGE[30:-30], EXAMPLE_IMAGE[:, 20:-20]]
-  for image in source_images:
+def experiment_image_uniform_scaling(cval=0.8) -> None:
+  original_image = media.to_float01(EXAMPLE_IMAGE)
+  source_images = [original_image[30:-30], original_image[:, 20:-20]]
+  for row, image in enumerate(source_images):
     images = {f'{image.shape[:2]}': image}
     for shape in [(250, 250), (250, 100), (100, 250), (100, 40), (30, 80)]:
-      images[f'uniform {shape}'] = resampler.uniform_resize(image, shape, cval=0.8)
+      images[f'uniform {shape}'] = resampler.uniform_resize(image, shape, cval=cval)
     media.show_images(images)
+    if 1:
+      fraction_gray = [
+          (abs(image - cval) < 1e-6).all(2).sum() / image.size for image in images.values()
+      ]
+      expected = [
+          [0.000, 0.155, 0.261, 0.080, 0.260, 0.092],
+          [0.000, 0.104, 0.139, 0.240, 0.133, 0.242],
+      ][row]
+      assert np.allclose(fraction_gray, expected, atol=0.001), (row, fraction_gray, expected)
 
 
 experiment_image_uniform_scaling()
@@ -2865,16 +2843,20 @@ experiment_image_uniform_scaling()
 # %%
 def experiment_rotate_image_about_center(scale=1.0) -> None:
   original = EXAMPLE_IMAGE
-  for image in [original, original[20:108]]:
+  for row, image in enumerate([original, original[20:108]]):
     new_shapes = [original.shape[:2], image.shape[:2], (100, 200), (100, 50)]
-    images = {
+    images = {'image': image}
+    images |= {
         f'{i}: {new_shape}': resampler.rotate_image_about_center(
-            image, math.radians(10), new_shape=new_shape, scale=scale, boundary='constant'
+            image, math.radians(10), new_shape=new_shape, scale=scale, boundary='natural'
         )
         for i, new_shape in enumerate(new_shapes)
     }
-    images = {'image': image} | images
     media.show_images(images)
+    if 1:
+      fraction_black = [np.sum(image == [0, 0, 0]) / image.size for image in images.values()]
+      expected = [[0.000, 0.082, 0.082, 0.519, 0.511], [0.001, 0.054, 0.094, 0.321, 0.492]][row]
+      assert np.allclose(fraction_black, expected, atol=0.001), (row, fraction_black, expected)
 
 
 experiment_rotate_image_about_center()
@@ -2910,17 +2892,23 @@ def experiment_compare_successive_rotations(num_rotations=7, gamma='identity') -
   original = media.to_float01(original)  # not linear space
   original_cropped = overwrite_outside_circle(original)
   filters = [f for f in resampler.FILTERS if f not in 'box trapezoid narrowbox'.split()]
+  psnrs = []
   for filter in filters:
     image = resampler.rotate_image_about_center(
         original, math.tau / num_rotations, num_rotations=num_rotations, filter=filter, gamma=gamma
     )
     image = overwrite_outside_circle(image)
     psnr = get_psnr(image, original_cropped)
+    psnrs.append(psnr)
     if 1:
       # image = (image - original_cropped) * 5 + 0.5
       image = np.subtract(image, original_cropped) * 5 + 0.5  # Help mypy.
     images[f"'{filter}': {psnr:.1f} dB"] = image
   media.show_images(images, columns=6, ylabel=f"gamma='{gamma}'", height=original.shape[0] * 2)
+  if gamma == 'identity':
+    expected = [18.3, 21.5, 25.5, 27.0, 29.0, 31.6, 33.4, 28.4, 30.9, 30.3, 31.4]
+    expected += [28.0, 26.8, 21.4, 19.9, 22.3]
+    assert np.allclose(psnrs, expected, atol=0.05), (psnrs, expected)
 
 
 experiment_compare_successive_rotations(gamma='identity')
@@ -2945,6 +2933,9 @@ def experiment_plot_psnr_for_num_rotations(filter='lanczos5') -> None:
     psnrs.append(get_psnr(overwrite_outside_circle(image), overwrite_outside_circle(original)))
   ax.scatter(x, psnrs)
   ax.set(xlim=(2, 14), xlabel='Number of image rotations', ylabel='Reconstruction PSNR (dB)')
+  if filter == 'lanczos5':
+    expected = [31.1, 29.4, 30.2, 28.6, 30.5, 28.3, 28.1, 27.8, 28.8, 27.6, 27.6]
+    assert np.allclose(psnrs, expected, atol=0.05), (psnrs, expected)
 
 
 experiment_plot_psnr_for_num_rotations()
@@ -2967,6 +2958,10 @@ def experiment_visualize_rotation_boundaries(
   images = {'original image': original_image} | images
   assert all(image.dtype == np.uint8 for image in images.values())
   media.show_images(images, height=180, columns=5)
+  if 1:
+    means = [image.mean() for image in images.values()]
+    expected = [123, 123, 123, 123, 114, 26, 26, 26, 26, 113, 26, 82, 111]
+    assert np.allclose(means, expected, 0.5), (means, expected)
 
 
 experiment_visualize_rotation_boundaries()
@@ -2981,15 +2976,19 @@ def experiment_with_boundary_antialiasing(degrees=8, scale=1.5, src_size=64, dst
   images = {}
   for boundary_antialiasing, gamma in [(False, 'power2'), (True, 'power2'), (True, 'identity')]:
     title = f"boundary_antialiasing={boundary_antialiasing} &nbsp; '{gamma}'"
-    boundary = resampler.Boundary(
+    boundary = dataclasses.replace(
+        resampler._get_boundary('natural'),
         override_value=resampler.UnitDomainOverrideExteriorValue(
             boundary_antialiasing=boundary_antialiasing
-        )
+        ),
     )
     images[title] = resampler.resample_affine(
-        original_image, (dst_size,) * 2, matrix[:-1], boundary=boundary, gamma=gamma
+        original_image, (dst_size,) * 2, matrix[:-1], boundary=boundary, gamma=gamma, cval=0.0
     )[:80]
   media.show_images(images, height=160)
+  if 1:
+    t = list(images.values())
+    assert np.allclose([get_psnr(t[0], t[1]), get_psnr(t[0], t[2])], [30.5, 31.3], atol=0.05)
 
 
 experiment_with_boundary_antialiasing()
@@ -3166,9 +3165,11 @@ if EFFORT >= 1:
 
 
 # %%
-def experiment_shear_image(degrees=30, show_compare=False, **kwargs) -> None:
+def experiment_shear_image(
+    downscale=4, degrees=30, show_compare=False, expected=None, **kwargs
+) -> None:
   original = media.to_float01(EXAMPLE_PHOTO[40:, -440:])
-  image = resampler.resize(original, np.array(original.shape[:2]) // 2, filter='lanczos10')
+  image = resampler.resize(original, np.array(original.shape[:2]) // downscale, filter='lanczos10')
   matrix = resampler.rotation_about_center_in_2d(image.shape[:2], math.radians(degrees))
   kwargs2 = kwargs | dict(filter='lanczos10')
   original2 = resampler.resample_affine(original, original.shape[:2], matrix[:-1], **kwargs2)
@@ -3188,19 +3189,25 @@ def experiment_shear_image(degrees=30, show_compare=False, **kwargs) -> None:
   if show_compare:
     media.compare_images([image2, image3])
     return
+  psnrs = [get_psnr(image2, reference), get_psnr(image3, reference)]
   images = {
       'source': image,
-      f'rotated (PSNR={get_psnr(image2, reference):.2f} dB)': image2,
+      f'rotated (PSNR={psnrs[0]:.2f} dB)': image2,
       '1shear': image3a,
-      f'2shears (PSNR={get_psnr(image3, reference):.2f} dB)': image3,
+      f'2shears (PSNR={psnrs[1]:.2f} dB)': image3,
       'error': hh.rms(image3 - image2, axis=-1) * 2.0,
   }
   media.show_images(images, height=image.shape[0] * 1)
+  if expected:
+    assert np.allclose(psnrs, expected, 0.005), (psnrs, expected)
 
 
 if EFFORT >= 1:
-  experiment_shear_image(filter='cubic', boundary='constant')  # Small errors in the interior.
-  experiment_shear_image(filter='cubic', boundary='reflect')  # Plus large boundary errors.
+  # Small errors in the interior.  downscale=2 -> expected=[32.65, 32.03]
+  experiment_shear_image(filter='cubic', boundary='constant', expected=[32.40, 31.65])
+  # Plus large boundary errors.  downscale=2 -> expected=[32.01, 25.23]
+  experiment_shear_image(filter='cubic', boundary='reflect', expected=[31.95, 26.06])
+  # Interactive comparison.
   experiment_shear_image(filter='cubic', boundary='reflect', show_compare=True)
 
 # %% [markdown]
@@ -3499,8 +3506,8 @@ def test_jax() -> None:
 
   if 0:
     # Because `jax.make_jaxpr` unfortunately does not support `static_argnames`, we cannot specify
-    # any keyword arguments, e.g., `boundary='border'`, so we use `functools.partial`.
-    resize2 = functools.partial(resampler.resize, boundary='border')
+    # any keyword arguments, e.g., `boundary='natural'`, so we use `functools.partial`.
+    resize2 = functools.partial(resampler.resize, boundary='natural')
     _ = resize2
     # print(jax.make_jaxpr(resize2, static_argnums=(1,))(array, (3, 3)))
     # print(jax.make_jaxpr(_immediately_jaxjit_resize(resize2), static_argnums=(1,))(array, (3, 3)))
@@ -3564,6 +3571,9 @@ def experiment_image_optimized_for_spiral_resampling(
   resampled = model(array)
   images = {'optimized': array, 'resampled': resampled, 'desired': desired}
   media.show_images(images, height=192, border=True)
+  if 1:
+    psnr = get_psnr(resampled, desired)
+    assert np.allclose(psnr, 22.4, 0.05), (psnr, regularization_weight, smoothness_weight)
 
 
 if EFFORT >= 1:
@@ -3835,6 +3845,9 @@ def visualize_filter_frequency_response(filters: Mapping[str, resampler.Filter])
     ]
     for i, line in enumerate(info):
       ax.text(0.47, 0.9 - 0.13 * i, line, transform=ax.transAxes, fontsize=10.5, bbox=bbox)
+    if filter.name == 'triangle':
+      gains = low_freq_gain, high_freq_gain
+      assert np.allclose(gains, [-2.5, -26.1], atol=0.05), gains
 
   media.set_max_output_height(2000)
   num_columns = 3
@@ -3969,6 +3982,224 @@ def test_kaiser_filter_fractional_radius(radius=3, s=2.0, n=12, debug=False) -> 
 
 test_kaiser_filter_fractional_radius()
 
+
+# %% [markdown]
+# ## Visualization of boundary rules
+
+
+# %%
+def find_closest_filter(filter: str, resizer: Callable[..., Any]) -> str:
+  match filter:
+    case 'box_like':
+      return {
+          resampler.cv_resize: 'trapezoid',
+          resampler.skimage_transform_resize: 'box',
+          resampler.tf_image_resize: 'trapezoid',
+          resampler.torch_nn_resize: 'trapezoid',
+      }.get(resizer, 'box')
+    case 'cubic_like':
+      return {
+          resampler.cv_resize: 'sharpcubic',
+          resampler.scipy_ndimage_resize: 'cardinal3',
+          resampler.skimage_transform_resize: 'cardinal3',
+          resampler.torch_nn_resize: 'sharpcubic',
+      }.get(resizer, 'cubic')
+    case 'high_quality':
+      return {
+          resampler.pil_image_resize: 'lanczos3',
+          resampler.cv_resize: 'lanczos4',
+          resampler.scipy_ndimage_resize: 'cardinal5',
+          resampler.skimage_transform_resize: 'cardinal5',
+          resampler.torch_nn_resize: 'sharpcubic',
+      }.get(resizer, 'lanczos5')
+    case _:
+      return filter
+
+
+# %%
+def visualize_boundary_rules_in_1d(
+    *, resizer=resampler.resize, gridtype='dual', filters=None, boundaries=None, cval=0.6
+) -> None:
+  filters = ['box', 'triangle', 'lanczos3', 'cardinal5'] if filters is None else filters
+  boundaries = resampler._OFTUSED_BOUNDARIES if boundaries is None else boundaries
+  num_samples = 400
+  scale = 0.47
+  offset = (1 - scale) / 2 / scale
+  color = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
+
+  for row_index, filter in enumerate(filters):
+    filter = find_closest_filter(filter, resizer)
+    fig, axs = plt.subplots(1, len(boundaries), figsize=(18, 1.5))
+    fig.subplots_adjust(wspace=0.1)
+    array = np.array([0.2, 0.1, 0.4, 0.5])
+
+    for column_index, boundary in enumerate(boundaries):
+      ax = axs.flat[column_index]
+
+      params = dict(filter=filter, boundary=boundary, cval=cval)
+      if resizer is resampler.resize:
+        params |= dict(src_gridtype=gridtype, dst_gridtype='dual')
+      else:
+        assert gridtype == 'dual'
+      x = None
+      discrepancy = False
+
+      try:  # See if the filter suppports `scale` and `translate` parameters (else TypeError).
+        params2 = params | dict(scale=scale, translate=(1 - scale) / 2)
+        resized = resizer(array, (num_samples,), **params2)
+        if resizer is not resampler.resize:
+          reference = resampler.resize(array, (num_samples,), **params2)
+        x = (np.arange(len(resized)) + 0.5) / len(resized) / scale - offset
+      except (ValueError, TypeError):
+        pass
+
+      if x is None:
+        try:  # See if the filter supports this particular `boundary`.
+          resized = resizer(array, (num_samples,), **params)
+          if resizer is not resampler.resize:
+            reference = resampler.resize(array, (num_samples,), **params)
+          x = (np.arange(len(resized)) + 0.5) / len(resized)
+        except ValueError:
+          pass
+
+      if x is None:
+        ax.plot([])
+        ax.text(0.5, 0.5, 'Unavailable', transform=ax.transAxes, ha='center', va='center')
+
+      else:
+        for x_value in [0.0, 1.0]:
+          ax.axvline(x=x_value, ymin=0.0, ymax=0.77, color='red', linestyle='--', linewidth=1)
+        ax.plot(x, resized, '-', color=color, label=boundary)
+        x2 = resampler._get_gridtype(gridtype).point_from_index(np.arange(len(array)), len(array))
+        ax.plot(x2, array, 'o', color=color)
+
+        if resizer is not resampler.resize:
+          big_error = heapq.nlargest(4, abs(np.asarray(resized) - reference))[-1]
+          if big_error > 1e-6:
+            discrepancy = True
+            text = f'maxerr = {big_error:8.6f}'
+            ax.text(0.15, 0.86, text, transform=ax.transAxes, color='red')
+            # hh.show(np.asarray(resized) - reference)
+
+      ax.set(xlim=(-offset, 1.0 + offset), ylim=(-0.05, 0.75), xticks=[0, 1], yticks=[])
+      if row_index == 0:
+        dagger = r'$^\dagger$' if gridtype == 'primal' and boundary == 'wrap' else ''
+        s_boundary = {'quadratic_constant': 'quadratic_const.'}.get(boundary, boundary)
+        title = f"{'boundary=' if column_index == 0 else ''}'{s_boundary}'{dagger}"
+        ax.set_title(title, x=0.5, y=1.05, fontsize=14)
+      expected_discrepancy = (
+          resizer in [resampler.scipy_ndimage_resize, resampler.skimage_transform_resize]
+          and boundary in ['clamp', 'border']
+          and filter not in ['box', 'triangle']
+      ) or (resizer is resampler.scipy_ndimage_resize and boundary == 'border')
+      assert discrepancy == expected_discrepancy, (resizer, filter, boundary)
+
+    plt.subplots_adjust(left=0.035)
+    # text = f"filter='{filter}'" if row_index == 0 else f"'{filter}'"
+    plt.gcf().text(0.02, 0.55, f"'{filter}'", fontsize=14, rotation='vertical', va='center')
+    plt.show()
+
+
+# %%
+def visualize_all_boundary_rules_in_1d() -> None:
+  """Create 1D boundary rule plots similar to
+  https://docs.scipy.org/doc/scipy/reference/tutorial/ndimage.html#ndimage-interpolation-modes"""
+  media.set_max_output_height(3000)
+
+  display_markdown("**`gridtype='dual'`:**")
+  visualize_boundary_rules_in_1d()
+  display_markdown(
+      """&emsp; &emsp; Graphics
+    [texture sampling](https://www.khronos.org/opengl/wiki/Sampler_Object)
+    supports a `'dual'` grid with the `'box'` or `'triangle'` filter, using the
+    `'reflect'`, `'wrap'`, `'clamp'`, `'reflect_clamp'`, or `'border'` boundary."""
+  )
+
+  display_markdown("<br/>**`gridtype='primal'`:**")
+  visualize_boundary_rules_in_1d(gridtype='primal')
+  display_markdown(
+      r"""&emsp; &emsp; ${}^\dagger$To create a continuous periodic
+    reconstruction, the last sample is ignored for the `'wrap'` boundary rule
+    on a `'primal'` grid."""
+  )
+
+  display_markdown('<br/>**For filters_summary figure:**')
+  boundaries = 'reflect wrap tile clamp natural linear quadratic'.split()
+  visualize_boundary_rules_in_1d(filters=['lanczos3'], boundaries=boundaries)
+
+
+if EFFORT >= 1:
+  visualize_all_boundary_rules_in_1d()
+
+
+# %%
+def visualize_boundary_rules_in_2d(
+    *, scale=0.6, src_gridtype=('dual', 'primal'), cval=(0.6, 0.6, 0.9)
+) -> None:
+  media.set_max_output_height(2000)
+  shape = (120, 120) if hh.in_colab() else (100, 100)
+  if 1:
+    # In Colab, the defined HTML style is local to each cell (iframe), whereas in jupyter the
+    # style is global across all cells.
+    text = """
+      <style>
+        table.show_images2 { font-size: FONT-SIZE; }
+        table.show_images2 div div:nth-of-type(2) { padding-top: 5px; }
+        .show_images2 td { padding:1px; }
+      </style>
+    """.replace(
+        'FONT-SIZE', 'medium' if hh.in_colab() else 'small'
+    )
+    hh.display_html(text)
+
+  # array = np.array([[1.0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0], [0, 1, 0, 0]])
+  # array = np.indices((4, 4), np.float64).sum(axis=0) / 6.0
+  # array = np.dstack((array,) * 3)
+  o, a, b, c = (0.0, 0.0, 0.0), (1.0, 0.3, 0.2), (0.4, 1.0, 0.2), (0.8, 0.7, 0.1)
+  o, a, b, c = (1.0, 1.0, 1.0), (0.9, 0.2, 0.1), (0.3, 0.8, 0.1), (0.9, 0.8, 0.1)
+  array = np.array([[a, o, o, o], [o, o, o, c], [o, b, o, o], [o, o, b, o]])
+  # array = array * 0.5 + 0.25
+  array = array * 0.8 + 0.1
+
+  def show_row(*, scale=scale) -> None:
+    kwargs = dict(
+        shape=shape,
+        src_gridtype=src_gridtype,
+        dst_gridtype='dual',
+        scale=scale,
+        translate=(1 - scale) / 2,
+    )
+    images = {}
+    for boundary in resampler._OFTUSED_BOUNDARIES:
+      name = {'quadratic_constant': 'quadratic_const.'}.get(boundary, boundary)
+      images[f"'{name}'"] = resize_showing_domain_boundary(
+          array, boundary=boundary, cval=cval, filter=filter, **kwargs
+      )
+    image_samples = resize_showing_domain_boundary(
+        array, boundary='constant', cval=0.5, filter='narrowbox', **kwargs
+    )
+    images = {'(samples)': image_samples} | images
+    images2: Any = images if row_index == 0 else images.values()
+    # Benefit of show_images() over matplotlib.imshow() is no pixel resampling.
+    ylabel = f"filter='{filter}'&nbsp;&nbsp;&nbsp" if row_index == 0 else f"'{filter}'"
+    media.show_images(images2, ylabel=ylabel, html_class='show_images2')
+
+  display_markdown(
+      "**Upsampling of a 2D grid (`gridtype=('dual', 'primal')`,"
+      ' for $y$ and $x$ axes respectively)**'
+  )
+  for row_index, filter in enumerate('box triangle cubic lanczos3'.split()):
+    show_row()
+
+  display_markdown('<br/>**Wider view of the same results**')
+  row_index = 0
+  filter = 'lanczos3'
+  show_row(scale=0.25)
+
+
+visualize_boundary_rules_in_2d()
+
+
 # %% [markdown]
 # ## Best boundary rule for resize
 
@@ -4035,11 +4266,19 @@ def compare_boundary_rules_on_cropped_windows_of_images(
           mse = np.square(resized - reference).mean()
         all_mse[boundary].append(mse)
 
-  mean_mse_boundary = sorted([(np.mean(mse), boundary) for boundary, mse in all_mse.items()])
-  print(f'# Best rule for {scale=:.3f} {name=!s} (PSNR):')
-  for mean_mse, boundary in mean_mse_boundary:
-    psnr = 10 * np.log10(1.0 / (mean_mse + 1e-20))
+  all_psnr = {
+      boundary: 10 * np.log10(1.0 / (np.mean(mse) + 1e-20)) for boundary, mse in all_mse.items()
+  }
+  psnr_sorted = sorted([(psnr, boundary) for boundary, psnr in all_psnr.items()], reverse=True)
+  best_psnr, best_boundary = psnr_sorted[0]
+  print(f'# Best rule for {scale=:.3f} {name=!s} (PSNR) (best={best_boundary}):')
+  for psnr, boundary in psnr_sorted:
     print(f'# {boundary:15} {psnr:5.2f} dB')
+  if 1:
+    if scale > 1.0:
+      assert best_boundary == 'reflect'
+    if scale <= 1.0:
+      assert all_psnr['clamp'] >= best_psnr - 0.12
 
 
 def experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(
@@ -4053,7 +4292,7 @@ def experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(
       'vector1': media.to_float01(example_vector_graphics_image()),  # (3300, 2550)
   }
   for filter in filters:
-    print(f'# Results for {num_windows=} {filter=!s}:\n')
+    print(f'# # Results for {num_windows=} {filter=!s}:\n')
     for scale in scales:
       kwargs = dict(scale=scale, filter=filter, num_windows=num_windows)
       if combined:
@@ -4065,7 +4304,9 @@ def experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(
 
 
 if EFFORT >= 2:
-  experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(filters=['lanczos3', 'cubic'])
+  experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(
+      filters=['lanczos3', 'trapezoid', 'cubic']
+  )
 elif EFFORT >= 1:
   experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(
       num_windows=40, scales=[2, 7 / 6, 1, 5 / 6, 1 / 2]
@@ -4081,107 +4322,137 @@ elif EFFORT >= 1:
 #   the rules `'linear'` and `'reflect'` also work well.
 
 # %%
-# # Results for num_windows=2000 filter=lanczos3:
+# # Results for num_windows=1000 filter=lanczos3:
 
-# Best rule for scale=6.000 name=all (PSNR):
-# reflect         39.49 dB
-# clamp           39.38 dB
-# natural         39.33 dB
-# linear          38.51 dB
-# quadratic       36.58 dB
+# Best rule for scale=2.000 name=all (PSNR) (best=reflect):
+# reflect         40.38 dB
+# clamp           40.32 dB
+# natural         40.22 dB
+# linear          39.62 dB
+# quadratic       38.20 dB
 
-# Best rule for scale=2.000 name=all (PSNR):
-# reflect         40.20 dB
-# clamp           40.12 dB
-# natural         40.01 dB
-# linear          39.47 dB
-# quadratic       38.05 dB
+# Best rule for scale=1.167 name=all (PSNR) (best=reflect):
+# reflect         43.21 dB
+# clamp           43.20 dB
+# natural         42.97 dB
+# linear          42.86 dB
+# quadratic       42.09 dB
 
-# Best rule for scale=1.167 name=all (PSNR):
-# reflect         42.99 dB
-# clamp           42.97 dB
-# natural         42.73 dB
-# linear          42.65 dB
-# quadratic       41.89 dB
+# Best rule for scale=1.000 name=all (PSNR) (best=reflect):
+# reflect         40.36 dB
+# clamp           40.29 dB
+# natural         40.19 dB
+# linear          39.61 dB
+# quadratic       38.23 dB
 
-# Best rule for scale=1.000 name=all (PSNR):
-# reflect         40.16 dB
-# clamp           40.08 dB
-# natural         39.97 dB
-# linear          39.43 dB
-# quadratic       38.07 dB
+# Best rule for scale=0.833 name=all (PSNR) (best=linear):
+# linear          44.11 dB
+# clamp           44.11 dB
+# quadratic       44.04 dB
+# natural         44.03 dB
+# reflect         43.86 dB
 
-# Best rule for scale=0.833 name=all (PSNR):
-# linear          43.95 dB
-# clamp           43.95 dB
-# quadratic       43.87 dB
-# natural         43.86 dB
-# reflect         43.70 dB
+# Best rule for scale=0.500 name=all (PSNR) (best=clamp):
+# clamp           40.06 dB
+# linear          39.88 dB
+# natural         39.63 dB
+# reflect         39.60 dB
+# quadratic       38.63 dB
 
-# Best rule for scale=0.500 name=all (PSNR):
-# clamp           39.83 dB
-# linear          39.64 dB
-# reflect         39.41 dB
-# natural         39.38 dB
-# quadratic       38.39 dB
+# Best rule for scale=0.167 name=all (PSNR) (best=clamp):
+# clamp           34.76 dB
+# natural         33.79 dB
+# reflect         33.56 dB
+# linear          32.71 dB
+# quadratic       23.10 dB
 
-# Best rule for scale=0.167 name=all (PSNR):
-# clamp           34.39 dB
-# natural         33.43 dB
-# reflect         33.15 dB
-# linear          32.25 dB
-# quadratic       22.78 dB
+# # Results for num_windows=1000 filter=trapezoid:
 
-# # Results for num_windows=2000 filter=cubic:
+# Best rule for scale=2.000 name=all (PSNR) (best=reflect):
+# reflect         27.37 dB
+# quadratic       27.37 dB
+# natural         27.37 dB
+# linear          27.37 dB
+# clamp           27.37 dB
 
-# Best rule for scale=6.000 name=all (PSNR):
-# reflect         35.94 dB
-# natural         35.91 dB
-# clamp           35.88 dB
-# linear          35.66 dB
-# quadratic       34.57 dB
+# Best rule for scale=1.167 name=all (PSNR) (best=reflect):
+# reflect         32.38 dB
+# quadratic       32.38 dB
+# linear          32.38 dB
+# clamp           32.38 dB
+# natural         32.38 dB
 
-# Best rule for scale=2.000 name=all (PSNR):
-# reflect         36.11 dB
-# natural         36.08 dB
-# clamp           36.06 dB
-# linear          35.96 dB
-# quadratic       35.24 dB
+# Best rule for scale=1.000 name=all (PSNR) (best=linear):
+# linear          31.79 dB
+# reflect         31.68 dB
+# natural         31.68 dB
+# clamp           31.68 dB
+# quadratic       31.31 dB
 
-# Best rule for scale=1.167 name=all (PSNR):
-# reflect         37.11 dB
-# clamp           37.11 dB
-# natural         37.11 dB
-# linear          37.11 dB
-# quadratic       37.05 dB
+# Best rule for scale=0.833 name=all (PSNR) (best=linear):
+# linear          32.71 dB
+# reflect         32.71 dB
+# clamp           32.71 dB
+# quadratic       32.71 dB
+# natural         32.71 dB
 
-# Best rule for scale=1.000 name=all (PSNR):
-# reflect         36.01 dB
-# natural         35.98 dB
-# clamp           35.97 dB
-# linear          35.87 dB
-# quadratic       35.20 dB
+# Best rule for scale=0.500 name=all (PSNR) (best=reflect):
+# reflect         32.58 dB
+# quadratic       32.58 dB
+# natural         32.58 dB
+# linear          32.58 dB
+# clamp           32.58 dB
 
-# Best rule for scale=0.833 name=all (PSNR):
-# quadratic       37.64 dB
-# linear          37.60 dB
-# reflect         37.59 dB
-# clamp           37.58 dB
-# natural         37.56 dB
+# Best rule for scale=0.167 name=all (PSNR) (best=reflect):
+# reflect         27.98 dB
+# quadratic       27.98 dB
+# natural         27.98 dB
+# linear          27.98 dB
+# clamp           27.98 dB
 
-# Best rule for scale=0.500 name=all (PSNR):
-# linear          34.75 dB
-# reflect         34.71 dB
-# clamp           34.68 dB
-# quadratic       34.68 dB
-# natural         34.47 dB
+# # Results for num_windows=1000 filter=cubic:
 
-# Best rule for scale=0.167 name=all (PSNR):
-# clamp           31.95 dB
-# reflect         31.59 dB
-# linear          31.57 dB
-# natural         31.34 dB
-# quadratic       22.09 dB
+# Best rule for scale=2.000 name=all (PSNR) (best=reflect):
+# reflect         36.31 dB
+# natural         36.28 dB
+# clamp           36.26 dB
+# linear          36.14 dB
+# quadratic       35.40 dB
+
+# Best rule for scale=1.167 name=all (PSNR) (best=reflect):
+# reflect         37.30 dB
+# natural         37.30 dB
+# clamp           37.30 dB
+# linear          37.29 dB
+# quadratic       37.23 dB
+
+# Best rule for scale=1.000 name=all (PSNR) (best=reflect):
+# reflect         36.21 dB
+# natural         36.19 dB
+# clamp           36.17 dB
+# linear          36.06 dB
+# quadratic       35.37 dB
+
+# Best rule for scale=0.833 name=all (PSNR) (best=quadratic):
+# quadratic       37.79 dB
+# linear          37.75 dB
+# reflect         37.75 dB
+# clamp           37.73 dB
+# natural         37.71 dB
+
+# Best rule for scale=0.500 name=all (PSNR) (best=linear):
+# linear          35.00 dB
+# reflect         34.95 dB
+# quadratic       34.94 dB
+# clamp           34.93 dB
+# natural         34.73 dB
+
+# Best rule for scale=0.167 name=all (PSNR) (best=clamp):
+# clamp           32.31 dB
+# reflect         31.96 dB
+# linear          31.95 dB
+# natural         31.69 dB
+# quadratic       22.36 dB
 
 # %% [markdown]
 # ## Best filter for resize
@@ -4200,9 +4471,10 @@ def experiment_best_downsampling_filter(scale=0.4, clip=False, debug=False) -> N
       'box trapezoid triangle mitchell cubic hamming3 cardinal3 lanczos3 omoms5 lanczos10'
   ).split()
   cropped: list[dict[str, _NDArray]] = [{} for _ in range(len(images))]
+  filter_psnrs, filter_ssims = {}, {}
   print('# PSNR and SSIM results for (1) natural photos and (2) vector graphics:')
   for filter in filters:
-    all_mse, all_psnr, all_ssim = [], [], []
+    all_psnr, all_ssim = [], []
     for image_index, image in enumerate(images):
       new_shape = (np.array(image.shape[:2]) * scale + 0.5).astype(int)
       downsampled = resampler.resize(image, new_shape, filter=filter)
@@ -4213,18 +4485,16 @@ def experiment_best_downsampling_filter(scale=0.4, clip=False, debug=False) -> N
         reconstructed = reconstructed.clip(0.0, 1.0)
       cropped[image_index][f"'{filter}'"] = reconstructed[crop[image_index]]
       mse = np.square(reconstructed - image).mean()
-      all_mse.append(mse)
       all_psnr.append(10 * np.log10(1.0 / (mse + 1e-20)))
       all_ssim.append(get_ssim(reconstructed, image))
 
-    str_mse = ' '.join(f'{psnr:5.2f}' for psnr in all_psnr)
-    mean_mse = np.mean(all_mse)
-    mean_psnr = 10 * np.log10(1.0 / (mean_mse + 1e-20))
+    filter_psnrs[filter] = all_psnr
+    filter_ssims[filter] = all_ssim
+    str_psnr = ' '.join(f'{psnr:5.2f}' for psnr in all_psnr)
     str_ssim = ' '.join(f'{ssim:5.3f}' for ssim in all_ssim)
-    mean_ssim = np.mean(all_ssim)
     print(
-        f'# {filter:10} PSNR:({str_mse}) mean={mean_psnr:5.2f}'
-        f'  SSIM:({str_ssim}) mean={mean_ssim:5.3f}'
+        f'# {filter:10} PSNR:({str_psnr}) mean={np.mean(all_psnr):5.2f}'
+        f'  SSIM:({str_ssim}) mean={np.mean(all_ssim):5.3f}'
     )
 
   for image_dict in cropped:
@@ -4233,24 +4503,35 @@ def experiment_best_downsampling_filter(scale=0.4, clip=False, debug=False) -> N
     GRAY_FROM_RGB = [0.2989, 0.5870, 0.1140]
     array = media.to_uint8(cropped[1]['lanczos10'] @ GRAY_FROM_RGB)
     show_grid_values(array, figsize=(10, 14))
+  if 1:
+    best_psnr_filters = [
+        sorted(filter_psnrs, key=lambda filter: filter_psnrs[filter][i])[-1]
+        for i in range(len(images))
+    ]
+    assert best_psnr_filters == ['lanczos10', 'lanczos10'], best_psnr_filters
+    best_ssim_filters = [
+        sorted(filter_ssims, key=lambda filter: filter_ssims[filter][i])[-1]
+        for i in range(len(images))
+    ]
+    assert best_ssim_filters == ['lanczos10', 'trapezoid'], best_ssim_filters
 
 
 if EFFORT >= 1:
   experiment_best_downsampling_filter()
 
 # %%
-# Copy of results 2023-11-25:
+# Copy of results 2023-12-02:
 # PSNR and SSIM results for (1) natural photos and (2) vector graphics:
-# box        PSNR:(23.89 18.29) mean=20.24  SSIM:(0.733 0.865) mean=0.799
-# trapezoid  PSNR:(24.24 18.76) mean=20.69  SSIM:(0.742 0.874) mean=0.808
-# triangle   PSNR:(23.87 18.02) mean=20.02  SSIM:(0.712 0.858) mean=0.785
-# mitchell   PSNR:(23.97 18.22) mean=20.20  SSIM:(0.719 0.860) mean=0.789
-# cubic      PSNR:(24.32 18.87) mean=20.79  SSIM:(0.744 0.870) mean=0.807
-# hamming3   PSNR:(24.44 19.07) mean=20.97  SSIM:(0.753 0.865) mean=0.809
-# cardinal3  PSNR:(24.46 19.10) mean=21.00  SSIM:(0.754 0.864) mean=0.809
-# lanczos3   PSNR:(24.47 19.12) mean=21.02  SSIM:(0.756 0.862) mean=0.809
-# omoms5     PSNR:(24.52 19.21) mean=21.10  SSIM:(0.759 0.853) mean=0.806
-# lanczos10  PSNR:(24.53 19.22) mean=21.11  SSIM:(0.759 0.834) mean=0.797
+# box        PSNR:(23.89 18.29) mean=21.09  SSIM:(0.733 0.865) mean=0.799
+# trapezoid  PSNR:(24.24 18.76) mean=21.50  SSIM:(0.742 0.874) mean=0.808
+# triangle   PSNR:(23.87 18.02) mean=20.94  SSIM:(0.712 0.858) mean=0.785
+# mitchell   PSNR:(23.97 18.22) mean=21.10  SSIM:(0.719 0.860) mean=0.789
+# cubic      PSNR:(24.32 18.87) mean=21.60  SSIM:(0.744 0.870) mean=0.807
+# hamming3   PSNR:(24.44 19.07) mean=21.76  SSIM:(0.753 0.865) mean=0.809
+# cardinal3  PSNR:(24.46 19.10) mean=21.78  SSIM:(0.754 0.864) mean=0.809
+# lanczos3   PSNR:(24.47 19.12) mean=21.80  SSIM:(0.756 0.862) mean=0.809
+# omoms5     PSNR:(24.52 19.21) mean=21.87  SSIM:(0.759 0.853) mean=0.806
+# lanczos10  PSNR:(24.53 19.22) mean=21.88  SSIM:(0.759 0.834) mean=0.797
 
 
 # %% [markdown]
@@ -4278,8 +4559,10 @@ def experiment_best_upsampling_filter(scale=2.0, clip=False, debug=False) -> Non
   crop = [np.s_[100:120, 141:161], np.s_[531:551, 143:163]]
   filters = 'cubic hamming3 cardinal3 lanczos3 lanczos5 omoms5 lanczos10'.split()
   cropped: list[dict[str, _NDArray]] = [{} for _ in range(len(images))]
+  filter_psnrs, filter_ssims = {}, {}
+  print('# PSNR and SSIM results for (1) natural photos and (2) vector graphics:')
   for filter in filters:
-    all_mse, all_psnr, all_ssim = [], [], []
+    all_psnr, all_ssim = [], []
     for image_index, image in enumerate(images):
       new_shape = (np.array(image.shape[:2]) / scale + 0.5).astype(int)
       # As analyzed above, best prefilters for photos and vector graphics:
@@ -4292,16 +4575,17 @@ def experiment_best_upsampling_filter(scale=2.0, clip=False, debug=False) -> Non
         reconstructed = reconstructed.clip(0.0, 1.0)
       cropped[image_index][f"'{filter}'"] = reconstructed[crop[image_index]]
       mse = np.square(reconstructed - image).mean()
-      all_mse.append(mse)
       all_psnr.append(10 * np.log10(1.0 / (mse + 1e-20)))
       all_ssim.append(get_ssim(reconstructed, image))
 
-    str_mse = ' '.join(f'{psnr:5.2f}' for psnr in all_psnr)
-    mean_mse = np.mean(all_mse)
-    mean_psnr = 10 * np.log10(1.0 / (mean_mse + 1e-20))
+    filter_psnrs[filter] = all_psnr
+    filter_ssims[filter] = all_ssim
+    str_psnr = ' '.join(f'{psnr:5.2f}' for psnr in all_psnr)
     str_ssim = ' '.join(f'{ssim:5.3f}' for ssim in all_ssim)
-    mean_ssim = np.mean(all_ssim)
-    print(f'# {filter:10} PSNR:({str_mse}) {mean_psnr:5.2f}  SSIM:({str_ssim}) {mean_ssim:5.3f}')
+    print(
+        f'# {filter:10} PSNR:({str_psnr}) mean={np.mean(all_psnr):5.2f}'
+        f'  SSIM:({str_ssim}) mean={np.mean(all_ssim):5.3f}'
+    )
 
   for image_dict in cropped:
     media.show_images(image_dict, border=True, height=100)
@@ -4309,6 +4593,21 @@ def experiment_best_upsampling_filter(scale=2.0, clip=False, debug=False) -> Non
     GRAY_FROM_RGB = [0.2989, 0.5870, 0.1140]
     array = media.to_uint8(cropped[1]['lanczos10'] @ GRAY_FROM_RGB)
     show_grid_values(array, figsize=(10, 14))
+  if 1:
+    sorted_psnr_filters = [
+        sorted(filter_psnrs, key=lambda filter: filter_psnrs[filter][i], reverse=True)
+        for i in range(len(images))
+    ]
+    best_psnr_filters = [sorted_psnr_filters[0][0], sorted_psnr_filters[1][0]]
+    assert best_psnr_filters == ['lanczos10', 'lanczos5'], best_psnr_filters
+    assert filter_psnrs['lanczos3'][0] <= filter_psnrs[best_psnr_filters[0]][0] - 0.07
+    sorted_ssim_filters = [
+        sorted(filter_ssims, key=lambda filter: filter_ssims[filter][i], reverse=True)
+        for i in range(len(images))
+    ]
+    best_ssim_filters = [sorted_ssim_filters[0][0], sorted_ssim_filters[1][0]]
+    assert best_ssim_filters == ['lanczos10', 'hamming3'], best_ssim_filters
+    assert filter_ssims['lanczos3'][1] <= filter_ssims[best_ssim_filters[1]][1] - 0.001
 
 
 if EFFORT >= 1:
@@ -4316,14 +4615,15 @@ if EFFORT >= 1:
 
 
 # %%
-# Copy of results 2021-10-23:
-# cubic      PSNR:(25.60 20.54) 22.37  SSIM:(0.874 0.935) 0.905
-# hamming3   PSNR:(25.84 20.93) 22.73  SSIM:(0.882 0.936) 0.909
-# cardinal3  PSNR:(25.89 20.98) 22.77  SSIM:(0.884 0.935) 0.909
-# lanczos3   PSNR:(25.90 21.05) 22.83  SSIM:(0.885 0.935) 0.910
-# lanczos5   PSNR:(26.04 21.15) 22.94  SSIM:(0.888 0.930) 0.909
-# omoms5     PSNR:(26.04 21.15) 22.94  SSIM:(0.888 0.930) 0.909
-# lanczos10  PSNR:(26.09 21.11) 22.92  SSIM:(0.890 0.918) 0.904
+# Copy of results 2023-12-02:
+# PSNR and SSIM results for (1) natural photos and (2) vector graphics:
+# cubic      PSNR:(25.60 20.54) mean=23.07  SSIM:(0.814 0.926) mean=0.870
+# hamming3   PSNR:(25.84 20.93) mean=23.39  SSIM:(0.825 0.926) mean=0.876
+# cardinal3  PSNR:(25.89 20.98) mean=23.43  SSIM:(0.827 0.925) mean=0.876
+# lanczos3   PSNR:(25.90 21.05) mean=23.48  SSIM:(0.829 0.925) mean=0.877
+# lanczos5   PSNR:(26.04 21.15) mean=23.60  SSIM:(0.834 0.912) mean=0.873
+# omoms5     PSNR:(26.04 21.15) mean=23.60  SSIM:(0.834 0.912) mean=0.873
+# lanczos10  PSNR:(26.09 21.11) mean=23.60  SSIM:(0.836 0.882) mean=0.859
 
 # %% [markdown]
 # Conclusions:
@@ -4399,15 +4699,27 @@ def filter_lite_dither(image: _NDArray, num_levels: int) -> _NDArray:
 
 def experiment_visualize_dither() -> None:
   image = np.indices((64, 256))[1] / 255.0
+  images = {'original': image}
   num_levels = 4
-  sierra = filter_lite_dither(image, num_levels) / (num_levels - 1)
-  floyd = floyd_steinberg_dither(image, num_levels) / (num_levels - 1)
-  images = {'original': image, 'sierra': sierra, 'floyd': floyd}
+  results = {
+      'sierra': filter_lite_dither(image, num_levels) / (num_levels - 1),
+      'floyd': floyd_steinberg_dither(image, num_levels) / (num_levels - 1),
+  }
+  psnrs = {name: get_psnr(result, image) for name, result in results.items()}
+  ssims = {name: get_ssim(result, image) for name, result in results.items()}
+  for name, result in results.items():
+    images |= {f'{name} ({psnrs[name]:.1f} dB) (SSIM {ssims[name]:.4f})': result}
   media.show_images(images, vmin=0, vmax=1, border=True)
+  if 1:
+    assert np.allclose(list(psnrs.values()), 17.4, atol=0.05)
+    assert np.allclose(list(ssims.values()), [0.0917, 0.0931], atol=0.00005)
 
 
-if EFFORT >= 2:
+if EFFORT >= 1:
   experiment_visualize_dither()
+
+# %% [markdown]
+# Conclusion: The `floyd` dithering scheme is slightly better than `sierra` because it is a tiny bit more like the uniform original image in terms of its structure.
 
 
 # %%
@@ -4424,6 +4736,7 @@ def experiment_gamma_downsample_image() -> None:
       "linear space - 'power2'": linear_space,
   }
   media.show_images(images, vmin=0, vmax=1, border=True)
+  # This cannot be verified quantitatively, but must instead be visually confirmed.
 
 
 experiment_gamma_downsample_image()
@@ -4431,7 +4744,8 @@ experiment_gamma_downsample_image()
 
 # %% [markdown]
 # Conclusion: For downsampling, the best approach is to convert the source image from lightness
-# to linear space (using `'power2'`), downsample, then convert back to lightness.
+# to linear space (using `src_gamma='power2'`), downsample, then convert back to lightness (using `dst_gamma='power2'`).
+# Setting the parameter `gamma='power2'` achieves both of those conversions.
 
 
 # %%
@@ -4445,6 +4759,7 @@ def radial1(shape=(24, 48), frame_center=(0.75, 0.5), reference_shape=None) -> _
 
 def visualize_radial1() -> None:
   media.show_image(radial1(), height=200)
+  assert np.allclose(std := np.std(radial1()), 0.358, atol=0.0005), std
 
 
 visualize_radial1()
@@ -4504,7 +4819,7 @@ def experiment_visualize_gamma_upsample_image(**kwargs) -> None:
   try_gamma_upsample(**kwargs)
   try_gamma_upsample(**kwargs, source_pow=0.5)
   try_gamma_upsample(**kwargs, supersample=32)
-  try_gamma_upsample(**kwargs, supersample=32, source_pow=0.5)
+  # try_gamma_upsample(**kwargs, supersample=32, source_pow=0.5)
 
 
 media.set_max_output_height(3000)
@@ -4542,20 +4857,24 @@ if EFFORT >= 2:
 # Conclusions:
 #
 # Nehab and Hoppe [2014] suggest that for upsampling,
-# the best approach may be to upsample directly in the lightness space of the source image.
-# These experiments indicate otherwise.
+# the best approach is to upsample directly in the lightness space of the source image,
+# rather than converting to linear space (e.g., by squaring the signal) and performing upscaling there.
 #
-# The problem is that the example source image (sampled from chirp) is
+# These experiments confirm this.
+#
+# The problem is that the example source image (sampled from chirp in lightness space) is
 # bandlimited in lightness space (where it is stored),
-# but is not bandlimited when converted to linear space (where it is operated on)
+# but is not bandlimited when converted to linear space (where it is operated on, e.g., with `gamma='power2'`)
 # due to the nonlinear squaring operation.
 # This aliased reconstruction can be prevented in one of two ways:
 # 1. Define a different analytic function that is in fact bandlimited in linear
-#   space.  A trivial way is to use chirp in linear space.
-# 2. Prefilter the linear-space function such that it is bandlimited.  A simple
-#   approach is to supersample it.  As seen in the image results, the
-#   coarse image looks similar, and its upsampling no longer exhibits
-#   aliasing artifacts.
+#   space.  A trivial way is to sample a chirp function in linear space and convert it to lightness space.
+#   However this looks perceptually poor because the bright concentric rings overwhelm the dark ones.
+# 3. Prefilter the linear-space function such that it is bandlimited.  A simple
+#   approach is to supersample the function in linear space, then convert the supersampled values into lightness space.
+#   As seen in the image results, the coarse image looks similar to the original with respect to
+#  the uniformity of the concentric bands (though it is subtly different),
+#  and its upsampling now has fewer aliasing artifacts.
 
 # %% [markdown]
 # ## Higher diagonal frequencies
@@ -4602,6 +4921,8 @@ def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=41) -> No
   ax.plot(degrees, psnrs, '.')
   ax.set(xlabel='Grid rotation (degrees)', ylabel='Reconstruction PSNR (dB)')
   ax.grid(True, lw=0.3)
+  if 1:
+    assert 0.98 < (corr := np.corrcoef(degrees, psnrs)[0, 1]) < 0.99, corr
 
 
 if EFFORT >= 1:
@@ -4647,6 +4968,11 @@ def visualize_prefiltering_a_discontinuity_in_1D(size=400, x_step=0.5) -> None:
 
   fig.tight_layout()
 
+  if 1:
+    maxs = [resampler.resize(array, (11,), filter=filter).max() for filter in filters]
+    expected = [1.000, 1.000, 1.000, 1.014, 1.042, 1.064, 1.067, 1.073, 1.081, 1.088]
+    assert np.allclose(maxs, expected, atol=0.0005), maxs
+
 
 visualize_prefiltering_a_discontinuity_in_1D()
 
@@ -4675,6 +5001,11 @@ def visualize_prefiltering_a_discontinuity_in_2D(
   for filter in filters:
     images[f"'{filter}'"] = resampler.resize(array, new_shape, filter=filter)
   media.show_images(images, vmin=0, vmax=1, height=shape[0] * 1.25, border=True, columns=6)
+
+  if 1:
+    maxs = [image.max() for image in images.values()]
+    expected = [0.90, 0.90, 0.90, 0.90, 0.91, 0.92, 0.93, 0.93, 0.94, 0.94, 0.95]
+    assert np.allclose(maxs, expected, atol=0.005), maxs
 
 
 visualize_prefiltering_a_discontinuity_in_2D()
@@ -4715,7 +5046,9 @@ if EFFORT >= 1:
 # Conclusions:
 # - There is definite *temporal shimmering* for `'lanczos10'`,
 #   particularly in the circle interior.
-# - Although the `'cubic'` and `'lanczos3'` results show halos, there is little shimmering.
+# - Although the `'cubic'` and `'lanczos3'` results show halos (both a black ring inside and a white ring outside),
+#   there is little shimmering.
+# - The `'trapezoid'` result has no halos (as expected) but is blurry.
 
 # %% [markdown]
 # ## Prefilter convolution
@@ -5475,155 +5808,6 @@ visualize_example_filters('impulse box trapezoid triangle cubic lanczos3 lanczos
 # The filter 'cardinal3' (not shown here) looks almost identical to 'lanczos3'.
 
 
-# %%
-def visualize_boundary_rules_in_1d(*, scale=0.47) -> None:
-  """Create 1D boundary rule plots similar to
-  https://docs.scipy.org/doc/scipy/reference/tutorial/ndimage.html#ndimage-interpolation-modes"""
-
-  def visualize_gridtype(
-      gridtype,
-      boundaries=None,
-      num_samples=250,
-      filters=('box', 'triangle', 'lanczos3', 'cardinal5'),
-  ) -> None:
-    boundaries = resampler._OFTUSED_BOUNDARIES if boundaries is None else boundaries
-    color = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
-
-    for row_index, filter in enumerate(filters):
-      fig, axs = plt.subplots(1, len(boundaries), figsize=(18, 1.5))
-      fig.subplots_adjust(wspace=0.1)
-      array = np.array([0.6, 0.5, 0.8, 0.9])
-
-      for column_index, boundary in enumerate(boundaries):
-        ax = axs.flat[column_index]
-        for x_value in [0.0, 1.0]:
-          ax.axvline(x=x_value, ymin=0.0, ymax=0.77, color='red', linestyle='--', linewidth=1)
-        resized = resampler.resize(
-            array,
-            (num_samples,),
-            src_gridtype=gridtype,
-            dst_gridtype='dual',
-            boundary=boundary,
-            cval=1.0,
-            filter=filter,
-            scale=scale,
-            translate=(1 - scale) / 2,
-        )
-        offset = (1 - scale) / 2 / scale
-        x = (np.arange(len(resized)) + 0.5) / len(resized) / scale - offset
-        ax.plot(x, resized, '-', color=color, label=boundary)
-        x = np.arange(len(array))
-        x = resampler._get_gridtype(gridtype).point_from_index(x, len(array))
-        ax.plot(x, array, 'o', color=color)
-        ax.set(xlim=(-offset, 1.0 + offset), ylim=(0.4, 1.2), xticks=[0, 1], yticks=[])
-        if row_index == 0:
-          dagger = r'$^\dagger$' if gridtype == 'primal' and boundary == 'wrap' else ''
-          title = {'quadratic_constant': 'quadratic_const.'}.get(boundary, boundary)
-          title = f"'{title}'{dagger}"
-          title = f'boundary={title}' if column_index == 0 else title
-          ax.set_title(title, x=0.5, y=1.05, fontsize=14)
-
-      plt.subplots_adjust(left=0.035)
-      text = f"filter='{filter}'" if row_index == 0 else f"'{filter}'"
-      plt.gcf().text(0.02, 0.55, text, fontsize=14, rotation='vertical', va='center')
-      plt.show()
-
-  media.set_max_output_height(3000)
-
-  display_markdown("**`gridtype='dual'`**")
-  visualize_gridtype('dual')
-  display_markdown(
-      """&emsp; &emsp; Graphics
-    [texture sampling](https://www.khronos.org/opengl/wiki/Sampler_Object)
-    supports a `'dual'` grid with the `'box'` or `'triangle'` filter, using the
-    `'reflect'`, `'wrap'`, `'clamp'`, `'reflect_clamp'`, or `'border'` boundary."""
-  )
-
-  display_markdown("<br/>**`gridtype='primal'`**")
-  visualize_gridtype('primal')
-  display_markdown(
-      r"""&emsp; &emsp; ${}^\dagger$To create a continuous periodic
-    reconstruction, the last sample is ignored for the `'wrap'` boundary rule
-    on a `'primal'` grid."""
-  )
-
-  display_markdown('<br/>**For filters_summary figure:**')
-  boundaries = 'reflect wrap tile clamp natural linear quadratic'.split()
-  visualize_gridtype('dual', filters=['lanczos3'], boundaries=boundaries)
-
-
-if EFFORT >= 1:
-  visualize_boundary_rules_in_1d()
-
-
-# %%
-def visualize_boundary_rules_in_2d(
-    *, scale=0.6, src_gridtype=('dual', 'primal'), cval=(0.6, 0.6, 0.9)
-) -> None:
-  media.set_max_output_height(2000)
-  shape = (120, 120) if hh.in_colab() else (100, 100)
-  if 1:
-    # In Colab, the defined HTML style is local to each cell (iframe), whereas in jupyter the
-    # style is global across all cells.
-    text = """
-      <style>
-        table.show_images2 { font-size: FONT-SIZE; }
-        table.show_images2 div div:nth-of-type(2) { padding-top: 5px; }
-        .show_images2 td { padding:1px; }
-      </style>
-    """.replace(
-        'FONT-SIZE', 'medium' if hh.in_colab() else 'small'
-    )
-    hh.display_html(text)
-
-  # array = np.array([[1.0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0], [0, 1, 0, 0]])
-  # array = np.indices((4, 4), np.float64).sum(axis=0) / 6.0
-  # array = np.dstack((array,) * 3)
-  o, a, b, c = (0.0, 0.0, 0.0), (1.0, 0.3, 0.2), (0.4, 1.0, 0.2), (0.8, 0.7, 0.1)
-  o, a, b, c = (1.0, 1.0, 1.0), (0.9, 0.2, 0.1), (0.3, 0.8, 0.1), (0.9, 0.8, 0.1)
-  array = np.array([[a, o, o, o], [o, o, o, c], [o, b, o, o], [o, o, b, o]])
-  # array = array * 0.5 + 0.25
-  array = array * 0.8 + 0.1
-
-  def show_row(*, scale=scale) -> None:
-    kwargs = dict(
-        shape=shape,
-        src_gridtype=src_gridtype,
-        dst_gridtype='dual',
-        scale=scale,
-        translate=(1 - scale) / 2,
-    )
-    images = {}
-    for boundary in resampler._OFTUSED_BOUNDARIES:
-      name = {'quadratic_constant': 'quadratic_const.'}.get(boundary, boundary)
-      images[f"'{name}'"] = resize_showing_domain_boundary(
-          array, boundary=boundary, cval=cval, filter=filter, **kwargs
-      )
-    image_samples = resize_showing_domain_boundary(
-        array, boundary='constant', cval=0.5, filter='narrowbox', **kwargs
-    )
-    images = {'(samples)': image_samples} | images
-    images2: Any = images if row_index == 0 else images.values()
-    # Benefit of show_images() over matplotlib.imshow() is no pixel resampling.
-    ylabel = f"filter='{filter}'&nbsp;&nbsp;&nbsp" if row_index == 0 else f"'{filter}'"
-    media.show_images(images2, ylabel=ylabel, html_class='show_images2')
-
-  display_markdown(
-      "**Upsampling of a 2D grid (`gridtype=('dual', 'primal')`,"
-      ' for $y$ and $x$ axes respectively)**'
-  )
-  for row_index, filter in enumerate('box triangle cubic lanczos3'.split()):
-    show_row()
-
-  display_markdown('<br/>**Wider view of the same results**')
-  row_index = 0
-  filter = 'lanczos3'
-  show_row(scale=0.25)
-
-
-visualize_boundary_rules_in_2d()
-
-
 # %% [markdown]
 # # Comparisons with other libraries
 
@@ -5651,17 +5835,18 @@ visualize_boundary_rules_in_2d()
 #
 # | Library | `ndim` | Array type | Data type | Grid type | Upsample | Antialiased downsample | Boundary rule | Speed | Native code | Grad &nabla; |
 # |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-# | `resampler.resize` | any | `np`, `tf`, `torch`, `jax` | any | dual, primal | any filter | any filter | many | average | none | yes |
-# | `PIL.Image.resize` | 2D | custom | `float32`, `uint8` | dual | up to `'lanczos3'` | good | `'natural'` | slow | C | no |
-# | `cv.resize` | 2D | custom | `float32` | dual | up to `'lanczos4'` | `'trapezoid'` (AREA) | several | fast | C++ | no |
-# | `scipy.ndimage` | any | `np` | any | dual, primal | cardinal B-splines | aliased &#9785; | several | very slow | C | no |
-# | `skimage.transform` | any | `np` | any | dual, primal | cardinal B-splines | Gaussian &#9785; | several | very slow | Cython | no |
-# | `tf.image.resize` | 2D | `tf` | `float32` | dual | up to `'lanczos5'` | good | `'natural'` | average | C++ | yes |
-# | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `'trapezoid'`, `'triangle'`, `'cubic'` | `'natural'` | average | C++ | yes |
-# | `jax.image.resize` | any | `jax` | `float`, `complex` | dual | up to `'lanczos5'` | good but no `'trapezoid'` | `'natural'` | average | none | yes |
+# | `resampler.resize` | any | `np`, `tf`, `torch`, `jax` | any | dual, primal | any filter | any filter | many | average | <font size="-2">`scipy.sparse`<br/>or `numba`</font> | yes |
+# | `PIL.Image.resize` | 2D | custom | `float32`, `uint8` | dual | up to `'lanczos3'` | good | `'natural'` | slow | [C](https://github.com/python-pillow/Pillow/blob/main/src/libImaging/Resample.c) | no |
+# | `cv.resize` | 2D | custom | `float32` | dual | up to `'lanczos4'` | `'trapezoid'` (AREA) | `'clamp'` | fast | [C++](https://github.com/opencv/opencv/blob/next/modules/imgproc/src/resize.cpp) | no |
+# | `scipy.ndimage.`<br/>&nbsp;`map_coordinates` | any | `np` | any | dual, primal | cardinal B-splines | aliased &#9785; | several | very slow | [C](https://github.com/scipy/scipy/blob/main/scipy/ndimage/src/ni_interpolation.c) | no |
+# | `skimage.transform.`<br/>&nbsp;`resize` | any | `np` | any | dual, primal | cardinal B-splines | Gaussian &#9785; | several | very slow | [<font size="-2">`scipy.ndimage`</font>](https://github.com/scikit-image/scikit-image/blob/main/skimage/transform/_warps.py) | no |
+# | `tf.image.resize` | 2D | `tf` | `float32` | dual | up to `'lanczos5'` | good | `'natural'` | average | [C++](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/image/scale_and_translate_op.cc) | yes |
+# | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `'trapezoid'`, `'triangle'`, `'cubic'` | `'clamp'` | average | [C++](https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/UpSampleBicubic2d.cpp) | yes |
+# | `jax.image.resize` | any | `jax` | `float`, `complex` | dual | up to `'lanczos5'` | good but no `'trapezoid'` | `'natural'` | average | [<font size="-2">`opt_einsum`</font>](https://github.com/google/jax/blob/main/jax/_src/image/scale.py) | yes |
 #
-# The `resampler` library does not involve any new native code;
-# it instead leverages existing sparse matrix representations and operations.
+# The `resampler` library does not require installing any new native code;
+# it instead leverages the existing sparse matrix representations and operations in `scipy.sparse`
+# or uses `numba` to jit similar code.
 
 # %% [markdown]
 # What about support for general resampling (not just resize)?
@@ -5694,6 +5879,7 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0) -> None:
       'resize lanczos3': lambda: resampler.resize(*a, filter='lanczos3'),
       # 'resize lanczos3 1thread': lambda: resampler.resize(*a, filter='lanczos3', num_threads=1),
       'resize cardinal3': lambda: resampler.resize(*a, filter='cardinal3'),
+      'resize sharpcubic': lambda: resampler.resize(*a, filter='sharpcubic'),
       'resize cubic': lambda: resampler.resize(*a, filter='cubic'),
       'resize triangle': lambda: resampler.resize(*a, filter='triangle'),
       'resize_in_tf lanczos3': lambda: resampler.resize_in_tensorflow(*a, filter='lanczos3'),
@@ -5736,13 +5922,11 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0) -> None:
     images[name] = image
 
   if 1:  # Optionally crop the images
-    # images = {name: image[:shape[0]//2, :shape[1]//2] for name, image in images.items()}
     images = {name: image[:100, :200] for name, image in images.items()}
   media.set_max_output_height(2000)
   # with media.set_show_save_dir('/tmp'):
   show_args: Any = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
   media.show_images(images, **show_args)
-  # media.show_video([upsampled3, upsampled4], codec='gif', fps=1, height=400)
 
 
 if EFFORT >= 1:
@@ -5890,6 +6074,69 @@ test_downsample_timing()
 # - The `resampler.resize` box-filtering (using `numba`) is as fast as the C++
 #   `tf.image.resize` and `OpenCV` implementations.
 # - `resampler.resize` achieves the fastest downsampling with a Lanczos filter.
+
+# %% [markdown]
+# ## Boundary comparison
+
+
+# %%
+def visualize_boundary_rules_across_libraries(*, filter='triangle', cval=0.0) -> None:
+  """Compare 1D boundary rules across libraries."""
+  media.set_max_output_height(3000)
+  resizers = {
+      'resampler.resize': resampler.resize,
+      'PIL.Image.resize': resampler.pil_image_resize,
+      'cv.resize': resampler.cv_resize,
+      'scipy.ndimage.map_coordinates': resampler.scipy_ndimage_resize,
+      'skimage.transform.resize': resampler.skimage_transform_resize,
+      'tf.image.resize': resampler.tf_image_resize,
+      'torch.nn.functional.interpolate': resampler.torch_nn_resize,
+      'jax.image.scale_and_translate': resampler.jax_image_resize,
+  }
+  for name, resize in resizers.items():
+    display_markdown(f'**{name}:**')
+    visualize_boundary_rules_in_1d(resizer=resize, filters=[filter], cval=cval)
+
+
+if EFFORT >= 1:
+  visualize_boundary_rules_across_libraries(filter='high_quality', cval=0.6)
+
+# The grid below let us identify what boundary conditions are implemented in the other libraries.
+# The results generally match ours.
+
+# The discrepancy for filter='cardinal5' and filter='clamp','border' may be due to the interaction
+# of the digital filter and the boundary clamp extension, e.g., which comes first.
+
+# For `jax.image.scale_and_translate`, the value of the function outside the unit domain is
+# automatically assigned to zero, so we only enable scale and translation with `cval=0.0`,
+# as shown in the next example.
+
+# %%
+if EFFORT >= 1:
+  visualize_boundary_rules_across_libraries(filter='triangle', cval=0.0)
+
+# Note that for triangle='filter' (as well as 'box_like'), the function value within the domain
+# interior is the same for boundary in ['reflect', 'clamp', 'natural'], so we cannot deduce what
+# boundary condition is implemented in the other libraries in this particular case.
+
+# There is a discrepancy between our boundary='border' and that in `scipy.ndimage.map_coordinates`.
+# Our 'border' definition overrides values of the sample values outside the domain.
+# Their 'border' definition overrides the value of the reconstructed function immediately beyond
+# the last domain-interior samples.
+# It seems that our definition matches that of `skimage.transform.resize`.
+
+# %%
+if EFFORT >= 2:
+  visualize_boundary_rules_across_libraries(filter='box_like', cval=0.6)
+
+# Again, everything matches, including the same discrepancy for boundary='border' in
+# `scipy.ndimage.map_coordinates` that we saw earlier with filter='triangle'.
+
+# %%
+if EFFORT >= 2:
+  visualize_boundary_rules_across_libraries(filter='cubic_like', cval=0.6)
+
+# Again, everything matches, except for the discrepancies observed earlier in filter='high_quality'.
 
 # %% [markdown]
 # # Run external tools
@@ -6042,29 +6289,30 @@ hh.show_notebook_cell_top_times()
 # In[ 66] def test_that_resize_matrices_are_equal_across_arraylib() -  1.709 s
 
 # EFFORT=2
-# Total time: 998.51 s
-# In[156] def experiment_find_the_best_max_block_size(src_size=64,    310.206 s
-# In[168] def compare_boundary_rules_on_cropped_windows_of_images(\n  139.930 s
-# In[124] def test_best_dimension_ordering_for_resize_timing(dtype=   124.525 s
-# In[125] def experiment_with_resize_timing() -> None:\n  def run(    97.485 s
-# In[127] def test_profile_downsampling(\n    shape, new_shape,       60.355 s
-# In[208] def run_lint() -> None:\n  """Run checks on *.py notebook   47.285 s
-# In[123] def test_gamma_conversion_from_and_to_uint8_timings() ->    36.410 s
-# In[ 83] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2) 19.207 s
-# In[132] if EFFORT >= 2:\n  test_profile_upsampling((1024, 1024, 3), 18.416 s
-# In[185] def experiment_with_convolution() -> None:\n  # https://    15.975 s
-# In[203] def experiment_compare_downsampling_with_other_libraries(   10.548 s
-# In[187] def test_inverse_convolution_2d(\n    gridscale=2.0,         9.301 s
-# In[ 53] def test_profile_resample() -> None:\n  def run(src_shape,   6.527 s
-# In[ 57] def test_downsample_in_2d_using_box_filter() -> None:\n      5.268 s
-# In[126] def test_compare_timing_of_resize_and_media_show_image() ->  4.990 s
-# In[201] def experiment_compare_upsampling_with_other_libraries(      4.759 s
-# In[159] if EFFORT >= 1:\n  visualize_filters({f"\'{name}\'":         4.359 s
-# In[130] if EFFORT >= 1:\n  test_profile_upsampling((1024, 1024, 1),  4.175 s
-# In[141] def experiment_zoom_image(original_image, num_frames=60) ->  3.709 s
-# In[179] def experiment_visualize_gamma_upsample_video(shape=(24, 48  3.610 s
+# Total time: 974.02 s
+# In[156] def experiment_find_the_best_max_block_size(src_size=64,    304.242 s
+# In[168] def compare_boundary_rules_on_cropped_windows_of_images(\n  144.282 s
+# In[124] def test_best_dimension_ordering_for_resize_timing(dtype=   124.535 s
+# In[125] def experiment_with_resize_timing() -> None:\n  def run(    95.221 s
+# In[127] def test_profile_downsampling(\n    shape, new_shape,       60.157 s
+# In[214] def run_lint() -> None:\n  """Run checks on *.py notebook   43.398 s
+# In[123] def test_gamma_conversion_from_and_to_uint8_timings() ->    35.702 s
+# In[ 83] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2) 19.013 s
+# In[132] if EFFORT >= 2:\n  test_profile_upsampling((1024, 1024, 3), 18.524 s
+# In[185] def experiment_with_convolution() -> None:\n  # https://    15.716 s
+# In[187] def test_inverse_convolution_2d(\n    gridscale=2.0,         9.414 s
+# In[ 53] def test_profile_resample() -> None:\n  def run(src_shape,   6.433 s
+# In[205] def experiment_compare_downsampling_with_other_libraries(    5.709 s
+# In[126] def test_compare_timing_of_resize_and_media_show_image() ->  4.827 s
+# In[203] def experiment_compare_upsampling_with_other_libraries(      4.756 s
+# In[130] if EFFORT >= 1:\n  test_profile_upsampling((1024, 1024, 1),  3.689 s
+# In[159] if EFFORT >= 1:\n  visualize_filters({f"\'{name}\'":         3.567 s
+# In[144] def experiment_shear_image(degrees=30, show_compare=False,   3.507 s
+# In[179] def experiment_visualize_gamma_upsample_video(shape=(24, 48  3.497 s
+# In[141] def experiment_zoom_image(original_image, num_frames=60) ->  3.369 s
 
 # EFFORT=3
+# Total time: 1056.34 s
 
 
 # %% [markdown]
