@@ -757,7 +757,7 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
 
   def premult_with_sparse(
       self, sparse: jax.experimental.sparse.BCOO, num_threads: int | Literal['auto']
-  ) -> _Array:
+  ) -> _JaxArray:
     del num_threads
     return sparse @ self.array  # Calls jax.bcoo_multiply_dense().
 
@@ -808,7 +808,7 @@ def _as_arr(array: _Array, /) -> _Arraylib[_Array]:
   """Return `array` wrapped as an `_Arraylib` for dispatch of functions."""
   for cls in _DICT_ARRAYLIBS.values():
     if cls.recognize(array):
-      return cls(array)  # type: ignore[abstract, arg-type]
+      return cls(array)  # type: ignore[abstract]
   raise ValueError(f'{array} {type(array)} {type(array).__module__} unrecognized by {ARRAYLIBS}.')
 
 
@@ -918,13 +918,13 @@ def _arr_moveaxis(array: _Array, source: int, destination: int, /) -> _Array:
 
 def _make_sparse_matrix(
     data: _NDArray, row_ind: _NDArray, col_ind: _NDArray, shape: tuple[int, int], arraylib: str, /
-) -> _Array:
+) -> Any:
   """Return the equivalent of `scipy.sparse.csr_matrix(data, (row_ind, col_ind), shape=shape)`.
   However, indices must be ordered and unique."""
-  return _DICT_ARRAYLIBS[arraylib].make_sparse_matrix(data, row_ind, col_ind, shape)  # type: ignore
+  return _DICT_ARRAYLIBS[arraylib].make_sparse_matrix(data, row_ind, col_ind, shape)
 
 
-def _make_array(array: _ArrayLike, arraylib: str, /) -> _Array:
+def _make_array(array: _ArrayLike, arraylib: str, /) -> Any:
   """Return an array from the library `arraylib` initialized with the `numpy` `array`."""
   return _DICT_ARRAYLIBS[arraylib](np.asarray(array)).array  # type: ignore[abstract]
 
@@ -1003,7 +1003,7 @@ def _map_function_over_blocks(blocks: Any, func: Callable[[Any], Any]) -> Any:
   return func(blocks)
 
 
-def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> _Array:
+def _merge_array_from_blocks(blocks: Any, axis: int = 0) -> Any:
   """Merge an array from the nested lists of array blocks in `blocks`."""
   # More general than np.block() because the blocks can have additional dims.
   if isinstance(blocks, list):
@@ -2427,7 +2427,7 @@ def _apply_digital_filter_1d(
   if arraylib == 'torch':
     import torch.autograd
 
-    class InverseConvolution(torch.autograd.Function):  # pylint: disable=abstract-method
+    class InverseConvolution(torch.autograd.Function):  # type: ignore[misc] # pylint: disable=abstract-method
       """Differentiable wrapper for _apply_digital_filter_1d."""
 
       @staticmethod
@@ -3590,8 +3590,8 @@ def scipy_ndimage_resize(
   shape_all = shape + array.shape[len(shape) :]
   coords = np.moveaxis(np.indices(shape_all, array.dtype), 0, -1)
   coords[..., : len(shape)] = (
-      (coords[..., : len(shape)] + 0.5) / shape - translate
-  ) / scale * np.array(array.shape)[: len(shape)] - 0.5
+      (coords[..., : len(shape)] + 0.5) / shape - np.asarray(translate)
+  ) / np.asarray(scale) * np.array(array.shape)[: len(shape)] - 0.5
   coords = np.moveaxis(coords, -1, 0)
   return scipy.ndimage.map_coordinates(array, coords, order=order, mode=mode, cval=cval)
 
@@ -3621,7 +3621,9 @@ def skimage_transform_resize(
   mode = boundaries[boundary]
   shape_all = shape + array.shape[len(shape) :]
   # Default anti_aliasing=None automatically enables (poor) Gaussian prefilter if downsampling.
-  return skimage.transform.resize(array, shape_all, order=order, mode=mode, cval=cval, clip=False)
+  return skimage.transform.resize(
+      array, shape_all, order=order, mode=mode, cval=cval, clip=False
+  )  # type: ignore[no-untyped-call]
 
 
 _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
