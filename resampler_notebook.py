@@ -3595,7 +3595,7 @@ def test_blocking_using_image_rotation(max_block_size, src_size=64, dst_size=256
         resampler.resize(EXAMPLE_IMAGE, (src_size,) * 2), arraylib
     )
 
-    def rotate_image(degrees=8, scale=2.2, **kwargs) -> resampler._Array:
+    def rotate_image(degrees=8, scale=2.2, **kwargs) -> Any:
       matrix = resampler.rotation_about_center_in_2d(
           original_image.shape[:2], math.radians(degrees), scale=scale
       )
@@ -3625,7 +3625,7 @@ def experiment_find_the_best_max_block_size(src_size=64, dst_size=4096) -> None:
     # sizes += [8_000_000, 0]  # Can lead to out-of-memory on this large test.
     for max_block_size in sizes:
 
-      def rotate_image(degrees=8, scale=2.2) -> resampler._Array:
+      def rotate_image(degrees=8, scale=2.2) -> Any:
         matrix = resampler.rotation_about_center_in_2d(
             original_image.shape[:2], math.radians(degrees), scale=scale
         )
