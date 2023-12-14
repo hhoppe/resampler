@@ -491,11 +491,14 @@ def _numba_serial_csr_dense_mult(indptr: _NDArray, indices: _NDArray, data: _NDA
 def _numba_parallel_csr_dense_mult(indptr: _NDArray, indices: _NDArray, data: _NDArray, src: _NDArray, dst: _NDArray,) -> None: ...
 
 _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER: dict[str, str]
+_TORCH_INTERPOLATE_MODE_FROM_FILTER: dict[str, str]
 _OFTUSED_BOUNDARIES: list[str]
 _DICT_GRIDTYPES: dict[str, Gridtype]
 _DICT_BOUNDARIES: dict[str, Boundary]
 _DICT_FILTERS: dict[str, Filter]
 _DICT_GAMMAS: dict[str, Gamma]
+_RESIZERS: dict[str, Callable[..., _Array]]
 
 def _original_resize(array: _NDArray, shape: Iterable[int], *args: Any, **kwargs: Any) -> _NDArray: ...
 
+def _find_closest_filter(filter: str, resizer: Callable[..., Any]) -> str: ...
