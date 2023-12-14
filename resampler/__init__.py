@@ -3777,31 +3777,29 @@ _RESIZERS = {
 
 def _find_closest_filter(filter: str, resizer: Callable[..., Any]) -> str:
   """Return the filter supported by `resizer` (i.e., `*_resize`) that is closest to `filter`."""
-  match filter:
-    case 'box_like':
-      return {
-          cv_resize: 'trapezoid',
-          skimage_transform_resize: 'box',
-          tf_image_resize: 'trapezoid',
-          torch_nn_resize: 'trapezoid',
-      }.get(resize, 'box')
-    case 'cubic_like':
-      return {
-          cv_resize: 'sharpcubic',
-          scipy_ndimage_resize: 'cardinal3',
-          skimage_transform_resize: 'cardinal3',
-          torch_nn_resize: 'sharpcubic',
-      }.get(resize, 'cubic')
-    case 'high_quality':
-      return {
-          pil_image_resize: 'lanczos3',
-          cv_resize: 'lanczos4',
-          scipy_ndimage_resize: 'cardinal5',
-          skimage_transform_resize: 'cardinal5',
-          torch_nn_resize: 'sharpcubic',
-      }.get(resizer, 'lanczos5')
-    case _:
-      return filter
+  if filter == 'box_like':
+    return {
+        cv_resize: 'trapezoid',
+        skimage_transform_resize: 'box',
+        tf_image_resize: 'trapezoid',
+        torch_nn_resize: 'trapezoid',
+    }.get(resize, 'box')
+  if filter == 'cubic_like':
+    return {
+        cv_resize: 'sharpcubic',
+        scipy_ndimage_resize: 'cardinal3',
+        skimage_transform_resize: 'cardinal3',
+        torch_nn_resize: 'sharpcubic',
+    }.get(resize, 'cubic')
+  if filter == 'high_quality':
+    return {
+        pil_image_resize: 'lanczos3',
+        cv_resize: 'lanczos4',
+        scipy_ndimage_resize: 'cardinal5',
+        skimage_transform_resize: 'cardinal5',
+        torch_nn_resize: 'sharpcubic',
+    }.get(resizer, 'lanczos5')
+  return filter
 
 
 # For Emacs:
