@@ -3988,35 +3988,6 @@ test_kaiser_filter_fractional_radius()
 
 
 # %%
-def find_closest_filter(filter: str, resizer: Callable[..., Any]) -> str:
-  match filter:
-    case 'box_like':
-      return {
-          resampler.cv_resize: 'trapezoid',
-          resampler.skimage_transform_resize: 'box',
-          resampler.tf_image_resize: 'trapezoid',
-          resampler.torch_nn_resize: 'trapezoid',
-      }.get(resizer, 'box')
-    case 'cubic_like':
-      return {
-          resampler.cv_resize: 'sharpcubic',
-          resampler.scipy_ndimage_resize: 'cardinal3',
-          resampler.skimage_transform_resize: 'cardinal3',
-          resampler.torch_nn_resize: 'sharpcubic',
-      }.get(resizer, 'cubic')
-    case 'high_quality':
-      return {
-          resampler.pil_image_resize: 'lanczos3',
-          resampler.cv_resize: 'lanczos4',
-          resampler.scipy_ndimage_resize: 'cardinal5',
-          resampler.skimage_transform_resize: 'cardinal5',
-          resampler.torch_nn_resize: 'sharpcubic',
-      }.get(resizer, 'lanczos5')
-    case _:
-      return filter
-
-
-# %%
 def visualize_boundary_rules_in_1d(
     *, resizer=resampler.resize, gridtype='dual', filters=None, boundaries=None, cval=0.6
 ) -> None:
@@ -4028,7 +3999,7 @@ def visualize_boundary_rules_in_1d(
   color = plt.rcParams['axes.prop_cycle'].by_key()['color'][0]
 
   for row_index, filter in enumerate(filters):
-    filter = find_closest_filter(filter, resizer)
+    filter = resampler._find_closest_filter(filter, resizer)
     fig, axs = plt.subplots(1, len(boundaries), figsize=(18, 1.5))
     fig.subplots_adjust(wspace=0.1)
     array = np.array([0.2, 0.1, 0.4, 0.5])
@@ -4044,7 +4015,7 @@ def visualize_boundary_rules_in_1d(
       x = None
       discrepancy = False
 
-      try:  # See if the filter suppports `scale` and `translate` parameters (else TypeError).
+      try:  # See if the filter supports `scale` and `translate` parameters (else TypeError).
         params2 = params | dict(scale=scale, translate=(1 - scale) / 2)
         resized = resizer(array, (num_samples,), **params2)
         if resizer is not resampler.resize:
@@ -6076,6 +6047,40 @@ test_downsample_timing()
 # - `resampler.resize` achieves the fastest downsampling with a Lanczos filter.
 
 # %% [markdown]
+# ## Elongated arrays
+
+
+# %%
+def test_elongated_arrays():
+  shape, new_shape = (100, 3000), (100, 2000)
+  image = np.ones(shape, np.float32)
+  filter = 'triangle'  # Or 'cubic_like'.
+  for name, resize in resampler._RESIZERS.items():
+    print(f'# {name:32}: ', end='')
+    filter2 = resampler._find_closest_filter(filter, resize)
+    hh.print_time(lambda: resize(image, new_shape, filter=filter2), max_time=0.1)
+
+
+if 0:
+  test_elongated_arrays()
+
+# resampler.resize                : 865 µs
+# PIL.Image.resize                : 617 µs
+# cv.resize                       : 50.6 µs
+# scipy.ndimage.map_coordinates   : 5.39 ms
+# skimage.transform.resize        : 3.24 ms
+# tf.image.resize                 : 2.69 ms
+# torch.nn.functional.interpolate : 237 µs
+# jax.image.scale_and_translate   : 72.6 ms
+
+# Note the large overhead in jax.image.scale_and_translate due to the creation of a dense weight
+# matrix for use with jax.np.einsum.
+
+# %%
+# hh.prun(lambda: resampler.resize(np.ones((100, 3000), 'f'), (100, 2000), filter='triangle'))
+# The overhead is in _create_resize_matrix().
+
+# %% [markdown]
 # ## Boundary comparison
 
 
@@ -6083,17 +6088,7 @@ test_downsample_timing()
 def visualize_boundary_rules_across_libraries(*, filter='triangle', cval=0.0) -> None:
   """Compare 1D boundary rules across libraries."""
   media.set_max_output_height(3000)
-  resizers = {
-      'resampler.resize': resampler.resize,
-      'PIL.Image.resize': resampler.pil_image_resize,
-      'cv.resize': resampler.cv_resize,
-      'scipy.ndimage.map_coordinates': resampler.scipy_ndimage_resize,
-      'skimage.transform.resize': resampler.skimage_transform_resize,
-      'tf.image.resize': resampler.tf_image_resize,
-      'torch.nn.functional.interpolate': resampler.torch_nn_resize,
-      'jax.image.scale_and_translate': resampler.jax_image_resize,
-  }
-  for name, resize in resizers.items():
+  for name, resize in resampler._RESIZERS.items():
     display_markdown(f'**{name}:**')
     visualize_boundary_rules_in_1d(resizer=resize, filters=[filter], cval=cval)
 

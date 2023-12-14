@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.8.2'
+__version__ = '0.8.3'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -2132,6 +2132,9 @@ class Gamma(abc.ABC):
     """Encode float signal into destination samples, possibly nonlinearly.
 
     Uint destination values are mapped from the range [0.0, 1.0].
+
+    Note that non-integer destination types are not clipped to the range [0.0, 1.0].
+    If that is desired, it can be performed as a postprocess using `output.clip(0.0, 1.0)`.
     """
 
 
@@ -3621,6 +3624,7 @@ def skimage_transform_resize(
   mode = boundaries[boundary]
   shape_all = shape + array.shape[len(shape) :]
   # Default anti_aliasing=None automatically enables (poor) Gaussian prefilter if downsampling.
+  # clip=False is the default behavior in `resampler` if the output type is non-integer.
   return skimage.transform.resize(
       array, shape_all, order=order, mode=mode, cval=cval, clip=False
   )  # type: ignore[no-untyped-call]
@@ -3757,6 +3761,47 @@ def jax_image_resize(
   return jax.image.scale_and_translate(
       array2, completed_shape, spatial_dims, scale2, translate2, filter
   )
+
+
+_RESIZERS = {
+    'resampler.resize': resize,
+    'PIL.Image.resize': pil_image_resize,
+    'cv.resize': cv_resize,
+    'scipy.ndimage.map_coordinates': scipy_ndimage_resize,
+    'skimage.transform.resize': skimage_transform_resize,
+    'tf.image.resize': tf_image_resize,
+    'torch.nn.functional.interpolate': torch_nn_resize,
+    'jax.image.scale_and_translate': jax_image_resize,
+}
+
+
+def _find_closest_filter(filter: str, resizer: Callable[..., Any]) -> str:
+  """Return the filter supported by `resizer` (i.e., `*_resize`) that is closest to `filter`."""
+  match filter:
+    case 'box_like':
+      return {
+          cv_resize: 'trapezoid',
+          skimage_transform_resize: 'box',
+          tf_image_resize: 'trapezoid',
+          torch_nn_resize: 'trapezoid',
+      }.get(resize, 'box')
+    case 'cubic_like':
+      return {
+          cv_resize: 'sharpcubic',
+          scipy_ndimage_resize: 'cardinal3',
+          skimage_transform_resize: 'cardinal3',
+          torch_nn_resize: 'sharpcubic',
+      }.get(resize, 'cubic')
+    case 'high_quality':
+      return {
+          pil_image_resize: 'lanczos3',
+          cv_resize: 'lanczos4',
+          scipy_ndimage_resize: 'cardinal5',
+          skimage_transform_resize: 'cardinal5',
+          torch_nn_resize: 'sharpcubic',
+      }.get(resizer, 'lanczos5')
+    case _:
+      return filter
 
 
 # For Emacs:
