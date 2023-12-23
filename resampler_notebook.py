@@ -2190,7 +2190,7 @@ def test_jax_image_resize() -> None:
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
-    kwargs: dict[str, Any] = dict(filter=filter, scale=scale, translate=translate)
+    kwargs: Any = dict(filter=filter, scale=scale, translate=translate)
     # to_py() deprecated.
     result = np.asarray(resampler.jax_image_resize(original, shape, **kwargs))
     reference = resampler.resize(original, shape, **kwargs, boundary='natural')
@@ -2512,7 +2512,7 @@ def experiment_with_resize_timing() -> None:
     for dtype in 'uint8 float32 float64'.split():
       array = np.ones(src_shape, dtype)
       args = [dst_shape]
-      kwargs: dict[str, Any] = dict(gamma='identity')
+      kwargs: Any = dict(gamma='identity')
       array_for_lib = {
           arraylib: resampler._make_array(array, arraylib) for arraylib in resampler.ARRAYLIBS
       }
@@ -3328,7 +3328,7 @@ def test_torch_optimize_image_for_desired_upsampling(
     coords = np.moveaxis(np.indices(dst_shape) + 0.5, 0, -1) / dst_shape
 
     def model(array) -> _TorchTensor:
-      kwargs: dict[str, Any] = dict(boundary=boundary, filter=filter, cval=(0.8, 0.5, 0.4))
+      kwargs: Any = dict(boundary=boundary, filter=filter, cval=(0.8, 0.5, 0.4))
       functions: dict[str, Callable[[], Any]] = {
           'resize': lambda: resampler.resize(array, dst_shape, **kwargs),
           'resample': lambda: resampler.resample(array, coords, **kwargs),
@@ -3409,7 +3409,7 @@ def test_jax_optimize_image_for_desired_upsampling(
     coords = np.moveaxis(np.indices(dst_shape) + 0.5, 0, -1) / dst_shape
 
     def model(array) -> _JaxArray:
-      kwargs: dict[str, Any] = dict(boundary=boundary, filter=filter, cval=(0.8, 0.5, 0.4))
+      kwargs: Any = dict(boundary=boundary, filter=filter, cval=(0.8, 0.5, 0.4))
       functions: dict[str, Callable[[], Any]] = {
           'resize': lambda: resampler.jaxjit_resize(array, dst_shape, **kwargs),
           'resample': lambda: resampler.resample(array, coords, **kwargs),
