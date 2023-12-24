@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.8.3'
+__version__ = '0.8.4'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -22,7 +22,7 @@ import typing
 from typing import Any, Generic, Literal, Union
 
 import numpy as np
-import numpy.typing as npt
+import numpy.typing
 import scipy.interpolate
 import scipy.linalg
 import scipy.ndimage
@@ -52,8 +52,8 @@ if typing.TYPE_CHECKING:
 
   _DType = np.dtype[Any]  # (Requires Python 3.9 or TYPE_CHECKING.)
   _NDArray = np.ndarray[Any, Any]
-  _DTypeLike = npt.DTypeLike
-  _ArrayLike = npt.ArrayLike
+  _DTypeLike = numpy.typing.DTypeLike
+  _ArrayLike = numpy.typing.ArrayLike
   _TensorflowTensor: typing.TypeAlias = tf.Tensor
   _TorchTensor: typing.TypeAlias = torch.Tensor
   _JaxArray: typing.TypeAlias = jax.numpy.ndarray

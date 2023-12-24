@@ -1,0 +1,312 @@
+#!/usr/bin/env python3
+# -*- fill-column: 100; -*-
+"""Tests for package resampler.
+
+c:/windows/sysnative/wsl -e bash -lc 'flake8 --indent-size 2 --max-line-length=1000 --extend-ignore E302,E741,E131,E305,E402 test_resampler.py && python3 test_resampler.py'
+"""
+from __future__ import annotations
+
+from collections.abc import Callable
+import itertools
+import math
+import os
+from typing import Any
+import unittest
+import warnings
+
+import numpy as np
+import scipy
+
+import resampler
+
+_ArrayLike = Any
+_NDArray = Any
+_TensorflowTensor = Any
+
+# pylint: disable=protected-access, missing-function-docstring
+
+# Silence "WARNING:absl:No GPU/TPU found, falling back to CPU".
+os.environ['JAX_PLATFORM_NAME'] = 'cpu'
+
+
+def enable_jax_float64() -> None:
+  """Enable use of double-precision float in Jax; this only works at startup."""
+  import jax.config
+
+  jax.config.update('jax_enable_x64', True)
+
+
+def _check_eq(a: Any, b: Any) -> None:
+  """If the two values or arrays are not equal, raise an exception with a useful message."""
+  are_equal = np.all(a == b) if isinstance(a, np.ndarray) else a == b
+  if not are_equal:
+    raise AssertionError(f'{a!r} == {b!r}')
+
+
+class TestResampler(unittest.TestCase):
+  """Test class for resampler package."""
+
+  @classmethod
+  def setUpClass(cls: type) -> None:
+    enable_jax_float64()
+    # Silence the warning in package flatbuffers.
+    warnings.filterwarnings('ignore', message='.*the imp module is deprecated')
+
+  def test_resize_on_list(self) -> None:
+    array = [3.0, 5.0, 8.0, 7.0]
+    expected = np.array([2.84536097, 3.6902174, 5.58573019, 7.77282572, 7.8097826, 6.79608312])
+    np.testing.assert_allclose(resampler.resize(array, (6,)), expected)
+    np.testing.assert_allclose(resampler.resize(np.array(array), (6,)), expected)
+
+  def test_precision(self) -> None:
+    _check_eq(resampler._real_precision(np.dtype(np.float32)), np.float32)
+    _check_eq(resampler._real_precision(np.dtype(np.float64)), np.float64)
+    _check_eq(resampler._real_precision(np.dtype(np.complex64)), np.float32)
+    _check_eq(resampler._real_precision(np.dtype(np.complex128)), np.float64)
+
+  def test_get_precision(self) -> None:
+    _check_eq(
+        resampler._get_precision(None, [np.dtype(np.complex64)], [np.dtype(np.float64)]),
+        np.complex128,
+    )
+
+  def test_cached_sampling(self) -> None:
+    radius = 2.0
+
+    def create_scipy_interpolant(
+        func: Callable[[_ArrayLike], _NDArray], xmin: float, xmax: float, num_samples: int = 3_600
+    ) -> Callable[[_NDArray], _NDArray]:
+      samples_x = np.linspace(xmin, xmax, num_samples + 1, dtype=np.float32)
+      samples_func = func(samples_x)
+      assert np.all(samples_func[[0, -1]] == 0.0)
+      interpolator: Callable[[_NDArray], _NDArray] = scipy.interpolate.interp1d(
+          samples_x, samples_func, kind='linear', bounds_error=False, fill_value=0
+      )
+      return interpolator
+
+    def func(x: _ArrayLike) -> _NDArray:  # Lanczos kernel
+      x = np.abs(x)
+      return np.where(x < radius, resampler._sinc(x) * resampler._sinc(x / radius), 0.0)
+
+    @resampler._cache_sampled_1d_function(xmin=-radius, xmax=radius)
+    def func2(x: _ArrayLike) -> _NDArray:
+      return func(x)
+
+    scipy_interp = create_scipy_interpolant(func, -radius, radius)
+
+    shape = 2, 8_000
+    rng = np.random.default_rng(0)
+    array = rng.random(shape, np.float32) * 2 * radius - radius
+    result = {'expected': func(array), 'scipy': scipy_interp(array), 'obtained': func2(array)}
+
+    assert all(a.dtype == np.float32 for a in result.values())
+    assert all(a.shape == shape for a in result.values())
+    assert np.allclose(result['scipy'], result['expected'], rtol=0, atol=1e-6)
+    assert np.allclose(result['obtained'], result['expected'], rtol=0, atol=1e-6)
+
+  def test_downsample_in_2d_using_box_filter(self) -> None:
+    for shape in [(6, 6), (4, 4)]:
+      for ch in [1, 2, 3, 4]:
+        array = np.ones((*shape, ch), np.float32)
+        new = resampler._downsample_in_2d_using_box_filter(array, (2, 2))
+        _check_eq(new.shape, (2, 2, ch))
+        assert np.allclose(new, 1.0)
+
+    for shape in [(6, 6), (4, 4)]:
+      array = np.ones(shape, np.float32)
+      new = resampler._downsample_in_2d_using_box_filter(array, (2, 2))
+      _check_eq(new.shape, (2, 2))
+      assert np.allclose(new, 1.0)
+
+  def test_block_shape_with_min_size(self) -> None:
+    for compact in [True, False]:
+      with self.subTest(compact=compact):
+        shape = 2, 3, 4
+        for min_size in range(1, math.prod(shape) + 1):
+          block_shape = resampler._block_shape_with_min_size(shape, min_size, compact=compact)
+          assert np.all(np.array(block_shape) >= 1)
+          assert np.all(block_shape <= shape)
+          assert min_size <= math.prod(block_shape) <= math.prod(shape)
+
+  def test_split_2d(self) -> None:
+    numpy_array = np.random.default_rng(0).choice([1, 2, 3, 4], (5, 8))
+    for arraylib in resampler.ARRAYLIBS:
+      array = resampler._make_array(numpy_array, arraylib)
+      blocks = resampler._split_array_into_blocks(array, [2, 3])
+      blocks = resampler._map_function_over_blocks(blocks, lambda x: 2 * x)
+      new = resampler._merge_array_from_blocks(blocks)
+      _check_eq(resampler._arr_arraylib(new), arraylib)
+      _check_eq(np.sum(resampler._map_function_over_blocks(blocks, lambda _: 1)), 9)
+      _check_eq(resampler._arr_numpy(new), 2 * numpy_array)
+
+  def test_split_3d(self) -> None:
+    shape = 4, 3, 2
+    numpy_array = np.random.default_rng(0).choice([1, 2, 3, 4], shape)
+
+    for arraylib in resampler.ARRAYLIBS:
+      array = resampler._make_array(numpy_array, arraylib)
+      for min_size in range(1, math.prod(shape) + 1):
+        block_shape = resampler._block_shape_with_min_size(shape, min_size)
+        blocks = resampler._split_array_into_blocks(array, block_shape)
+        blocks = resampler._map_function_over_blocks(blocks, lambda x: x**2)
+        new = resampler._merge_array_from_blocks(blocks)
+        _check_eq(resampler._arr_arraylib(new), arraylib)
+        _check_eq(resampler._arr_numpy(new), numpy_array**2)
+
+        def check_block_shape(block: _NDArray) -> None:
+          assert np.all(np.array(block.shape) >= 1)
+          assert np.all(np.array(block.shape) <= shape)
+
+        resampler._map_function_over_blocks(blocks, check_block_shape)
+
+  def test_split_prefix_dims(self) -> None:
+    shape = 2, 3, 2
+    array = np.arange(math.prod(shape)).reshape(shape)
+
+    for min_size in range(1, math.prod(shape[:2]) + 1):
+      block_shape = resampler._block_shape_with_min_size(shape[:2], min_size)
+      blocks = resampler._split_array_into_blocks(array, block_shape)
+
+      new_blocks = resampler._map_function_over_blocks(blocks, lambda x: x**2)
+      new = resampler._merge_array_from_blocks(new_blocks)
+      _check_eq(new, array**2)
+
+      new_blocks = resampler._map_function_over_blocks(blocks, lambda x: x.sum(axis=-1))
+      new = resampler._merge_array_from_blocks(new_blocks)
+      _check_eq(new, array.sum(axis=-1))
+
+  def test_linear_boundary(self) -> None:
+    index = np.array([[-3], [-2], [-1], [0], [1], [2], [3], [2], [3]])
+    weight = np.array([[1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [0.0], [0.0]])
+    size = 2
+    index, weight = resampler.LinearExtendSamples()(index, weight, size, resampler.DualGridtype())
+    expected_weight = [
+        [0, 4, -3, 0, 0],
+        [0, 3, -2, 0, 0],
+        [0, 2, -1, 0, 0],
+        [1, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
+        [0, 0, 0, -1, 2],
+        [0, 0, 0, -2, 3],
+        [0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0],
+    ]
+    assert np.allclose(weight, expected_weight)
+    expected_index = [
+        [0, 0, 1, 0, 0],
+        [0, 0, 1, 0, 0],
+        [0, 0, 1, 0, 0],
+        [0, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1],
+        [1, 1, 1, 0, 1],
+        [1, 1, 1, 0, 1],
+        [1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1],
+    ]
+    assert np.all(index == expected_index)
+
+  def test_gamma_roundtrip_uint(self) -> None:
+    dtypes = 'uint8 uint16 uint32'.split()
+    for config in itertools.product(resampler.ARRAYLIBS, resampler.GAMMAS, dtypes):
+      arraylib, gamma_name, dtype = config
+      gamma = resampler._get_gamma(gamma_name)
+      if arraylib == 'torch' and dtype in ['uint16', 'uint32']:
+        continue  # "The only supported types are: ..., int64, int32, int16, int8, uint8, and bool."
+      with self.subTest(config=config):
+        int_max = np.iinfo(dtype).max
+        precision = 'float32' if np.iinfo(dtype).bits < 32 else 'float64'
+        values = list(range(256)) + list(range(int_max - 255, int_max)) + [int_max]
+        array_numpy = np.array(values, dtype)
+        array = resampler._make_array(array_numpy, arraylib)
+        decoded = gamma.decode(array, np.dtype(precision))
+        _check_eq(resampler._arr_dtype(decoded), precision)
+        decoded_numpy = resampler._arr_numpy(decoded)
+        assert decoded_numpy.min() >= 0.0 and decoded_numpy.max() <= 1.0
+        encoded = gamma.encode(decoded, dtype)
+        _check_eq(resampler._arr_dtype(encoded), dtype)
+        encoded_numpy = resampler._arr_numpy(encoded)
+        _check_eq(encoded_numpy, array_numpy)
+
+  def test_gamma_roundtrip_float(self) -> None:
+    dtypes = 'float32 float64'.split()
+    precisions = 'float32 float64'.split()
+    for config in itertools.product(resampler.ARRAYLIBS, resampler.GAMMAS, dtypes, precisions):
+      arraylib, gamma_name, dtype, precision = config
+      with self.subTest(config=config):
+        gamma = resampler._get_gamma(gamma_name)
+        array_numpy = np.linspace(0.0, 1.0, 100, dtype=dtype)
+        array = resampler._make_array(array_numpy, arraylib)
+        decoded = gamma.decode(array, np.dtype(precision))
+        _check_eq(resampler._arr_dtype(decoded), precision)
+        encoded = gamma.encode(decoded, dtype)
+        _check_eq(resampler._arr_dtype(encoded), dtype)
+        assert np.allclose(resampler._arr_numpy(encoded), array_numpy)
+
+  def test_create_resize_matrix_for_trapezoid_filter(self) -> None:
+    filter = resampler.TrapezoidFilter()
+    for src_size, dst_size in [(6, 2), (7, 3), (7, 6), (14, 13), (3, 6), (3, 12), (3, 11), (3, 16)]:
+      with self.subTest(src_size=src_size, dst_size=dst_size):
+        resize_matrix, unused_cval_weight = resampler._create_resize_matrix(
+            src_size,
+            dst_size,
+            src_gridtype=resampler.DualGridtype(),
+            dst_gridtype=resampler.DualGridtype(),
+            boundary=resampler._get_boundary('reflect'),
+            filter=filter,
+        )
+        resize_matrix = resize_matrix.toarray()
+        assert resize_matrix.sum(axis=0).var() < 1e-10
+        assert resize_matrix.sum(axis=1).var() < 1e-10
+
+  def test_that_resize_matrices_are_equal_across_arraylib(self) -> None:
+    import tensorflow as tf
+
+    src_sizes = range(1, 6)
+    dst_sizes = range(1, 6)
+    for config in itertools.product(src_sizes, dst_sizes):
+      src_size, dst_size = config
+      with self.subTest(config=config):
+
+        def resize_matrix(arraylib: str) -> _TensorflowTensor:
+          return resampler._create_resize_matrix(
+              src_size,
+              dst_size,
+              src_gridtype=resampler.DualGridtype(),
+              dst_gridtype=resampler.DualGridtype(),
+              boundary=resampler._get_boundary('reflect'),
+              filter=resampler._get_filter('lanczos3'),
+              translate=0.8,
+              dtype=np.float32,
+              arraylib=arraylib,
+          )[0]
+
+        numpy_array = resize_matrix('numpy').toarray()
+        tensorflow_array = tf.sparse.to_dense(resize_matrix('tensorflow')).numpy()
+        torch_array = resize_matrix('torch').to_dense().numpy()
+        jax_array = np.array(resize_matrix('jax').todense())
+        assert np.allclose(tensorflow_array, numpy_array)
+        assert np.allclose(torch_array, numpy_array)
+        assert np.allclose(jax_array, numpy_array)
+
+  def test_that_resize_combinations_are_affine(self) -> None:
+    dst_sizes = 1, 2, 3, 4, 9, 20, 21, 22, 31
+    for config in itertools.product(resampler.BOUNDARIES, dst_sizes):
+      boundary, dst_size = config
+      with self.subTest(config=config):
+        resize_matrix, cval_weight = resampler._create_resize_matrix(
+            21,
+            dst_size,
+            src_gridtype=resampler.DualGridtype(),
+            dst_gridtype=resampler.DualGridtype(),
+            boundary=resampler._get_boundary(boundary),
+            filter=resampler.TriangleFilter(),
+            scale=0.5,
+            translate=0.3,
+        )
+        if cval_weight is None:
+          row_sum = np.asarray(resize_matrix.sum(axis=1)).ravel()
+          assert np.allclose(row_sum, 1.0, rtol=0, atol=1e-6), (resize_matrix.todense(), row_sum)
+
+
+if __name__ == '__main__':
+  unittest.main()
