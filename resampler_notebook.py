@@ -252,7 +252,7 @@
 #   <center><img style="margin: 15px 0px 15px 0px;" src="https://github.com/hhoppe/resampler/raw/main/media/example_warp_coords.png"/></center>
 #
 # - Efficient implementation of resize/resample is enabled by [two key
-#   observations](http://www2.eecs.berkeley.edu/Pubs/TechRpts/1989/CSD-89-516.pdf):
+#   observations](https://www2.eecs.berkeley.edu/Pubs/TechRpts/1989/CSD-89-516.pdf):
 #
 #   1. For upsampling (magnification), the sampling prefilter is *unnecessary*
 #      because the reconstructed field is already
@@ -6202,7 +6202,7 @@ def create_documentation_files() -> None:
   """
   if 0:
     hh.run('pip install pdoc')
-  # Used http://www.xiconeditor.com/ to upload 4-channel png and save *.ico .
+  # Used https://www.xiconeditor.com/ to upload 4-channel png and save *.ico .
   # Use custom template ./pdoc/module.html.jinja2 and output ./docs/*.
   # hh.run('pdoc --math -t ./pdoc_files -o ./docs ./resampler --logo https://github.com/hhoppe/resampler/raw/main/pdoc_files/logo.png --favicon https://github.com/hhoppe/resampler/raw/main/pdoc_files/favicon.ico --logo-link https://hhoppe.github.io/resampler/resampler.html')
   # To run interactively in web browser, just omit '-o ./docs'.

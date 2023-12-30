@@ -1575,7 +1575,7 @@ class Filter(abc.ABC):
   Portions of this code are adapted from the C++ library in
   https://github.com/hhoppe/Mesh-processing-library/blob/main/libHh/Filter.cpp
 
-  See also http://hhoppe.com/proj/filtering/.
+  See also https://hhoppe.com/proj/filtering/.
   """
 
   name: str
@@ -1747,7 +1747,7 @@ class SharpCubicFilter(CubicFilter):
   Used by some tools including OpenCV and Photoshop.
 
   See https://en.wikipedia.org/wiki/Mitchell%E2%80%93Netravali_filters and
-  http://entropymine.com/resamplescope/notes/photoshop/.
+  https://entropymine.com/resamplescope/notes/photoshop/.
   """
 
   def __init__(self) -> None:
