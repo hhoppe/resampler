@@ -303,7 +303,8 @@
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q autopep8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy pdoc Pillow pyink pylint pytest resampler scipy scikit-image tensorflow-cpu torch
+# !pip install -q autopep8 hhoppe-tools 'jax[cpu]' jupytext matplotlib mediapy mypy \
+#   pdoc Pillow pyink pylint pytest resampler scipy scikit-image tensorflow-cpu torch
 
 # %%
 # %load_ext autoreload
