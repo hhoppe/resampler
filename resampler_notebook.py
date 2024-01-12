@@ -471,7 +471,7 @@ def show_var_docstring(module_dot_name: str) -> None:
   text = ast_info.var_docstrings.get(name, '')
   text = f'**`{name}`** = {getattr(module, name)}<br/>{text}'
   display_markdown(text)
-  media.set_max_output_height(3000)
+  hh.no_vertical_scroll()
 
 
 # %%
@@ -852,7 +852,7 @@ show_var_docstring('resampler.GAMMAS')
 
 # %%
 hh.pdoc_help(resampler.resize)
-media.set_max_output_height(3000)
+hh.no_vertical_scroll()
 
 # %% [markdown]
 # Because the reconstruction and prefilter kernels are assumed to be separable functions,
@@ -923,11 +923,11 @@ if EFFORT >= 1:
 
 # %%
 hh.pdoc_help(resampler.resample)
-media.set_max_output_height(3000)
+hh.no_vertical_scroll()
 
 # %%
 hh.pdoc_help(resampler.resample_affine)
-media.set_max_output_height(3000)
+hh.no_vertical_scroll()
 
 # %%
 hh.pdoc_help(resampler.rotation_about_center_in_2d)
@@ -3765,7 +3765,7 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
       assert (abs(integral - 1.0) < 1e-6) == filter.unit_integral, (filter, integral)
       assert (abs(np.diff(y)) < 0.001).all() == filter.continuous, filter
 
-  media.set_max_output_height(2000)
+  hh.no_vertical_scroll()
   num_columns = 3
   num_rows = math.ceil(len(filters) / num_columns)
   fig, axs = plt.subplots(num_rows, num_columns, figsize=(4.0 * num_columns, 2.5 * num_rows))
@@ -3850,7 +3850,7 @@ def visualize_filter_frequency_response(filters: Mapping[str, resampler.Filter])
       gains = low_freq_gain, high_freq_gain
       assert np.allclose(gains, [-2.5, -26.1], atol=0.05), gains
 
-  media.set_max_output_height(2000)
+  hh.no_vertical_scroll()
   num_columns = 3
   num_rows = math.ceil(len(filters) / num_columns)
   fig, axs = plt.subplots(num_rows, num_columns, figsize=(4.0 * num_columns, 2.5 * num_rows))
@@ -4076,7 +4076,7 @@ def visualize_boundary_rules_in_1d(
 def visualize_all_boundary_rules_in_1d() -> None:
   """Create 1D boundary rule plots similar to
   https://docs.scipy.org/doc/scipy/reference/tutorial/ndimage.html#ndimage-interpolation-modes"""
-  media.set_max_output_height(3000)
+  hh.no_vertical_scroll()
 
   display_markdown("**`gridtype='dual'`:**")
   visualize_boundary_rules_in_1d()
@@ -4108,7 +4108,7 @@ if EFFORT >= 1:
 def visualize_boundary_rules_in_2d(
     *, scale=0.6, src_gridtype=('dual', 'primal'), cval=(0.6, 0.6, 0.9)
 ) -> None:
-  media.set_max_output_height(2000)
+  hh.no_vertical_scroll()
   shape = (120, 120) if hh.in_colab() else (100, 100)
   if 1:
     # In Colab, the defined HTML style is local to each cell (iframe), whereas in jupyter the
@@ -4794,7 +4794,7 @@ def experiment_visualize_gamma_upsample_image(**kwargs) -> None:
   # try_gamma_upsample(**kwargs, supersample=32, source_pow=0.5)
 
 
-media.set_max_output_height(3000)
+hh.no_vertical_scroll()
 experiment_visualize_gamma_upsample_image(func=chirp, shape=(65, 65), frame_center=(0.5, 0.5))
 
 
@@ -5895,7 +5895,7 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0) -> None:
 
   if 1:  # Optionally crop the images
     images = {name: image[:100, :200] for name, image in images.items()}
-  media.set_max_output_height(2000)
+  hh.no_vertical_scroll()
   # with media.set_show_save_dir('/tmp'):
   show_args: Any = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
   media.show_images(images, **show_args)
@@ -5993,7 +5993,7 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
 
   if 1:  # Optionally crop the images
     images = {name: image[:50, :100] for name, image in images.items()}
-  media.set_max_output_height(2000)
+  hh.no_vertical_scroll()
   # with media.set_show_save_dir('/tmp'):
   show_args: Any = dict(width=400, columns=5) if hh.in_colab() else dict(width=300, columns=4)
   media.show_images(images, **show_args)
@@ -6088,7 +6088,7 @@ if 0:
 # %%
 def visualize_boundary_rules_across_libraries(*, filter='triangle', cval=0.0) -> None:
   """Compare 1D boundary rules across libraries."""
-  media.set_max_output_height(3000)
+  hh.no_vertical_scroll()
   for name, resize in resampler._RESIZERS.items():
     display_markdown(f'**{name}:**')
     visualize_boundary_rules_in_1d(resizer=resize, filters=[filter], cval=cval)
