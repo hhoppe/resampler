@@ -6222,23 +6222,18 @@ hh.analyze_functools_caches(globals())
 
 # %%
 def show_added_global_variables_sorted_by_type() -> None:
+  ok_typenames = (
+      '_GenericAlias _SpecialGenericAlias partial type function _lru_cache_wrapper CPUDispatcher'
+  ).split()
   for typename, name in sorted((type(value).__name__, name) for name, value in globals().items()):
-    if not any((
-        name in _ORIGINAL_GLOBALS,
-        name.startswith(('_', 'test_', 'visualize_')),
-        typename
-        in [
-            '_GenericAlias',
-            '_SpecialGenericAlias',
-            'partial',
-            'type',
-            'function',
-            '_lru_cache_wrapper',
-            'CPUDispatcher',
-        ],
-        len(name) >= 6 and name.upper() == name,
-        name in ''.split(),
-    )):
+    is_ok = (
+        name in _ORIGINAL_GLOBALS
+        or name.startswith(('_', 'test_', 'visualize_'))
+        or typename in ok_typenames
+        or (len(name) >= 6 and name.upper() == name)
+        or name in ''.split()
+    )
+    if not is_ok:
       print(f'# {typename:24} {name}')
 
 
