@@ -5190,7 +5190,7 @@ def experiment_with_convolution() -> None:
 
   if 1:
     shape = 500, 500, 3
-    print(f'For {shape = }:')
+    print(f'For {shape=}:')
     array = np.zeros(shape, np.float32)
     for name, function in functions.items():
       elapsed = hh.get_time(function, max_time=0.2)
