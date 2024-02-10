@@ -294,7 +294,7 @@
 # # Notebook header
 
 # %%
-# !command -v ffmpeg >/dev/null || conda install -y ffmpeg >&/dev/null || (apt update && apt install -y ffmpeg)
+# !command -v ffmpeg >/dev/null || conda install -y ffmpeg >&/dev/null || (apt update && apt install -y ffmpeg)  # For mediapy.
 
 # %%
 # !pip install -qU numba numpy
