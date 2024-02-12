@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.8.4'
+__version__ = '0.8.5'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -1934,20 +1934,22 @@ class OmomsFilter(Filter):
 
   def __call__(self, x: _ArrayLike, /) -> _NDArray:
     x = np.abs(x)
-    if self.degree == 3:
-      v01 = ((0.5 * x - 1.0) * x + 3 / 42) * x + 26 / 42
-      v12 = ((-7 / 42 * x + 1.0) * x - 85 / 42) * x + 58 / 42
-      return np.where(x < 1.0, v01, np.where(x < 2.0, v12, 0.0))
-    if self.degree == 5:
-      v01 = ((((-1 / 12 * x + 1 / 4) * x - 5 / 99) * x - 9 / 22) * x - 1 / 792) * x + 229 / 440
-      v12 = (
-          (((1 / 24 * x - 3 / 8) * x + 505 / 396) * x - 83 / 44) * x + 1351 / 1584
-      ) * x + 839 / 2640
-      v23 = (
-          (((-1 / 120 * x + 1 / 8) * x - 299 / 396) * x + 101 / 44) * x - 27811 / 7920
-      ) * x + 5707 / 2640
-      return np.where(x < 1.0, v01, np.where(x < 2.0, v12, np.where(x < 3.0, v23, 0.0)))
-    raise ValueError(self.degree)
+    match self.degree:
+      case 3:
+        v01 = ((0.5 * x - 1.0) * x + 3 / 42) * x + 26 / 42
+        v12 = ((-7 / 42 * x + 1.0) * x - 85 / 42) * x + 58 / 42
+        return np.where(x < 1.0, v01, np.where(x < 2.0, v12, 0.0))
+      case 5:
+        v01 = ((((-1 / 12 * x + 1 / 4) * x - 5 / 99) * x - 9 / 22) * x - 1 / 792) * x + 229 / 440
+        v12 = (
+            (((1 / 24 * x - 3 / 8) * x + 505 / 396) * x - 83 / 44) * x + 1351 / 1584
+        ) * x + 839 / 2640
+        v23 = (
+            (((-1 / 120 * x + 1 / 8) * x - 299 / 396) * x + 101 / 44) * x - 27811 / 7920
+        ) * x + 5707 / 2640
+        return np.where(x < 1.0, v01, np.where(x < 2.0, v12, np.where(x < 3.0, v23, 0.0)))
+      case _:
+        raise ValueError(self.degree)
 
 
 class GaussianFilter(Filter):
@@ -2086,25 +2088,29 @@ def _to_float_01(array: _Array, /, dtype: _DTypeLike) -> _Array:
   array_dtype = _arr_dtype(array)
   dtype = np.dtype(dtype)
   assert np.issubdtype(dtype, np.floating)
-  if array_dtype.type in (np.uint8, np.uint16, np.uint32):
-    if _arr_arraylib(array) == 'numpy':
-      assert isinstance(array, np.ndarray)  # Help mypy.
-      return np.multiply(array, 1 / np.iinfo(array_dtype).max, dtype=dtype)
-    return _arr_astype(array, dtype) / np.iinfo(array_dtype).max
-  assert np.issubdtype(array_dtype, np.floating)
-  return _arr_clip(array, 0.0, 1.0, dtype)
+  match array_dtype.type:
+    case np.uint8 | np.uint16 | np.uint32:
+      if _arr_arraylib(array) == 'numpy':
+        assert isinstance(array, np.ndarray)  # Help mypy.
+        return np.multiply(array, 1 / np.iinfo(array_dtype).max, dtype=dtype)
+      return _arr_astype(array, dtype) / np.iinfo(array_dtype).max
+    case _:
+      assert np.issubdtype(array_dtype, np.floating)
+      return _arr_clip(array, 0.0, 1.0, dtype)
 
 
 def _from_float(array: _Array, /, dtype: _DTypeLike) -> _Array:
   """Convert a float in range [0.0, 1.0] to uint or float type."""
   assert np.issubdtype(_arr_dtype(array), np.floating)
   dtype = np.dtype(dtype)
-  if dtype.type in (np.uint8, np.uint16):
-    return typing.cast(_Array, _arr_astype(array * np.float32(np.iinfo(dtype).max) + 0.5, dtype))
-  if dtype.type == np.uint32:
-    return typing.cast(_Array, _arr_astype(array * np.float64(np.iinfo(dtype).max) + 0.5, dtype))
-  assert np.issubdtype(dtype, np.floating)
-  return _arr_astype(array, dtype)
+  match dtype.type:
+    case np.uint8 | np.uint16:
+      return typing.cast(_Array, _arr_astype(array * np.float32(np.iinfo(dtype).max) + 0.5, dtype))
+    case np.uint32:
+      return typing.cast(_Array, _arr_astype(array * np.float64(np.iinfo(dtype).max) + 0.5, dtype))
+    case _:
+      assert np.issubdtype(dtype, np.floating)
+      return _arr_astype(array, dtype)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -3666,12 +3672,14 @@ def tf_image_resize(
   assert 1 <= ndim <= 3
   shape = tuple(shape)
   _check_eq(len(shape), 2 if ndim >= 2 else 1)
-  if ndim == 1:
-    return tf_image_resize(array2[None], (1, *shape), filter=filter, antialias=antialias)[0]
-  if ndim == 2:
-    return tf_image_resize(array2[..., None], shape, filter=filter, antialias=antialias)[..., 0]
-  method = _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER[filter]
-  return tf.image.resize(array2, shape, method=method, antialias=antialias)
+  match ndim:
+    case 1:
+      return tf_image_resize(array2[None], (1, *shape), filter=filter, antialias=antialias)[0]
+    case 2:
+      return tf_image_resize(array2[..., None], shape, filter=filter, antialias=antialias)[..., 0]
+    case _:
+      method = _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER[filter]
+      return tf.image.resize(array2, shape, method=method, antialias=antialias)
 
 
 _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
@@ -3714,12 +3722,14 @@ def torch_nn_resize(
     # Default align_corners=None corresponds to False which is what we desire.
     return torch.nn.functional.interpolate(a, shape, mode=mode, antialias=antialias)
 
-  if a.ndim == 1:
-    shape = (1, *shape)
-    return local_resize(a[None, None, None])[0, 0, 0]
-  if a.ndim == 2:
-    return local_resize(a[None, None])[0, 0]
-  return local_resize(a.moveaxis(2, 0)[None])[0].moveaxis(0, 2)
+  match a.ndim:
+    case 1:
+      shape = (1, *shape)
+      return local_resize(a[None, None, None])[0, 0, 0]
+    case 2:
+      return local_resize(a[None, None])[0, 0]
+    case _:
+      return local_resize(a.moveaxis(2, 0)[None])[0].moveaxis(0, 2)
 
 
 def jax_image_resize(
@@ -3777,29 +3787,31 @@ _RESIZERS = {
 
 def _find_closest_filter(filter: str, resizer: Callable[..., Any]) -> str:
   """Return the filter supported by `resizer` (i.e., `*_resize`) that is closest to `filter`."""
-  if filter == 'box_like':
-    return {
-        cv_resize: 'trapezoid',
-        skimage_transform_resize: 'box',
-        tf_image_resize: 'trapezoid',
-        torch_nn_resize: 'trapezoid',
-    }.get(resize, 'box')
-  if filter == 'cubic_like':
-    return {
-        cv_resize: 'sharpcubic',
-        scipy_ndimage_resize: 'cardinal3',
-        skimage_transform_resize: 'cardinal3',
-        torch_nn_resize: 'sharpcubic',
-    }.get(resize, 'cubic')
-  if filter == 'high_quality':
-    return {
-        pil_image_resize: 'lanczos3',
-        cv_resize: 'lanczos4',
-        scipy_ndimage_resize: 'cardinal5',
-        skimage_transform_resize: 'cardinal5',
-        torch_nn_resize: 'sharpcubic',
-    }.get(resizer, 'lanczos5')
-  return filter
+  match filter:
+    case 'box_like':
+      return {
+          cv_resize: 'trapezoid',
+          skimage_transform_resize: 'box',
+          tf_image_resize: 'trapezoid',
+          torch_nn_resize: 'trapezoid',
+      }.get(resize, 'box')
+    case 'cubic_like':
+      return {
+          cv_resize: 'sharpcubic',
+          scipy_ndimage_resize: 'cardinal3',
+          skimage_transform_resize: 'cardinal3',
+          torch_nn_resize: 'sharpcubic',
+      }.get(resize, 'cubic')
+    case 'high_quality':
+      return {
+          pil_image_resize: 'lanczos3',
+          cv_resize: 'lanczos4',
+          scipy_ndimage_resize: 'cardinal5',
+          skimage_transform_resize: 'cardinal5',
+          torch_nn_resize: 'sharpcubic',
+      }.get(resizer, 'lanczos5')
+    case _:
+      return filter
 
 
 # For Emacs:
