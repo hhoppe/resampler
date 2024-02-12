@@ -48,7 +48,8 @@ class TestResampler(unittest.TestCase):
 
   @classmethod
   def setUpClass(cls: type) -> None:
-    enable_jax_float64()
+    if 'jax' in resampler.ARRAYLIBS:
+      enable_jax_float64()
     # Silence the warning in package flatbuffers.
     warnings.filterwarnings('ignore', message='.*the imp module is deprecated')
 
@@ -259,15 +260,13 @@ class TestResampler(unittest.TestCase):
         assert resize_matrix.sum(axis=1).var() < 1e-10
 
   def test_that_resize_matrices_are_equal_across_arraylib(self) -> None:
-    import tensorflow as tf
-
     src_sizes = range(1, 6)
     dst_sizes = range(1, 6)
     for config in itertools.product(src_sizes, dst_sizes):
       src_size, dst_size = config
       with self.subTest(config=config):
 
-        def resize_matrix(arraylib: str) -> _TensorflowTensor:
+        def resize_matrix(arraylib: str) -> Any:
           return resampler._create_resize_matrix(
               src_size,
               dst_size,
@@ -280,13 +279,25 @@ class TestResampler(unittest.TestCase):
               arraylib=arraylib,
           )[0]
 
-        numpy_array = resize_matrix('numpy').toarray()
-        tensorflow_array = tf.sparse.to_dense(resize_matrix('tensorflow')).numpy()
-        torch_array = resize_matrix('torch').to_dense().numpy()
-        jax_array = np.array(resize_matrix('jax').todense())
-        assert np.allclose(tensorflow_array, numpy_array)
-        assert np.allclose(torch_array, numpy_array)
-        assert np.allclose(jax_array, numpy_array)
+        results = {}
+        for arraylib in resampler.ARRAYLIBS:
+          sparse_matrix = resize_matrix(arraylib)
+          match arraylib:
+            case 'numpy':
+              result = sparse_matrix.toarray()
+            case 'tensorflow':
+              import tensorflow as tf
+
+              result = tf.sparse.to_dense(sparse_matrix).numpy()
+            case 'torch':
+              result = sparse_matrix.to_dense().numpy()
+            case 'jax':
+              result = np.array(sparse_matrix.todense())
+            case _:
+              raise AssertionError
+          results[arraylib] = result
+        for arraylib in resampler.ARRAYLIBS:
+          assert np.allclose(results[arraylib], results['numpy'])
 
   def test_that_resize_combinations_are_affine(self) -> None:
     dst_sizes = 1, 2, 3, 4, 9, 20, 21, 22, 31
