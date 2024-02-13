@@ -378,10 +378,8 @@ def running_in_notebook() -> bool:
 
 
 # %%
-EFFORT: Literal[0, 1, 2, 3] = 1
+EFFORT: Literal[0, 1, 2, 3] = hh.get_env_int('EFFORT', 1)  # type: ignore[assignment]
 """Controls the breadth and precision of the notebook experiments; 0 <= value <= 3."""
-if not running_in_notebook():
-  EFFORT = 0  # Otherwise, invocations of doctest or pytest would recurse infinitely.
 
 # %%
 _ORIGINAL_GLOBALS = list(globals())
@@ -1005,20 +1003,6 @@ if 0:  # For testing.
 
 
 # %%
-def test_precision() -> None:
-  _check_eq(resampler._real_precision(np.dtype(np.float32)), np.float32)
-  _check_eq(resampler._real_precision(np.dtype(np.float64)), np.float64)
-  _check_eq(resampler._real_precision(np.dtype(np.complex64)), np.float32)
-  _check_eq(resampler._real_precision(np.dtype(np.complex128)), np.float64)
-
-  t = resampler._get_precision(None, [np.dtype(np.complex64)], [np.dtype(np.float64)])
-  _check_eq(t, np.complex128)
-
-
-test_precision()
-
-
-# %%
 def test_cached_sampling_of_1d_function(radius=2.0) -> None:
   def func(x: _ArrayLike) -> _NDArray:  # Lanczos kernel
     x = np.abs(x)
@@ -1088,25 +1072,6 @@ test_cached_sampling_of_1d_function()
 
 
 # %%
-def test_downsample_in_2d_using_box_filter() -> None:
-  for shape in [(6, 6), (4, 4)]:
-    for ch in [1, 2, 3, 4]:
-      array = np.ones((*shape, ch), np.float32)
-      new = resampler._downsample_in_2d_using_box_filter(array, (2, 2))
-      _check_eq(new.shape, (2, 2, ch))
-      assert np.allclose(new, 1.0)
-  for shape in [(6, 6), (4, 4)]:
-    array = np.ones(shape, np.float32)
-    new = resampler._downsample_in_2d_using_box_filter(array, (2, 2))
-    _check_eq(new.shape, (2, 2))
-    assert np.allclose(new, 1.0)
-
-
-if EFFORT >= 1 and using_numba:
-  test_downsample_in_2d_using_box_filter()
-
-
-# %%
 def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
   array = np.ones((4096, 4096))
   hh.print_time(lambda: resampler._downsample_in_2d_using_box_filter(array, shape), max_time=0.4)
@@ -1115,256 +1080,6 @@ def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
 if using_numba:
   test_profile_downsample_in_2d_using_box_filter()
 # 3.43 ms
-
-
-# %%
-def test_block_shape_with_min_size(debug=False, **kwargs) -> None:
-  shape = 2, 3, 4
-  for min_size in range(1, math.prod(shape) + 1):
-    block_shape = resampler._block_shape_with_min_size(shape, min_size, **kwargs)
-    if debug:
-      print(min_size, block_shape)
-    assert np.all(np.array(block_shape) >= 1)
-    assert np.all(block_shape <= shape)
-    assert min_size <= math.prod(block_shape) <= math.prod(shape)
-
-
-test_block_shape_with_min_size(compact=True)
-test_block_shape_with_min_size(compact=False)
-
-
-# %%
-def test_split_2d() -> None:
-  numpy_array = np.random.default_rng(0).choice([1, 2, 3, 4], (5, 8))
-  for arraylib in resampler.ARRAYLIBS:
-    array = resampler._make_array(numpy_array, arraylib)
-    blocks = resampler._split_array_into_blocks(array, [2, 3])
-    blocks = resampler._map_function_over_blocks(blocks, lambda x: 2 * x)
-    new = resampler._merge_array_from_blocks(blocks)
-    _check_eq(resampler._arr_arraylib(new), arraylib)
-    _check_eq(np.sum(resampler._map_function_over_blocks(blocks, lambda _: 1)), 9)
-    _check_eq(resampler._arr_numpy(new), 2 * numpy_array)
-
-
-if EFFORT >= 1:
-  test_split_2d()
-
-
-# %%
-def test_split_3d() -> None:
-  shape = 4, 3, 2
-  numpy_array = np.random.default_rng(0).choice([1, 2, 3, 4], shape)
-
-  for arraylib in resampler.ARRAYLIBS:
-    array = resampler._make_array(numpy_array, arraylib)
-    for min_size in range(1, math.prod(shape) + 1):
-      block_shape = resampler._block_shape_with_min_size(shape, min_size)
-      blocks = resampler._split_array_into_blocks(array, block_shape)
-      blocks = resampler._map_function_over_blocks(blocks, lambda x: x**2)
-      new = resampler._merge_array_from_blocks(blocks)
-      _check_eq(resampler._arr_arraylib(new), arraylib)
-      _check_eq(resampler._arr_numpy(new), numpy_array**2)
-
-      def check_block_shape(block) -> None:
-        assert np.all(np.array(block.shape) >= 1)
-        assert np.all(np.array(block.shape) <= shape)
-
-      resampler._map_function_over_blocks(blocks, check_block_shape)
-
-
-if EFFORT >= 1:
-  test_split_3d()
-
-
-# %%
-def test_split_prefix_dims() -> None:
-  shape = 2, 3, 2
-  array = np.arange(math.prod(shape)).reshape(shape)
-
-  for min_size in range(1, math.prod(shape[:2]) + 1):
-    block_shape = resampler._block_shape_with_min_size(shape[:2], min_size)
-    blocks = resampler._split_array_into_blocks(array, block_shape)
-
-    new_blocks = resampler._map_function_over_blocks(blocks, lambda x: x**2)
-    new = resampler._merge_array_from_blocks(new_blocks)
-    _check_eq(new, array**2)
-
-    new_blocks = resampler._map_function_over_blocks(blocks, lambda x: x.sum(axis=-1))
-    new = resampler._merge_array_from_blocks(new_blocks)
-    _check_eq(new, array.sum(axis=-1))
-
-
-test_split_prefix_dims()
-
-
-# %%
-def test_linear_boundary() -> None:
-  index = np.array([[-3], [-2], [-1], [0], [1], [2], [3], [2], [3]])
-  weight = np.array([[1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [0.0], [0.0]])
-  size = 2
-  index, weight = resampler.LinearExtendSamples()(index, weight, size, resampler.DualGridtype())
-  expected_weight = [
-      [0, 4, -3, 0, 0],
-      [0, 3, -2, 0, 0],
-      [0, 2, -1, 0, 0],
-      [1, 0, 0, 0, 0],
-      [1, 0, 0, 0, 0],
-      [0, 0, 0, -1, 2],
-      [0, 0, 0, -2, 3],
-      [0, 0, 0, 0, 0],
-      [0, 0, 0, 0, 0],
-  ]
-  assert np.allclose(weight, expected_weight)
-  expected_index = [
-      [0, 0, 1, 0, 0],
-      [0, 0, 1, 0, 0],
-      [0, 0, 1, 0, 0],
-      [0, 0, 0, 0, 0],
-      [1, 1, 1, 1, 1],
-      [1, 1, 1, 0, 1],
-      [1, 1, 1, 0, 1],
-      [1, 1, 1, 1, 1],
-      [1, 1, 1, 1, 1],
-  ]
-  assert np.all(index == expected_index)
-
-
-test_linear_boundary()
-
-
-# %%
-def test_gamma() -> None:
-  dtypes = 'uint8 uint16 uint32'.split()
-  for config1 in itertools.product(resampler.ARRAYLIBS, resampler.GAMMAS, dtypes):
-    arraylib, gamma_name, dtype = config1
-    gamma = resampler._get_gamma(gamma_name)
-    if arraylib == 'torch' and dtype in ['uint16', 'uint32']:
-      continue  # "The only supported types are: ..., int64, int32, int16, int8, uint8, and bool."
-    int_max = np.iinfo(dtype).max
-    precision = 'float32' if np.iinfo(dtype).bits < 32 else 'float64'
-    values = list(range(256)) + list(range(int_max - 255, int_max)) + [int_max]
-    array_numpy = np.array(values, dtype)
-    array = resampler._make_array(array_numpy, arraylib)
-    decoded = gamma.decode(array, np.dtype(precision))
-    _check_eq(resampler._arr_dtype(decoded), precision)
-    decoded_numpy = resampler._arr_numpy(decoded)
-    assert decoded_numpy.min() >= 0.0 and decoded_numpy.max() <= 1.0
-    encoded = gamma.encode(decoded, dtype)
-    _check_eq(resampler._arr_dtype(encoded), dtype)
-    encoded_numpy = resampler._arr_numpy(encoded)
-    _check_eq(encoded_numpy, array_numpy)
-
-  dtypes = 'float32 float64'.split()
-  precisions = 'float32 float64'.split()
-  for config2 in itertools.product(resampler.ARRAYLIBS, resampler.GAMMAS, dtypes, precisions):
-    arraylib, gamma_name, dtype, precision = config2
-    gamma = resampler._get_gamma(gamma_name)
-    array_numpy = np.linspace(0.0, 1.0, 100, dtype=dtype)
-    array = resampler._make_array(array_numpy, arraylib)
-    decoded = gamma.decode(array, np.dtype(precision))
-    _check_eq(resampler._arr_dtype(decoded), precision)
-    encoded = gamma.encode(decoded, dtype)
-    _check_eq(resampler._arr_dtype(encoded), dtype)
-    assert np.allclose(resampler._arr_numpy(encoded), array_numpy)
-
-
-if EFFORT >= 1:
-  test_gamma()
-
-
-# %%
-def test_create_resize_matrix_for_trapezoid_filter(src_size, dst_size, debug=False) -> None:
-  filter = resampler.TrapezoidFilter()
-  if 0:
-    scaling = dst_size / src_size
-    radius = 0.5 + 0.5 * min(scaling, 1.0 / scaling)
-    print(radius)
-    filter = resampler.TrapezoidFilter(radius=radius)
-
-  resize_matrix, unused_cval_weight = resampler._create_resize_matrix(
-      src_size,
-      dst_size,
-      src_gridtype=resampler.DualGridtype(),
-      dst_gridtype=resampler.DualGridtype(),
-      boundary=resampler._get_boundary('reflect'),
-      filter=filter,
-  )
-  resize_matrix = resize_matrix.toarray()
-  if debug:
-    print(resize_matrix)
-    print(resize_matrix.sum(axis=0))
-    print(resize_matrix.sum(axis=1))
-  assert resize_matrix.sum(axis=0).var() < 1e-10
-  assert resize_matrix.sum(axis=1).var() < 1e-10
-
-
-if 1:
-  test_create_resize_matrix_for_trapezoid_filter(src_size=6, dst_size=2)
-  test_create_resize_matrix_for_trapezoid_filter(src_size=7, dst_size=3)
-  test_create_resize_matrix_for_trapezoid_filter(src_size=7, dst_size=6)
-  test_create_resize_matrix_for_trapezoid_filter(src_size=14, dst_size=13)
-if 1:
-  test_create_resize_matrix_for_trapezoid_filter(src_size=3, dst_size=6)
-  test_create_resize_matrix_for_trapezoid_filter(src_size=3, dst_size=12)
-  test_create_resize_matrix_for_trapezoid_filter(src_size=3, dst_size=11)
-  test_create_resize_matrix_for_trapezoid_filter(src_size=3, dst_size=16)
-
-
-# %%
-def test_that_resize_matrices_are_equal_across_arraylib() -> None:
-  src_sizes = range(1, 6)
-  dst_sizes = range(1, 6)
-  for config in itertools.product(src_sizes, dst_sizes):
-    src_size, dst_size = config
-
-    def resize_matrix(arraylib: str) -> _TensorflowTensor:
-      return resampler._create_resize_matrix(
-          src_size,
-          dst_size,
-          src_gridtype=resampler.DualGridtype(),
-          dst_gridtype=resampler.DualGridtype(),
-          boundary=resampler._get_boundary('reflect'),
-          filter=resampler._get_filter('lanczos3'),
-          translate=0.8,
-          dtype=np.float32,
-          arraylib=arraylib,
-      )[0]
-
-    numpy_array = resize_matrix('numpy').toarray()
-    tensorflow_array = tf.sparse.to_dense(resize_matrix('tensorflow')).numpy()
-    torch_array = resize_matrix('torch').to_dense().numpy()
-    jax_array = np.asarray(resize_matrix('jax').todense())  # to_py() deprecated.
-    assert np.allclose(tensorflow_array, numpy_array)
-    assert np.allclose(torch_array, numpy_array)
-    assert np.allclose(jax_array, numpy_array)
-
-
-if EFFORT >= 1:
-  test_that_resize_matrices_are_equal_across_arraylib()
-
-
-# %%
-def test_that_resize_combinations_are_affine() -> None:
-  dst_sizes = 1, 2, 3, 4, 9, 20, 21, 22, 31
-  for config in itertools.product(resampler.BOUNDARIES, dst_sizes):
-    boundary, dst_size = config
-    resize_matrix, cval_weight = resampler._create_resize_matrix(
-        21,
-        dst_size,
-        src_gridtype=resampler.DualGridtype(),
-        dst_gridtype=resampler.DualGridtype(),
-        boundary=resampler._get_boundary(boundary),
-        filter=resampler.TriangleFilter(),
-        scale=0.5,
-        translate=0.3,
-    )
-    if cval_weight is None:
-      row_sum = np.asarray(resize_matrix.sum(axis=1)).ravel()
-      state = config, resize_matrix.todense(), row_sum
-      assert np.allclose(row_sum, 1.0, rtol=0, atol=1e-6), state
-
-
-test_that_resize_combinations_are_affine()
 
 
 # %%
@@ -1386,18 +1101,6 @@ def test_that_very_large_cval_causes_numerical_noise_to_appear(debug: bool = Fal
 
 
 test_that_very_large_cval_causes_numerical_noise_to_appear()
-
-
-# %%
-def test_sparse_csr_matrix_duplicate_entries_are_summed() -> None:
-  indptr = np.array([0, 2, 3, 6])
-  indices = np.array([0, 2, 2, 0, 1, 0])
-  data = np.array([1, 2, 3, 4, 5, 3])
-  new = scipy.sparse.csr_matrix((data, indices, indptr), shape=(3, 3)).toarray()
-  _check_eq(new, [[1, 0, 2], [0, 0, 3], [7, 5, 0]])
-
-
-test_sparse_csr_matrix_duplicate_entries_are_summed()
 
 
 # %%
@@ -1450,53 +1153,6 @@ if EFFORT >= 1:
 
 
 # %%
-def test_linear_precision_of_1d_primal_upsampling() -> None:
-  array = np.arange(7.0)
-  new = resampler.resize(array, (13,), gridtype='primal', filter='triangle')
-  with np.printoptions(linewidth=300):
-    _check_eq(new, np.arange(13) / 2)
-
-
-test_linear_precision_of_1d_primal_upsampling()
-
-
-# %%
-def test_linear_precision_of_2d_primal_upsampling() -> None:
-  shape = 3, 5
-  new_shape = 5, 9
-  array = np.moveaxis(np.indices(shape, np.float32), 0, -1) @ [10, 1]
-  new = resampler.resize(array, new_shape, gridtype='primal', filter='triangle')
-  with np.printoptions(linewidth=300):
-    expected = np.moveaxis(np.indices(new_shape, np.float32), 0, -1) @ [10, 1] / 2
-    _check_eq(new, expected)
-
-
-test_linear_precision_of_2d_primal_upsampling()
-
-
-# %%
-def test_resize_of_complex_value_type() -> None:
-  for arraylib in resampler.ARRAYLIBS:
-    array = resampler._make_array([1 + 2j, 3 + 6j], arraylib)
-    new = resampler._original_resize(array, (4,), filter='triangle')
-    assert np.allclose(new, [1 + 2j, 1.5 + 3j, 2.5 + 5j, 3 + 6j])
-
-
-if EFFORT >= 1:
-  test_resize_of_complex_value_type()
-
-
-# %%
-def test_resize_of_integer_type() -> None:
-  array = np.array([1, 6])
-  new = resampler.resize(array, (4,), filter='triangle')
-  assert np.allclose(new, [1, 2, 5, 6])
-
-
-test_resize_of_integer_type()
-
-
-# %%
 def test_order_of_dimensions_does_not_affect_resize_results(step=3) -> None:
   shapes = [(3, 4, 5), (3, 2, 4), (6, 2, 2), (1, 1, 1)]
   gridtypes = resampler.GRIDTYPES
@@ -1534,35 +1190,6 @@ if EFFORT >= 1:
 
 
 # %%
-def test_apply_digital_filter_1d(cval=-10.0, shape=(7, 8)) -> None:
-  original = np.arange(math.prod(shape), dtype=np.float32).reshape(shape) + 10
-  array1 = original.copy()
-  filters = 'cardinal3 cardinal5'.split()
-  for config in itertools.product(resampler.GRIDTYPES, resampler.BOUNDARIES, filters):
-    gridtype, boundary, filter = config
-    if gridtype == 'primal' and boundary in ('wrap', 'tile'):
-      continue  # Last value on each dimension is ignored and so will not match.
-    array2 = array1
-    for dim in range(array2.ndim):
-      array2 = resampler._apply_digital_filter_1d(
-          array2,
-          resampler._get_gridtype(gridtype),
-          resampler._get_boundary(boundary),
-          cval,
-          resampler._get_filter(filter),
-          axis=dim,
-      )
-    bspline = resampler.BsplineFilter(degree=int(filter[-1:]))
-    array3 = resampler.resize(
-        array2, array2.shape, gridtype=gridtype, boundary=boundary, cval=cval, filter=bspline
-    )
-    assert np.allclose(array3, original), config
-
-
-test_apply_digital_filter_1d()
-
-
-# %%
 def test_apply_resize_to_batch_of_images(
     num_images=10, shape=(32, 32), new_shape=(128, 128), debug=False
 ) -> None:
@@ -1580,42 +1207,6 @@ def test_apply_resize_to_batch_of_images(
 
 if EFFORT >= 1:
   test_apply_resize_to_batch_of_images()
-
-
-# %%
-def test_resample_small_array(arraylib: str) -> None:
-  shape = 2, 3
-  new_shape = 3, 4
-  array = np.arange(math.prod(shape) * 3, dtype=np.float32).reshape(shape + (3,))
-  coords = np.moveaxis(np.indices(new_shape) + 0.5, 0, -1) / new_shape
-  array = resampler._make_array(array, arraylib)
-  upsampled = resampler.resample(array, coords)
-  _check_eq(upsampled.shape, (*new_shape, 3))
-  coords = np.moveaxis(np.indices(shape) + 0.5, 0, -1) / shape
-  downsampled = resampler.resample(upsampled, coords)
-  rms = get_rms(array, downsampled)
-  assert 0.07 <= rms <= 0.08, rms
-
-
-def test_resample_small_arrays() -> None:
-  for arraylib in resampler.ARRAYLIBS:
-    test_resample_small_array(arraylib=arraylib)
-
-
-if EFFORT >= 1:
-  test_resample_small_arrays()
-
-
-# %%
-def test_identity_resampling_with_many_boundary_rules(filter: resampler.Filter) -> None:
-  for boundary in resampler.BOUNDARIES:
-    array = np.arange(6, dtype=np.float32).reshape(2, 3)
-    coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
-    new_array = resampler.resample(array, coords, boundary=boundary, cval=10000, filter=filter)
-    assert np.allclose(new_array, array), boundary
-
-
-test_identity_resampling_with_many_boundary_rules(resampler.LanczosFilter(radius=5, sampled=False))
 
 
 # %%
@@ -1680,20 +1271,6 @@ test_resample_scenario6()
 
 
 # %%
-def test_identity_resampling() -> None:
-  shape = 3, 2, 5
-  array = np.random.default_rng(0).random(shape)
-  coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
-  new = resampler.resample(array, coords)
-  assert np.allclose(new, array, rtol=0, atol=1e-6)
-  new = resampler.resample(array, coords, filter=resampler.LanczosFilter(radius=3, sampled=False))
-  assert np.allclose(new, array)
-
-
-test_identity_resampling()
-
-
-# %%
 def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)) -> None:
   assert np.all(np.array(new_shape) >= np.array(shape))
   scale = 1.1
@@ -1752,113 +1329,6 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
 if EFFORT >= 1:
   # hh.prun(lambda: test_that_all_resize_and_resample_agree(), mode='full')
   test_that_all_resize_and_resample_agree()  # ~5.5 s on 1st run due to jax compiles; then ~450 ms.
-
-
-# %%
-def test_resample_of_complex_value_type() -> None:
-  array = np.array([1 + 2j, 3 + 6j])
-  new = resampler.resample(array, (0.125, 0.375, 0.625, 0.875), filter='triangle')
-  assert np.allclose(new, [1 + 2j, 1.5 + 3j, 2.5 + 5j, 3 + 6j])
-
-
-test_resample_of_complex_value_type()
-
-
-# %%
-def test_resample_of_integer_type() -> None:
-  array = np.array([1, 6])
-  new = resampler.resample(array, (0.125, 0.375, 0.625, 0.875), filter='triangle')
-  assert np.allclose(new, [1, 2, 5, 6])
-
-
-test_resample_of_integer_type()
-
-
-# %%
-def test_resample_using_coords_of_various_shapes(debug=False) -> None:
-  for array in [
-      8,
-      [7],
-      [0, 1, 6, 6],
-      [[0, 1], [10, 16]],
-      [[0], [1], [6], [6]],
-  ]:
-    array = np.array(array, np.float64)
-    for shape in [(), (1,), (2,), (1, 1), (1, 2), (3, 1), (2, 2)]:
-      coords = np.full(shape, 0.4)
-      try:
-        new = resampler.resample(array, coords, filter='triangle', dtype=np.float32).tolist()
-      except ValueError:
-        new = None
-      if debug:
-        print(f'{array.tolist()!s:30} {coords.shape!s:8} {new!s}')
-      _check_eq(new is None, coords.ndim >= 2 and coords.shape[-1] > max(array.ndim, 1))
-
-
-test_resample_using_coords_of_various_shapes()
-
-
-# %%
-def test_resize_using_resample(shape=(3, 2, 5), new_shape=(4, 2, 7), step=37) -> None:
-  assert np.all(np.array(shape) <= new_shape)
-  array = np.random.default_rng(0).random(shape)
-  scale = 1.1
-  translate = -0.4, -0.03, 0.4
-  gammas = 'identity power2'.split()  # Sublist of resampler.GAMMAS.
-  sequences = [resampler.GRIDTYPES, resampler.BOUNDARIES, resampler.FILTERS, gammas]
-  assert step == 1 or all(len(sequence) % step != 0 for sequence in sequences)
-  configs = itertools.product(*sequences)  # len(configs) = math.prod([2, 12, 19, 2]) = 912.
-  for config in itertools.islice(configs, 0, None, step):
-    gridtype, boundary, filter, gamma = config
-    kwargs = dict(gridtype=gridtype, boundary=boundary, filter=filter)
-    kwargs |= dict(gamma=gamma, scale=scale, translate=translate)
-    expected = resampler._original_resize(array, new_shape, **kwargs)
-    new_array = resampler._resize_using_resample(array, new_shape, **kwargs)
-    assert np.allclose(new_array, expected, rtol=0, atol=1e-7), config
-
-
-test_resize_using_resample()
-
-
-# %%
-def test_resize_using_resample_of_complex_value_type() -> None:
-  array = np.array([1 + 2j, 3 + 6j])
-  new = resampler._resize_using_resample(array, (4,), filter='triangle')
-  assert np.allclose(new, [1 + 2j, 1.5 + 3j, 2.5 + 5j, 3 + 6j])
-
-
-test_resize_using_resample_of_complex_value_type()
-
-
-# %%
-def test_resizer_produces_correct_shape(resizer, filter: str = 'lanczos3') -> None:
-  tol: Any = dict(rtol=0, atol=1e-7)
-  np.allclose(resizer(np.ones((11,)), (13,), filter=filter), np.ones((13,)), **tol)
-  np.allclose(resizer(np.ones((8, 8)), (5, 20), filter=filter), np.ones((5, 20)), **tol)
-  np.allclose(resizer(np.ones((11, 10, 3)), (13, 7), filter=filter), np.ones((13, 7, 3)), **tol)
-
-
-# %%
-def test_resizers_produce_correct_shape() -> None:
-  test_resizer_produces_correct_shape(resampler.resize)
-  for arraylib in resampler.ARRAYLIBS:
-    resizer = functools.partial(resampler.resize_in_arraylib, arraylib=arraylib)
-    test_resizer_produces_correct_shape(resizer)
-
-
-if EFFORT >= 1:
-  test_resizers_produce_correct_shape()
-
-# %%
-test_resizer_produces_correct_shape(resampler.pil_image_resize)
-test_resizer_produces_correct_shape(resampler.cv_resize, 'lanczos4')
-test_resizer_produces_correct_shape(resampler.scipy_ndimage_resize, 'cardinal3')
-test_resizer_produces_correct_shape(resampler.skimage_transform_resize, 'cardinal3')
-if EFFORT >= 1:
-  test_resizer_produces_correct_shape(resampler.tf_image_resize)
-test_resizer_produces_correct_shape(resampler.torch_nn_resize, 'sharpcubic')
-if EFFORT >= 1:
-  test_resizer_produces_correct_shape(resampler.jax_image_resize, 'lanczos3')
 
 
 # %% [markdown]
@@ -4064,7 +3534,7 @@ def visualize_boundary_rules_in_1d(
           and boundary in ['clamp', 'border']
           and filter not in ['box', 'triangle']
       ) or (resizer is resampler.scipy_ndimage_resize and boundary == 'border')
-      assert discrepancy == expected_discrepancy, (resizer, filter, boundary)
+      assert discrepancy == expected_discrepancy, (resizer, filter, boundary, discrepancy)
 
     plt.subplots_adjust(left=0.035)
     # text = f"filter='{filter}'" if row_index == 0 else f"'{filter}'"
@@ -6136,16 +5606,6 @@ if EFFORT >= 2:
 
 # %% [markdown]
 # # Run external tools
-
-
-# %%
-def run_pytest_command() -> None:  # (This function name cannot end in 'test', else recursion.)
-  assert running_in_notebook()
-  hh.run('pytest -qq || true')
-
-
-if EFFORT >= 1:
-  run_pytest_command()
 
 
 # %%

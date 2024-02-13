@@ -7,6 +7,7 @@ c:/windows/sysnative/wsl -e bash -lc 'flake8 --indent-size 2 --max-line-length=1
 from __future__ import annotations
 
 from collections.abc import Callable
+import functools
 import itertools
 import math
 import os
@@ -23,7 +24,7 @@ _ArrayLike = Any
 _NDArray = Any
 _TensorflowTensor = Any
 
-# pylint: disable=protected-access, missing-function-docstring
+# pylint: disable=protected-access, missing-function-docstring, too-many-public-methods
 
 # Silence "WARNING:absl:No GPU/TPU found, falling back to CPU".
 os.environ['JAX_PLATFORM_NAME'] = 'cpu'
@@ -259,6 +260,13 @@ class TestResampler(unittest.TestCase):
         assert resize_matrix.sum(axis=0).var() < 1e-10
         assert resize_matrix.sum(axis=1).var() < 1e-10
 
+  def test_sparse_csr_matrix_duplicate_entries_are_summed(self) -> None:
+    indptr = np.array([0, 2, 3, 6])
+    indices = np.array([0, 2, 2, 0, 1, 0])
+    data = np.array([1, 2, 3, 4, 5, 3])
+    new = scipy.sparse.csr_matrix((data, indices, indptr), shape=(3, 3)).toarray()
+    _check_eq(new, [[1, 0, 2], [0, 0, 3], [7, 5, 0]])
+
   def test_that_resize_matrices_are_equal_across_arraylib(self) -> None:
     src_sizes = range(1, 6)
     dst_sizes = range(1, 6)
@@ -317,6 +325,167 @@ class TestResampler(unittest.TestCase):
         if cval_weight is None:
           row_sum = np.asarray(resize_matrix.sum(axis=1)).ravel()
           assert np.allclose(row_sum, 1.0, rtol=0, atol=1e-6), (resize_matrix.todense(), row_sum)
+
+  def test_linear_precision_of_1d_primal_upsampling(self) -> None:
+    array = np.arange(7.0)
+    new = resampler.resize(array, (13,), gridtype='primal', filter='triangle')
+    with np.printoptions(linewidth=300):
+      _check_eq(new, np.arange(13) / 2)
+
+  def test_linear_precision_of_2d_primal_upsampling(self) -> None:
+    shape = 3, 5
+    new_shape = 5, 9
+    array = np.moveaxis(np.indices(shape, np.float32), 0, -1) @ [10, 1]
+    new = resampler.resize(array, new_shape, gridtype='primal', filter='triangle')
+    with np.printoptions(linewidth=300):
+      expected = np.moveaxis(np.indices(new_shape, np.float32), 0, -1) @ [10, 1] / 2
+      _check_eq(new, expected)
+
+  def test_resize_of_complex_value_type(self) -> None:
+    for arraylib in resampler.ARRAYLIBS:
+      array = resampler._make_array([1 + 2j, 3 + 6j], arraylib)
+      new = resampler._original_resize(array, (4,), filter='triangle')
+      assert np.allclose(new, [1 + 2j, 1.5 + 3j, 2.5 + 5j, 3 + 6j])
+
+  def test_resize_of_integer_type(self) -> None:
+    array = np.array([1, 6])
+    new = resampler.resize(array, (4,), filter='triangle')
+    assert np.allclose(new, [1, 2, 5, 6])
+
+  def test_apply_digital_filter_1d(self) -> None:
+    cval = -10.0
+    shape = 7, 8
+    original = np.arange(math.prod(shape), dtype=np.float32).reshape(shape) + 10
+    array1 = original.copy()
+    filters = 'cardinal3 cardinal5'.split()
+    for config in itertools.product(resampler.GRIDTYPES, resampler.BOUNDARIES, filters):
+      gridtype, boundary, filter = config
+      with self.subTest(config=config):
+        if gridtype == 'primal' and boundary in ('wrap', 'tile'):
+          continue  # Last value on each dimension is ignored and so will not match.
+        array2 = array1
+        for dim in range(array2.ndim):
+          array2 = resampler._apply_digital_filter_1d(
+              array2,
+              resampler._get_gridtype(gridtype),
+              resampler._get_boundary(boundary),
+              cval,
+              resampler._get_filter(filter),
+              axis=dim,
+          )
+        bspline = resampler.BsplineFilter(degree=int(filter[-1:]))
+        array3 = resampler.resize(
+            array2, array2.shape, gridtype=gridtype, boundary=boundary, cval=cval, filter=bspline
+        )
+        assert np.allclose(array3, original)
+
+  def test_resample_small_arrays(self) -> None:
+    shape = 2, 3
+    new_shape = 3, 4
+    for arraylib in resampler.ARRAYLIBS:
+      with self.subTest(arraylib=arraylib):
+        array = np.arange(math.prod(shape) * 3, dtype=np.float32).reshape(shape + (3,))
+        coords = np.moveaxis(np.indices(new_shape) + 0.5, 0, -1) / new_shape
+        array = resampler._make_array(array, arraylib)
+        upsampled = resampler.resample(array, coords)
+        _check_eq(upsampled.shape, (*new_shape, 3))
+        coords = np.moveaxis(np.indices(shape) + 0.5, 0, -1) / shape
+        downsampled = resampler.resample(upsampled, coords)
+        rms = np.sqrt(np.mean(np.square(np.array(array) - np.array(downsampled)))).item()
+        assert 0.07 <= rms <= 0.08, rms
+
+  def test_identity_resampling_with_many_boundary_rules(self) -> None:
+    filter = resampler.LanczosFilter(radius=5, sampled=False)
+    for boundary in resampler.BOUNDARIES:
+      with self.subTest(boundary=boundary):
+        array = np.arange(6, dtype=np.float32).reshape(2, 3)
+        coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
+        new_array = resampler.resample(array, coords, boundary=boundary, cval=10000, filter=filter)
+        assert np.allclose(new_array, array), boundary
+
+  def test_identity_resampling(self) -> None:
+    shape = 3, 2, 5
+    array = np.random.default_rng(0).random(shape)
+    coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
+    new = resampler.resample(array, coords)
+    assert np.allclose(new, array, rtol=0, atol=1e-6)
+    new = resampler.resample(array, coords, filter=resampler.LanczosFilter(radius=3, sampled=False))
+    assert np.allclose(new, array)
+
+  def test_resample_of_complex_value_type(self) -> None:
+    array = np.array([1 + 2j, 3 + 6j])
+    new = resampler.resample(array, (0.125, 0.375, 0.625, 0.875), filter='triangle')
+    assert np.allclose(new, [1 + 2j, 1.5 + 3j, 2.5 + 5j, 3 + 6j])
+
+  def test_resample_of_integer_type(self) -> None:
+    array = np.array([1, 6])
+    new = resampler.resample(array, (0.125, 0.375, 0.625, 0.875), filter='triangle')
+    assert np.allclose(new, [1, 2, 5, 6])
+
+  def test_resample_using_coords_of_various_shapes(self) -> None:
+    for array in [
+        8,
+        [7],
+        [0, 1, 6, 6],
+        [[0, 1], [10, 16]],
+        [[0], [1], [6], [6]],
+    ]:
+      with self.subTest(array=array):
+        array = np.array(array, np.float64)
+        for shape in [(), (1,), (2,), (1, 1), (1, 2), (3, 1), (2, 2)]:
+          coords = np.full(shape, 0.4)
+          try:
+            new = resampler.resample(array, coords, filter='triangle', dtype=np.float32).tolist()
+          except ValueError:
+            new = None
+          # print(f'{array.tolist()!s:30} {coords.shape!s:8} {new!s}')
+          _check_eq(new is None, coords.ndim >= 2 and coords.shape[-1] > max(array.ndim, 1))
+
+  def test_resize_using_resample(self) -> None:
+    shape = 3, 2, 5
+    new_shape = 4, 2, 7
+    step = 37
+    assert np.all(np.array(shape) <= new_shape)
+    array = np.random.default_rng(0).random(shape)
+    scale = 1.1
+    translate = -0.4, -0.03, 0.4
+    gammas = 'identity power2'.split()  # Sublist of resampler.GAMMAS.
+    sequences = [resampler.GRIDTYPES, resampler.BOUNDARIES, resampler.FILTERS, gammas]
+    assert step == 1 or all(len(sequence) % step != 0 for sequence in sequences)
+    configs = itertools.product(*sequences)  # len(configs) = math.prod([2, 12, 19, 2]) = 912.
+    for config in itertools.islice(configs, 0, None, step):
+      gridtype, boundary, filter, gamma = config
+      with self.subTest(config=config):
+        kwargs = dict(gridtype=gridtype, boundary=boundary, filter=filter)
+        kwargs |= dict(gamma=gamma, scale=scale, translate=translate)
+        expected = resampler._original_resize(array, new_shape, **kwargs)
+        new_array = resampler._resize_using_resample(array, new_shape, **kwargs)
+        assert np.allclose(new_array, expected, rtol=0, atol=1e-7)
+
+  def test_resize_using_resample_of_complex_value_type(self) -> None:
+    array = np.array([1 + 2j, 3 + 6j])
+    new = resampler._resize_using_resample(array, (4,), filter='triangle')
+    assert np.allclose(new, [1 + 2j, 1.5 + 3j, 2.5 + 5j, 3 + 6j])
+
+  def test_resizers_produce_correct_shape(self) -> None:
+    configs: list[tuple[Callable[..., Any], str]] = [(resampler.resize, 'lanczos3')]
+    for arraylib in resampler.ARRAYLIBS:
+      resizer0 = functools.partial(resampler.resize_in_arraylib, arraylib=arraylib)
+      configs.append((resizer0, 'lanczos3'))
+    configs.append((resampler.pil_image_resize, 'lanczos3'))
+    configs.append((resampler.cv_resize, 'lanczos4'))
+    configs.append((resampler.scipy_ndimage_resize, 'cardinal3'))
+    configs.append((resampler.skimage_transform_resize, 'cardinal3'))
+    configs.append((resampler.tf_image_resize, 'lanczos3'))
+    configs.append((resampler.torch_nn_resize, 'sharpcubic'))
+    configs.append((resampler.jax_image_resize, 'lanczos3'))
+    for config in configs:
+      resizer, filter = config
+      with self.subTest(config=config):
+        tol: Any = dict(rtol=0, atol=1e-7)
+        np.allclose(resizer(np.ones((11,)), (13,), filter=filter), np.ones((13,)), **tol)
+        np.allclose(resizer(np.ones((8, 8)), (5, 20), filter=filter), np.ones((5, 20)), **tol)
+        np.allclose(resizer(np.ones((9, 8, 3)), (13, 7), filter=filter), np.ones((13, 7, 3)), **tol)
 
 
 if __name__ == '__main__':
