@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.8.5'
+__version__ = '0.8.6'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
 import abc
 import dataclasses
 import functools
+import importlib
 import itertools
 import math
 import os
@@ -796,11 +797,21 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
     )
 
 
-_DICT_ARRAYLIBS = {
+_CANDIDATE_ARRAYLIBS = {
     'numpy': _NumpyArraylib,
     'tensorflow': _TensorflowArraylib,
     'torch': _TorchArraylib,
     'jax': _JaxArraylib,
+}
+
+
+def is_available(arraylib: str) -> bool:
+  """Return whether the array library (e.g. 'tensorflow') is available as an installed package."""
+  return importlib.util.find_spec(arraylib) is not None  # Faster than trying to import it.
+
+
+_DICT_ARRAYLIBS = {
+    arraylib: cls for arraylib, cls in _CANDIDATE_ARRAYLIBS.items() if is_available(arraylib)
 }
 
 ARRAYLIBS = list(_DICT_ARRAYLIBS)
@@ -3783,7 +3794,7 @@ def jax_image_resize(
   )
 
 
-_RESIZERS = {
+_CANDIDATE_RESIZERS = {
     'resampler.resize': resize,
     'PIL.Image.resize': pil_image_resize,
     'cv.resize': cv_resize,
@@ -3792,6 +3803,20 @@ _RESIZERS = {
     'tf.image.resize': tf_image_resize,
     'torch.nn.functional.interpolate': torch_nn_resize,
     'jax.image.scale_and_translate': jax_image_resize,
+}
+
+
+def _resizer_is_available(library_function: str) -> bool:
+  """Return whether the resizer is available as an installed package."""
+  top_name = library_function.split('.', 1)[0]
+  module = {'PIL': 'Pillow', 'cv': 'cv2', 'tf': 'tensorflow'}.get(top_name, top_name)
+  return importlib.util.find_spec(module) is not None
+
+
+_RESIZERS = {
+    library_function: resizer
+    for library_function, resizer in _CANDIDATE_RESIZERS.items()
+    if _resizer_is_available(library_function)
 }
 
 

@@ -481,6 +481,8 @@ class TestResampler(unittest.TestCase):
     configs.append((resampler.jax_image_resize, 'lanczos3'))
     for config in configs:
       resizer, filter = config
+      if resizer not in resampler._RESIZERS.values():  # Skip if the package is not installed.
+        continue
       with self.subTest(config=config):
         tol: Any = dict(rtol=0, atol=1e-7)
         np.allclose(resizer(np.ones((11,)), (13,), filter=filter), np.ones((13,)), **tol)
