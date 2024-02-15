@@ -370,13 +370,6 @@ _AnyArray = resampler._AnyArray
 
 _UNICODE_DAGGER = '\u2020'
 
-
-# %%
-def running_in_notebook() -> bool:
-  """Return True if we are running within a notebook kernel."""
-  return IPython.get_ipython() is not None  # type: ignore
-
-
 # %%
 EFFORT: Literal[0, 1, 2, 3] = hh.get_env_int('EFFORT', 1)  # type: ignore[assignment]
 """Controls the breadth and precision of the notebook experiments; 0 <= value <= 3."""
