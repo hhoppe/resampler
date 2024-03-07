@@ -32,7 +32,7 @@ os.environ['JAX_PLATFORM_NAME'] = 'cpu'
 
 def enable_jax_float64() -> None:
   """Enable use of double-precision float in Jax; this only works at startup."""
-  import jax.config
+  import jax  # ("import jax.config" is disallowed.)
 
   jax.config.update('jax_enable_x64', True)
 
