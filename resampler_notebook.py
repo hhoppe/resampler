@@ -334,7 +334,6 @@ import warnings
 import hhoppe_tools as hh  # https://github.com/hhoppe/hhoppe-tools/blob/main/hhoppe_tools/__init__.py
 import IPython
 import jax
-import jax.config
 import jax.numpy as jnp
 import matplotlib
 import matplotlib.pyplot as plt
