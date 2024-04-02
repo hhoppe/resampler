@@ -394,6 +394,7 @@ jax.config.update('jax_platforms', 'cpu')
 # %%
 # Silence "RuntimeWarning: More than 20 figures have been opened." when run as script.
 matplotlib.rcParams['figure.max_open_warning'] = 0
+warnings.filterwarnings('ignore', message='FigureCanvasAgg is non-interactive')
 
 
 # %%
@@ -2684,7 +2685,6 @@ if EFFORT >= 1:
 # %%
 def test_tensorflow_optimize_image_for_desired_upsampling(
     operation='resize',
-    method='gradient_tape',
     num_steps=30,
     debug=False,
     src_shape=(8, 8, 3),
@@ -2722,21 +2722,19 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
     # reduce_sum() and reduce_mean().
     return tf.math.reduce_mean(tf.math.squared_difference(upsampled, desired))
 
-  match method:
-    case 'gradient_tape':
-      learning_rate = 1e2
-      for _ in range(num_steps):
-        with tf.GradientTape() as tape:
-          loss = compute_loss(model(array))
-        gradient = tape.gradient(loss, array)
-        array.assign_sub(learning_rate * gradient)
-    case 'adam':
-      learning_rate = 1e-1
-      opt = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-      for _ in range(num_steps):
-        opt.minimize(lambda: compute_loss(model(array)), [array])
-    case _:
-      raise ValueError(f'Unknown method {method}.')
+  learning_rate = 1e2
+  for _ in range(num_steps):
+    with tf.GradientTape() as tape:
+      loss = compute_loss(model(array))
+    gradient = tape.gradient(loss, array)
+    array.assign_sub(learning_rate * gradient)
+
+  # This approach from TensorFlow 1 is no longer supported in TensorFlow 2.
+  # learning_rate = 1e-1
+  # optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+  # optimizer = tf.optimizers.Adam(learning_rate=learning_rate)
+  # for _ in range(num_steps):
+  #   optimizer.minimize(lambda: compute_loss(model(array)), [array])
 
   upsampled = model(array)
   rms = get_rms(upsampled, desired)
@@ -2744,18 +2742,15 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
     print(f'rms_loss={rms:.4f}')
     images = {'optimized': array, 'upsampled': upsampled, 'desired': desired}
     media.show_images(images, height=80, border=True)
-  assert rms < 0.08, (operation, method)
+  assert rms < 0.08, operation
 
 
 def test_tensorflow_optimize_image_for_desired_upsamplings() -> None:
   operations = 'resize resample keras_resize'.split()
-  methods = 'gradient_tape adam'.split()
   filters = 'triangle cardinal3'.split()
-  for config in itertools.product(operations, methods, filters):
-    operation, method, filter = config
-    test_tensorflow_optimize_image_for_desired_upsampling(
-        operation=operation, method=method, filter=filter
-    )
+  for config in itertools.product(operations, filters):
+    operation, filter = config
+    test_tensorflow_optimize_image_for_desired_upsampling(operation=operation, filter=filter)
 
 
 if EFFORT >= 1:
@@ -3018,34 +3013,37 @@ def experiment_image_optimized_for_spiral_resampling(
 
   def compute_loss(array, upsampled) -> tf.Tensor:
     data_loss = tf.math.reduce_mean(tf.math.squared_difference(upsampled, desired))
-    regularization_loss = regularization_weight * tf.math.reduce_mean(tf.norm(array, axis=-1))
-    smoothness_loss = (
-        smoothness_weight
-        * tf.image.total_variation(array)
-        / (tf.size(array, out_type=tf.float32) / 3)
-    )
+    regularization_loss = regularization_weight * tf.math.reduce_mean(array**2)
+    num_pixels = tf.size(array, out_type=tf.float32) / 3
+    smoothness_loss = smoothness_weight * (tf.image.total_variation(array) / num_pixels) ** 2
     return data_loss + regularization_loss + smoothness_loss
 
-  learning_rate = 1e-1  # rms_loss=0.0622 after 100 steps
-  opt = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+  learning_rate = 1e3
   for _ in range(num_steps):
-    opt.minimize(lambda: compute_loss(array, model(array)), [array])
+    with tf.GradientTape() as tape:
+      loss = compute_loss(array, model(array))
+    gradient = tape.gradient(loss, array)
+    array.assign_sub(learning_rate * gradient)
+    if 0:
+      print(f'mse={get_rms(model(array), desired)**2:8.6f}  {loss=:8.6f}')
 
   resampled = model(array)
   images = {'optimized': array, 'resampled': resampled, 'desired': desired}
   media.show_images(images, height=192, border=True)
-  if 1:
-    psnr = get_psnr(resampled, desired)
-    assert np.allclose(psnr, 22.4, 0.05), (psnr, regularization_weight, smoothness_weight)
+  psnr = get_psnr(resampled, desired)
+  print(f'PSNR={psnr:.2f} dB')
+  assert np.allclose(psnr, 22.4, 0.05), (psnr, regularization_weight, smoothness_weight)
 
 
 if EFFORT >= 1:
-  hh.display_html('Regularization fills unconstrained regions with small values (black):')
-  experiment_image_optimized_for_spiral_resampling(regularization_weight=1e-3)
+  hh.display_html('Without regularization, unconstrained pixels keep their initial gray values:')
+  experiment_image_optimized_for_spiral_resampling()
 
-  hh.display_html('Smoothness fills unconstrained regions with diffused content:')
-  experiment_image_optimized_for_spiral_resampling(smoothness_weight=1e-4)
+  hh.display_html('With regularization, unconstrained regions get small values (black):')
+  experiment_image_optimized_for_spiral_resampling(regularization_weight=0.04)
 
+  hh.display_html('Smoothness destroys the high-frequency content:')
+  experiment_image_optimized_for_spiral_resampling(smoothness_weight=1e-2)
 
 # %% [markdown]
 # ## Block partition and timing
