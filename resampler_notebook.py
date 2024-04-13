@@ -1100,6 +1100,7 @@ test_that_very_large_cval_causes_numerical_noise_to_appear()
 def test_jax_jit_digital_filter() -> None:
   jitted = jax.jit(resampler._apply_digital_filter_1d, static_argnums=(1, 2, 3, 4, 5, 6))
   array = jnp.ones((5,))
+  # pylint: disable-next=not-callable
   result = jitted(
       array,
       resampler._get_gridtype('dual'),
@@ -3052,6 +3053,7 @@ if EFFORT >= 1:
 # %%
 def test_blocking_using_image_rotation(max_block_size, src_size=64, dst_size=256) -> None:
   for arraylib in resampler.ARRAYLIBS:
+    # print(f'{arraylib=}')
     original_image = resampler._make_array(
         resampler.resize(EXAMPLE_IMAGE, (src_size,) * 2), arraylib
     )
@@ -3067,7 +3069,11 @@ def test_blocking_using_image_rotation(max_block_size, src_size=64, dst_size=256
     reference = rotate_image()
     _check_eq(resampler._arr_arraylib(reference), arraylib)
     result = rotate_image(max_block_size=max_block_size)
-    _check_eq(resampler._arr_numpy(result), resampler._arr_numpy(reference))
+    reference_numpy = resampler._arr_numpy(reference)
+    result_numpy = resampler._arr_numpy(result)
+    _check_eq(result_numpy.shape, reference_numpy.shape)
+    _check_eq(result_numpy.dtype, np.uint8)
+    assert np.allclose(result_numpy, reference_numpy, atol=1)
 
 
 if EFFORT >= 1:

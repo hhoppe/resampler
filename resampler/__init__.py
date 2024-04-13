@@ -2902,7 +2902,7 @@ def _create_jaxjit_resize() -> Callable[..., _Array]:
 
 def jaxjit_resize(array: _Array, /, *args: Any, **kwargs: Any) -> _Array:
   """Compute `resize` but with resize function jitted using Jax."""
-  return _create_jaxjit_resize()(array, *args, **kwargs)
+  return _create_jaxjit_resize()(array, *args, **kwargs)  # pylint: disable=not-callable
 
 
 def uniform_resize(
