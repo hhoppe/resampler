@@ -1296,17 +1296,17 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
         'uint32': 1,
         'int32': 1,
     }[dtype]
-    dtype = np.dtype(dtype)
+    np_dtype = np.dtype(dtype)
     rng = np.random.default_rng(0)
     array = (
-        rng.integers(256, size=shape, dtype=dtype)
-        if np.issubdtype(dtype, np.integer)
-        else rng.random(shape).astype(dtype)
+        rng.integers(256, size=shape, dtype=np_dtype)
+        if np.issubdtype(np_dtype, np.integer)
+        else rng.random(shape).astype(np_dtype)
     )
     yx = np.moveaxis(np.indices(new_shape), 0, -1)
     coords = (yx + 0.5) / new_shape if gridtype == 'dual' else yx / (np.array(new_shape) - 1)
     coords = (coords - translate) / scale
-    kwargs = dict(gridtype=gridtype, boundary=boundary, filter=filter, gamma=gamma)
+    kwargs: Any = dict(gridtype=gridtype, boundary=boundary, filter=filter, gamma=gamma)
     resize_kwargs = dict(scale=scale, translate=translate, **kwargs)
     resized = resampler.resize_in_numpy(array, new_shape, **resize_kwargs)
     array2 = resampler._make_array(array, arraylib)
@@ -1315,7 +1315,7 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
     _check_eq(resampler._arr_arraylib(resized), 'numpy')
     assert resampler._arr_arraylib(resized2) == resampler._arr_arraylib(resampled2) == arraylib
     _arr_dtype = resampler._arr_dtype
-    assert resized.dtype == _arr_dtype(resized2) == _arr_dtype(resampled2) == dtype
+    assert resized.dtype == _arr_dtype(resized2) == _arr_dtype(resampled2) == np_dtype
     assert np.allclose(resized2, resized, rtol=0, atol=atol), config
     assert np.allclose(resampled2, resized, rtol=0, atol=atol), config
 

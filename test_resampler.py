@@ -456,7 +456,7 @@ class TestResampler(unittest.TestCase):
     for config in itertools.islice(configs, 0, None, step):
       gridtype, boundary, filter, gamma = config
       with self.subTest(config=config):
-        kwargs = dict(gridtype=gridtype, boundary=boundary, filter=filter)
+        kwargs: Any = dict(gridtype=gridtype, boundary=boundary, filter=filter)
         kwargs |= dict(gamma=gamma, scale=scale, translate=translate)
         expected = resampler._original_resize(array, new_shape, **kwargs)
         new_array = resampler._resize_using_resample(array, new_shape, **kwargs)
