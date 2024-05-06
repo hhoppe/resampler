@@ -32,7 +32,7 @@ import scipy.sparse.linalg
 
 
 def _noop_decorator(*args: Any, **kwargs: Any) -> Any:
-  """Return function decorated with no-operation; invokable with or without args."""
+  """Return function decorated with no-operation; invocable with or without args."""
   if len(args) != 1 or not callable(args[0]) or kwargs:
     return _noop_decorator  # Decorator is invoked with arguments; ignore them.
   func: Callable[..., Any] = args[0]
