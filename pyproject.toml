@@ -33,7 +33,7 @@ documentation = "https://hhoppe.github.io/resampler/resampler.html"
 # Other: changelog
 
 [project.optional-dependencies]
-# Development deps (unittest, linting, formating,...)
+# Development deps (unittest, linting, formatting,...)
 # Installed through `pip install .[dev]`
 dev = [
     # "pytest",
