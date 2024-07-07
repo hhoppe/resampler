@@ -589,7 +589,8 @@ def show_grid_values(array, figsize=(14, 4), cmap='gray', **kwargs) -> None:
     text = f'{value}' if np.issubdtype(array.dtype, np.integer) else f'{value:.3f}'
     # https://matplotlib.org/stable/api/_as_gen/matplotlib.patches.FancyBboxPatch.html
     bbox = dict(boxstyle='square,pad=0.1', fc='white', lw=0)
-    ax.text(*yx[::-1], text, va='center', ha='center', bbox=bbox)
+    x, y = yx[::-1]
+    ax.text(x, y, text, va='center', ha='center', bbox=bbox)
   _ = ax.xaxis.set_ticks([]), ax.yaxis.set_ticks([])
   plt.show()
 
@@ -3235,10 +3236,11 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
   num_columns = 3
   num_rows = math.ceil(len(filters) / num_columns)
   fig, axs = plt.subplots(num_rows, num_columns, figsize=(4.0 * num_columns, 2.5 * num_rows))
+  axes = typing.cast(np.ndarray[Any, Any], axs).flat
   for i, (name, filter) in enumerate(filters.items()):
-    analyze_filter(name, filter, axs.flat[i])
-  for i in range(len(filters), axs.size):
-    fig.delaxes(axs.flat[i])  # Or: axs.flat[i].axis('off').
+    analyze_filter(name, filter, axes[i])
+  for i in range(len(filters), len(axes)):
+    fig.delaxes(axes[i])  # Or: axes[i].axis('off').
   fig.tight_layout()
   plt.show()
   if any(filter.requires_digital_filter for filter in filters.values()):
@@ -3320,10 +3322,11 @@ def visualize_filter_frequency_response(filters: Mapping[str, resampler.Filter])
   num_columns = 3
   num_rows = math.ceil(len(filters) / num_columns)
   fig, axs = plt.subplots(num_rows, num_columns, figsize=(4.0 * num_columns, 2.5 * num_rows))
+  axes = typing.cast(np.ndarray[Any, Any], axs).flat
   for i, (name, filter) in enumerate(filters.items()):
-    analyze_filter(name, filter, axs.flat[i])
-  for i in range(len(filters), axs.size):
-    fig.delaxes(axs.flat[i])  # Or: axs.flat[i].axis('off').
+    analyze_filter(name, filter, axes[i])
+  for i in range(len(filters), len(axes)):
+    fig.delaxes(axes[i])  # Or: axes[i].axis('off').
   fig.tight_layout()
   plt.show()
 
@@ -3468,11 +3471,12 @@ def visualize_boundary_rules_in_1d(
   for row_index, filter in enumerate(filters):
     filter = resampler._find_closest_filter(filter, resizer)
     fig, axs = plt.subplots(1, len(boundaries), figsize=(18, 1.5))
+    axes = typing.cast(np.ndarray[Any, Any], axs).flat
     fig.subplots_adjust(wspace=0.1)
     array = np.array([0.2, 0.1, 0.4, 0.5])
 
     for column_index, boundary in enumerate(boundaries):
-      ax = axs.flat[column_index]
+      ax = axes[column_index]
 
       params = dict(filter=filter, boundary=boundary, cval=cval)
       if resizer is resampler.resize:
@@ -4389,7 +4393,8 @@ def visualize_prefiltering_a_discontinuity_in_1D(size=400, x_step=0.5) -> None:
   filters = (
       'box trapezoid triangle mitchell cubic hamming3 cardinal3 lanczos3 omoms5 lanczos10'
   ).split()
-  fig, axs = plt.subplots(len(new_sizes), len(filters), figsize=(12, 6))
+  fig, ax_init = plt.subplots(len(new_sizes), len(filters), figsize=(12, 6))
+  axs = typing.cast(np.ndarray[Any, Any], ax_init)
   for row_index, new_size in enumerate(new_sizes):
     for col_index, filter in enumerate(filters):
 
@@ -5172,7 +5177,8 @@ def visualize_unused() -> None:
     ax.plot(ordinates(upsampled), upsampled, '.')
     ax.set(title=f"gridtype='{gridtype}'")
 
-  _, axs = plt.subplots(1, 2, figsize=(12, 2.5))
+  _, ax_init = plt.subplots(1, 2, figsize=(12, 2.5))
+  axs = typing.cast(np.ndarray[Any, Any], ax_init)
   upsample_1d(axs[0], 'dual', 32, lambda x: (np.arange(len(x)) + 0.5) / len(x))
   upsample_1d(axs[1], 'primal', 25, lambda x: np.arange(len(x)) / (len(x) - 1))
 
@@ -5218,7 +5224,8 @@ visualize_reconstruction_and_sampling()
 
 # %%
 def visualize_example_filters(filters: Sequence[str], num=1_001) -> None:
-  fig, axs = plt.subplots(1, len(filters), figsize=(12, 1.8))
+  fig, ax_init = plt.subplots(1, len(filters), figsize=(12, 1.8))
+  axs = typing.cast(np.ndarray[Any, Any], ax_init)
 
   for index, filter_name in enumerate(filters):
     ax = axs.flat[index]

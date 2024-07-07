@@ -23,6 +23,8 @@
 
 import collections
 import math
+import typing
+from typing import Any
 
 import mediapy as media
 import numpy as np
@@ -64,7 +66,8 @@ new_dual = resampler.resize(a, (32,))  # (default gridtype='dual') 8x resolution
 new_primal = resampler.resize(a, (25,), gridtype='primal')  # 8x resolution.
 
 # %%
-_, axs = plt.subplots(1, 2, figsize=(7, 1.5))
+_, ax_init = plt.subplots(1, 2, figsize=(7, 1.5))
+axs = typing.cast(np.ndarray[Any, Any], ax_init)
 axs[0].set(title="gridtype='dual'")
 axs[0].plot((np.arange(len(a)) + 0.5) / len(a), a, 'o')
 axs[0].plot((np.arange(len(new_dual)) + 0.5) / len(new_dual), new_dual, '.')
