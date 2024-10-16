@@ -2461,6 +2461,7 @@ def _apply_digital_filter_1d(
       """Differentiable wrapper for _apply_digital_filter_1d."""
 
       @staticmethod
+      # pylint: disable-next=arguments-differ
       def forward(ctx: Any, *args: _TorchTensor, **kwargs: Any) -> _TorchTensor:
         del ctx
         assert not kwargs
