@@ -3274,6 +3274,10 @@ def resample(
       list(range(resampled_ndim)) + list(range(resampled_ndim + grid_ndim, samples_ndim))
   )  # 'abe'
   subscripts = ','.join(labels) + '->' + output_label  # 'abcde,abc,abd->abe'
+  # Starting in numpy 2.0, np.einsum() outputs np.float64 even with all np.float32 inputs;
+  # GPT: "aligns np.einsum with other functions where intermediate calculations use higher
+  # precision (np.float64) regardless of input type when floating-point arithmetic is involved."
+  # we could explicitly add the parameter `dtype=precision`.
   array = _arr_einsum(subscripts, *operands)  # (8, 9, 3)
 
   # Gathering `samples` is the memory bottleneck.  It would be ideal if the gather() and einsum()

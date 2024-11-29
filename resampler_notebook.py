@@ -2055,7 +2055,7 @@ def test_profile_downsampling(
   height, width, ch = shape
   new_height, new_width = new_shape
   block_height, block_width = np.array(shape[:2]) // new_shape
-  factor = 1 / (block_height * block_width)
+  factor = (1 / (block_height * block_width)).astype(dtype)
 
   def reshape_mean() -> _NDArray:
     shape1 = new_height, block_height, new_width, block_width, ch
@@ -2081,7 +2081,7 @@ def test_profile_downsampling(
   def einsum() -> _NDArray:
     # https://stackoverflow.com/a/36383134
     shape1 = new_height, block_height, new_width, block_width, ch
-    return np.einsum('ijklm->ikm', array.reshape(shape1), optimize='greedy') * factor
+    return np.einsum('ijklm->ikm', array.reshape(shape1), optimize='greedy', dtype=dtype) * factor
 
   def two_dots() -> _NDArray:
     if ch != 1:
@@ -4563,8 +4563,8 @@ def experiment_with_convolution() -> None:
     assert array.ndim >= filter.ndim
     while filter.ndim < array.ndim:
       filter = filter[..., None]
-    a = np.fft.rfftn(array) * np.fft.rfftn(filter, s=array.shape)
-    result = np.fft.irfftn(a, s=array.shape)  # (Always np.float64.)
+    a = np.fft.rfftn(array) * np.fft.rfftn(filter, s=array.shape, axes=range(array.ndim))
+    result = np.fft.irfftn(a, s=array.shape, axes=range(array.ndim))  # (Always np.float64.)
     result = np.roll(result, -(np.array(filter.shape) // 2), axis=range(array.ndim))
     return result
 
@@ -4980,7 +4980,7 @@ def test_inverse_convolution_2d(
         'filtfilt': run_filtfilt,
     }
   with warnings.catch_warnings():
-    warnings.filterwarnings(action='error', category=np.ComplexWarning)
+    warnings.filterwarnings(action='error', category=np.exceptions.ComplexWarning)
     for name, function in functions.items():
       if np.issubdtype(dtype, np.complexfloating) and name in ['filtfilt']:
         continue
