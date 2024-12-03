@@ -2159,6 +2159,9 @@ if EFFORT >= 2:
   test_profile_downsampling((2000, 2000, 4), (1000, 1000))
   test_profile_downsampling((5000, 5000, 1), (1000, 1000), also_prun=True)
 if EFFORT >= 2:
+  # Occasional Numba error when invoking `jitted_function(a)`:
+  # RuntimeError: In 'NRT_adapt_ndarray_to_python', 'descr' is NULL.
+  # The solution was to delete resampler/__pycache__.
   test_profile_downsampling((8192, 8192, 3), (2048, 2048))
   test_profile_downsampling((8192, 8192, 1), (2048, 2048))
 
