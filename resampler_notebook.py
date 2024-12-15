@@ -4121,7 +4121,7 @@ def dither(
       out[y, x] = image[y, x] * (num_levels - np.finfo(float).eps)
       # Propagate the quantization residual.
       residual = image[y, x] - out[y, x] / (num_levels - 1)
-      for (dy, dx), weight in zip(offsets, weights):
+      for (dy, dx), weight in zip(offsets, weights, strict=True):
         yy, xx = y + dy, x + dx
         if yy < height and 0 <= xx < width:
           image[yy, xx] += residual * weight
