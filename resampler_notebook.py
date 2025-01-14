@@ -339,6 +339,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import mediapy as media  # https://github.com/google/mediapy
 import numpy as np
+import numpy.typing
 import pdoc
 import scipy.signal
 import skimage
@@ -359,8 +360,8 @@ using_numba = hasattr(numba, 'jit')
 # pylint: disable=protected-access, missing-function-docstring
 # mypy: allow-incomplete-defs, allow-untyped-defs
 
-_ArrayLike = resampler._ArrayLike
-_NDArray = resampler._NDArray
+_ArrayLike = numpy.typing.ArrayLike
+_NDArray = numpy.typing.NDArray[Any]
 _TensorflowTensor = resampler._TensorflowTensor
 _TorchTensor = resampler._TorchTensor
 _JaxArray = resampler._JaxArray
@@ -479,8 +480,8 @@ _check_eq(must_be_int(6 / 2), 3)
 # %%
 def get_rms(a: _ArrayLike, b: _ArrayLike) -> float:
   """Return the root-mean-square difference between two arrays."""
-  a2: _NDArray = media.to_float01(a)
-  b2: _NDArray = media.to_float01(b)
+  a2 = media.to_float01(a)
+  b2 = media.to_float01(b)
   rms: float = np.sqrt(np.mean(np.square(a2 - b2))).item()
   return rms
 

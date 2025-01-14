@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 __docformat__ = 'google'
-__version__ = '0.8.7'
+__version__ = '0.8.8'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -52,7 +52,7 @@ if typing.TYPE_CHECKING:
   import torch
 
   _DType = np.dtype[Any]  # (Requires Python 3.9 or TYPE_CHECKING.)
-  _NDArray = np.ndarray[Any, Any]
+  _NDArray = numpy.typing.NDArray[Any]
   _DTypeLike = numpy.typing.DTypeLike
   _ArrayLike = numpy.typing.ArrayLike
   _TensorflowTensor: typing.TypeAlias = tf.Tensor
@@ -394,6 +394,7 @@ class _Arraylib(abc.ABC, Generic[_Array]):
 
 class _NumpyArraylib(_Arraylib[_NDArray]):
   """Numpy implementation of the array abstraction."""
+  # pylint: disable=missing-function-docstring
 
   def __init__(self, array: _NDArray) -> None:
     super().__init__(arraylib='numpy', array=np.asarray(array))
@@ -587,11 +588,9 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
     return tf.sparse.SparseTensor(indices, data, shape)
 
 
-# pylint: disable=missing-function-docstring
-
-
 class _TorchArraylib(_Arraylib[_TorchTensor]):
   """Torch implementation of the array abstraction."""
+  # pylint: disable=missing-function-docstring
 
   def __init__(self, array: _NDArray) -> None:
     import torch
@@ -702,9 +701,6 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
     indices = np.vstack((row_ind, col_ind))
     return torch.sparse_coo_tensor(torch.as_tensor(indices), torch.as_tensor(data), shape)
     # .coalesce() is unnecessary because indices/data are already merged.
-
-
-# pylint: enable=missing-function-docstring
 
 
 class _JaxArraylib(_Arraylib[_JaxArray]):
