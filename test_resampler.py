@@ -16,12 +16,13 @@ import unittest
 import warnings
 
 import numpy as np
+import numpy.typing
 import scipy
 
 import resampler
 
-_ArrayLike = Any
-_NDArray = Any
+_ArrayLike = numpy.typing.ArrayLike
+_NDArray = numpy.typing.NDArray[Any]
 _TensorflowTensor = Any
 
 # pylint: disable=protected-access, missing-function-docstring, too-many-public-methods
