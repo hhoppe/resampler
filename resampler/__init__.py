@@ -3,10 +3,8 @@
 .. include:: ../README.md
 """
 
-from __future__ import annotations
-
 __docformat__ = 'google'
-__version__ = '0.8.8'
+__version__ = '0.8.9'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -394,6 +392,7 @@ class _Arraylib(abc.ABC, Generic[_Array]):
 
 class _NumpyArraylib(_Arraylib[_NDArray]):
   """Numpy implementation of the array abstraction."""
+
   # pylint: disable=missing-function-docstring
 
   def __init__(self, array: _NDArray) -> None:
@@ -557,7 +556,7 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
     return dims
 
   def premult_with_sparse(
-      self, sparse: tf.sparse.SparseTensor, num_threads: int | Literal['auto']
+      self, sparse: 'tf.sparse.SparseTensor', num_threads: int | Literal['auto']
   ) -> _TensorflowTensor:
     import tensorflow as tf
 
@@ -590,6 +589,7 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
 
 class _TorchArraylib(_Arraylib[_TorchTensor]):
   """Torch implementation of the array abstraction."""
+
   # pylint: disable=missing-function-docstring
 
   def __init__(self, array: _NDArray) -> None:
@@ -763,7 +763,7 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
     return dims
 
   def premult_with_sparse(
-      self, sparse: jax.experimental.sparse.BCOO, num_threads: int | Literal['auto']
+      self, sparse: 'jax.experimental.sparse.BCOO', num_threads: int | Literal['auto']
   ) -> _JaxArray:
     del num_threads
     return sparse @ self.array  # Calls jax.bcoo_multiply_dense().
