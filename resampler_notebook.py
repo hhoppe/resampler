@@ -312,8 +312,6 @@
 
 # %%
 """Python notebook demonstrating the `resampler` package."""
-from __future__ import annotations
-
 import collections
 from collections.abc import Callable, Iterable, Mapping, Sequence
 import concurrent.futures

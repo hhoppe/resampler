@@ -4,8 +4,6 @@
 
 c:/windows/sysnative/wsl -e bash -lc 'flake8 --indent-size 2 --max-line-length=1000 --extend-ignore E302,E741,E131,E305,E402 test_resampler.py && python3 test_resampler.py'
 """
-from __future__ import annotations
-
 from collections.abc import Callable
 import functools
 import itertools
