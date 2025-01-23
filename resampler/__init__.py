@@ -400,7 +400,7 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
 
   @staticmethod
   def recognize(array: Any) -> bool:
-    return isinstance(array, np.ndarray)
+    return isinstance(array, (np.ndarray, np.number))
 
   def numpy(self) -> _NDArray:
     return self.array
@@ -2602,7 +2602,7 @@ def resize(
     src_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
     dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
     boundary: str | Boundary | Iterable[str | Boundary] = 'auto',
-    cval: _ArrayLike = 0,
+    cval: _ArrayLike = 0.0,
     filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
     prefilter: str | Filter | Iterable[str | Filter] | None = None,
     gamma: str | Gamma | None = None,
@@ -2651,7 +2651,7 @@ def resize(
       a name in `BOUNDARIES` or a `Boundary` instance.  The special value `'auto'` uses `'reflect'`
       for upsampling and `'clamp'` for downsampling.
     cval: Constant value used beyond the samples by some boundary rules.  It must be broadcastable
-      onto `array.shape[len(shape):]`.
+      onto `array.shape[len(shape):]`.  It is subject to `src_gamma`.
     filter: The reconstruction kernel for each dimension in `shape`, specified as either a filter
       name in `FILTERS` or a `Filter` instance.  It is used during upsampling (i.e., magnification).
     prefilter: The prefilter kernel for each dimension in `shape`, specified as either a filter
@@ -2759,6 +2759,7 @@ def resize(
       raise ValueError(f'{dim_order} not a permutation of {list(range(len(shape2)))}.')
 
   array = src_gamma2.decode(array, precision)
+  cval = _arr_numpy(src_gamma2.decode(cval, precision))
 
   can_use_fast_box_downsampling = (
       using_numba
@@ -2987,7 +2988,7 @@ def resample(
     *,
     gridtype: str | Gridtype | Iterable[str | Gridtype] = 'dual',
     boundary: str | Boundary | Iterable[str | Boundary] = 'auto',
-    cval: _ArrayLike = 0,
+    cval: _ArrayLike = 0.0,
     filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
     prefilter: str | Filter | Iterable[str | Filter] | None = None,
     gamma: str | Gamma | None = None,
@@ -3044,7 +3045,7 @@ def resample(
       as either a name in `BOUNDARIES` or a `Boundary` instance.  The special value `'auto'` uses
       `'reflect'` for upsampling and `'clamp'` for downsampling.
     cval: Constant value used beyond the samples by some boundary rules.  It must be broadcastable
-      onto the shape `array.shape[coords.shape[-1]:]`.
+      onto the shape `array.shape[coords.shape[-1]:]`.  It is subject to `src_gamma`.
     filter: The reconstruction kernel for each dimension in `coords.shape[-1]`, specified as either
       a filter name in `FILTERS` or a `Filter` instance.
     prefilter: The prefilter kernel for each dimension in `coords.shape[:-1]`, specified as either
@@ -3153,6 +3154,7 @@ def resample(
         array = _apply_digital_filter_1d(
             array, gridtype2[dim], boundary2[dim], cval, filter2[dim], axis=dim
         )
+    cval = _arr_numpy(src_gamma2.decode(cval, precision))
 
   if math.prod(resampled_shape) > max_block_size > 0:
     block_shape = _block_shape_with_min_size(resampled_shape, max_block_size)

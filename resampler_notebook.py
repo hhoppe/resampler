@@ -297,13 +297,10 @@
 # !command -v ffmpeg >/dev/null || conda install -y ffmpeg >&/dev/null || (apt update && apt install -y ffmpeg)  # For mediapy.
 
 # %%
-# !pip install -qU numba numpy
-
-# %%
 # !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q autopep8 hhoppe-tools 'jax[cpu]' matplotlib mediapy mypy \
+# !pip install -q autopep8 hhoppe-tools 'jax[cpu]' matplotlib mediapy mypy numba numpy \
 #   pdoc Pillow pyink pylint pytest resampler scipy scikit-image tensorflow-cpu torch
 
 # %%
@@ -324,7 +321,6 @@ import math
 import os
 import pathlib
 import sys
-import types
 import typing
 from typing import Any, Literal, TypeVar
 import warnings
@@ -336,6 +332,7 @@ import jax.numpy as jnp
 import matplotlib
 import matplotlib.pyplot as plt
 import mediapy as media  # https://github.com/google/mediapy
+import numba
 import numpy as np
 import numpy.typing
 import pdoc
@@ -347,13 +344,6 @@ import torch
 import torch.autograd
 
 import resampler
-
-try:
-  import numba
-except ModuleNotFoundError:
-  numba = sys.modules['numba'] = types.ModuleType('numba')
-  numba.njit = hh.noop_decorator
-using_numba = hasattr(numba, 'jit')
 
 # pylint: disable=protected-access, missing-function-docstring
 # mypy: allow-incomplete-defs, allow-untyped-defs
@@ -369,10 +359,10 @@ _AnyArray = resampler._AnyArray
 _UNICODE_DAGGER = '\u2020'
 
 # %%
-EFFORT: Literal[0, 1, 2, 3] = hh.get_env_int('EFFORT', 1)  # type: ignore[assignment]
+EFFORT = typing.cast(Literal[0, 1, 2, 3], hh.get_env_int('EFFORT', 1))
 """Controls the breadth and precision of the notebook experiments; 0 <= value <= 3."""
+assert 0 <= EFFORT <= 3
 
-# %%
 _ORIGINAL_GLOBALS = list(globals())
 _: Any = np.seterr(all='raise')  # Let all numpy warnings raise errors.
 hh.start_timing_notebook_cells()
@@ -1070,8 +1060,7 @@ def test_profile_downsample_in_2d_using_box_filter(shape=(512, 512)) -> None:
   hh.print_time(lambda: resampler._downsample_in_2d_using_box_filter(array, shape), max_time=0.4)
 
 
-if using_numba:
-  test_profile_downsample_in_2d_using_box_filter()
+test_profile_downsample_in_2d_using_box_filter()  # Uses numba.
 # 3.43 ms
 
 
@@ -1443,7 +1432,7 @@ if EFFORT >= 2:
 # https://docs.scipy.org/doc/scipy/reference/tutorial/ndimage.html#ndimage-interpolation-modes
 #  mode='constant'  # or 'reflect', 'nearest', 'mirror', 'wrap', 'grid-wrap',
 #                   #  'grid-constant'; grid-* are correct for dual sampling.
-#  cval=0  # used for 'constant'.
+#  cval=0.0  # used for 'constant'.
 #  order=3  # cardinal spline interpolation order (0..5), (3=cubic).
 #  Only filter is cardinal spline.
 #  See cardinal spline digital prefilter in
@@ -1484,7 +1473,7 @@ test_scipy_ndimage_resize()
 # %%
 # https://scikit-image.org/docs/dev/api/skimage.transform.html#skimage.transform.resize
 #  mode='reflect'  # or 'constant', 'edge', 'symmetric' (for dual), 'wrap'.
-#  cval=0  # used for 'constant'.
+#  cval=0.0  # used for 'constant'.
 #  order=1  # spline interpolation order (0..5), (3='cardinal3')
 #  anti_aliasing=None  # automatically apply Gaussian prefilter prior to downsampling.
 
@@ -1632,7 +1621,7 @@ test_differentiability_of_torch_resizing()
 # len(shape) == len(image.shape);  len(spatial_dims) == len(scale) == len(translation)
 # method: 'triangle', 'cubic', 'lanczos3', and 'lanczos5'.
 # antialias=True: corrects filter scaling for all filters.
-# boundary corresponds to 'natural' with implicit `cval=0`.
+# boundary corresponds to 'natural' with implicit `cval=0.0`.
 
 
 # %%
@@ -1836,7 +1825,7 @@ def test_multithreading(tiny_test=False, verbose=False) -> None:
   assert np.allclose(dst1, dst3)
 
 
-if using_numba and EFFORT >= 1:
+if EFFORT >= 1:  # Uses numba.
   test_multithreading()
   test_multithreading(tiny_test=True)  # The overhead is very small for numba_threaded:
 # single:104.405 ms  executor: 39.445 ms  numba: 39.770 ms
@@ -5148,7 +5137,7 @@ def visualize_warp_samples() -> None:
     if np.all((coord >= 0) & (coord + 1 < src_shape)):
       coords_image[tuple(slice(coord[c], coord[c] + 2) for c in range(2))] = 0
   dst_image = resampler.resize(
-      np.zeros(shape), src_shape, filter=resampler.NarrowBoxFilter(radius=0.15), cval=1
+      np.zeros(shape), src_shape, filter=resampler.NarrowBoxFilter(radius=0.15), cval=1.0
   )
   resampled = resampler.resample(image, coords, boundary='constant')
   images = {
@@ -5715,60 +5704,58 @@ hh.show_notebook_cell_top_times()
 # DeepNote: ~74 s.
 
 # %%
-# EFFORT=0
-# Total time: 15.08 s
-# In[ 39] hh.pdoc_help(resampler.resize)\nmedia.set_max_output_        3.358 s
-# In[181] def visualize_prefiltering_a_discontinuity_in_1D(size=400,   1.018 s
-# In[ 16] _URL_BASE = 'https://github.com/hhoppe/data/raw/main'        0.843 s
+# Total time: 15.21 s
+# In[ 37] hh.pdoc_help(resampler.resize)\nhh.no_vertical_scroll()      3.537 s
+# In[108] def experiment_plot_psnr_for_num_rotations(filter='lanczos5  0.922 s
 
 # EFFORT=1
-# Total time: 98.59 s
-# In[203] def experiment_compare_downsampling_with_other_libraries(    6.207 s
-# In[201] def experiment_compare_upsampling_with_other_libraries(      4.948 s
-# In[127] def test_profile_downsampling(\n    shape, new_shape,        4.888 s
-# In[144] def experiment_shear_image(degrees=30, show_compare=False,   3.774 s
-# In[130] if EFFORT >= 1:\n  test_profile_upsampling((1024, 1024, 1),  3.723 s
-# In[141] def experiment_zoom_image(original_image, num_frames=60) ->  3.718 s
-# In[159] if EFFORT >= 1:\n  visualize_filters({f"\'{name}\'":         3.713 s
-# In[ 39] hh.pdoc_help(resampler.resize)\nmedia.set_max_output_        3.563 s
-# In[187] def test_inverse_convolution_2d(\n    gridscale=2.0,         3.205 s
-# In[183] def visualize_prefiltering_as_scale_is_varied(\n    shape=(  2.845 s
-# In[185] def experiment_with_convolution() -> None:\n  # https://     2.696 s
-# In[180] def get_text_image(shape=(200,) * 2) -> _NDArray:\n  image   2.689 s
-# In[168] def compare_boundary_rules_on_cropped_windows_of_images(\n   2.613 s
-# In[114] # This analysis is only for 1D resize; it fails to account   2.557 s
-# In[ 83] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2)  2.539 s
-# In[161] if EFFORT >= 1:\n  visualize_filter_frequency_response(\n    2.285 s
-# In[145] def test_tensorflow_optimize_image_for_desired_upsampling(   2.216 s
-# In[148] def test_jax_optimize_image_for_desired_upsampling(\n        2.060 s
-# In[108] def test_jax_image_resize() -> None:\n  at_boundaries = [    1.716 s
-# In[ 66] def test_that_resize_matrices_are_equal_across_arraylib() -  1.709 s
+# Total time: 138.80 s
+# In[175] def experiment_compare_downsampling_with_other_libraries(   17.043 s
+# In[101] if EFFORT >= 1:\n  test_profile_upsampling((1024, 1024, 1), 13.439 s
+# In[ 98] def test_profile_downsampling(\n    shape, new_shape,       10.330 s
+# In[173] def experiment_compare_upsampling_with_other_libraries(      7.621 s
+# In[117] def test_torch_optimize_image_for_desired_upsampling(\n      5.035 s
+# In[ 60] def test_apply_resize_to_batch_of_images(\n    num_images=1  4.766 s
+# In[115] def experiment_shear_image(\n    downscale=4, degrees=30,    4.682 s
+# In[130] if EFFORT >= 1:\n  visualize_filters({f"\'{name}\'":         4.604 s
+# In[ 84] def test_jit_timing() -> None:\n  indptr, indices, data =    4.192 s
+# In[ 44] def visualize_filters_on_checkerboard(src_shape=(12, 8),     3.963 s
+# In[112] def experiment_zoom_image(original_image, num_frames=60) ->  3.611 s
+# In[ 38] hh.pdoc_help(resampler.resize)\nhh.no_vertical_scroll()      3.539 s
+# In[ 62] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2)  3.342 s
+# In[157] def visualize_prefiltering_as_scale_is_varied(\n    shape=(  3.000 s
+# In[ 79] def test_jax_image_resize() -> None:\n  at_boundaries = [    2.874 s
+# In[ 85] # This analysis is only for 1D resize; it fails to account   2.679 s
+# In[159] def experiment_with_convolution() -> None:\n  # https://     2.383 s
+# In[142] def compare_boundary_rules_on_cropped_windows_of_images(\n   2.042 s
+# In[121] def test_jax1(filter='cubic') -> None:\n  array = jnp.ones(  2.029 s
+# In[119] def test_jax_optimize_image_for_desired_upsampling(\n        1.908 s
 
 # EFFORT=2
-# Total time: 974.02 s
-# In[156] def experiment_find_the_best_max_block_size(src_size=64,    304.242 s
-# In[168] def compare_boundary_rules_on_cropped_windows_of_images(\n  144.282 s
-# In[124] def test_best_dimension_ordering_for_resize_timing(dtype=   124.535 s
-# In[125] def experiment_with_resize_timing() -> None:\n  def run(    95.221 s
-# In[127] def test_profile_downsampling(\n    shape, new_shape,       60.157 s
-# In[214] def run_lint() -> None:\n  """Run checks on *.py notebook   43.398 s
-# In[123] def test_gamma_conversion_from_and_to_uint8_timings() ->    35.702 s
-# In[ 83] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2) 19.013 s
-# In[132] if EFFORT >= 2:\n  test_profile_upsampling((1024, 1024, 3), 18.524 s
-# In[185] def experiment_with_convolution() -> None:\n  # https://    15.716 s
-# In[187] def test_inverse_convolution_2d(\n    gridscale=2.0,         9.414 s
-# In[ 53] def test_profile_resample() -> None:\n  def run(src_shape,   6.433 s
-# In[205] def experiment_compare_downsampling_with_other_libraries(    5.709 s
-# In[126] def test_compare_timing_of_resize_and_media_show_image() ->  4.827 s
-# In[203] def experiment_compare_upsampling_with_other_libraries(      4.756 s
-# In[130] if EFFORT >= 1:\n  test_profile_upsampling((1024, 1024, 1),  3.689 s
-# In[159] if EFFORT >= 1:\n  visualize_filters({f"\'{name}\'":         3.567 s
-# In[144] def experiment_shear_image(degrees=30, show_compare=False,   3.507 s
-# In[179] def experiment_visualize_gamma_upsample_video(shape=(24, 48  3.497 s
-# In[141] def experiment_zoom_image(original_image, num_frames=60) ->  3.369 s
+# Total time: 1487.66 s
+# In[ 96] def experiment_with_resize_timing() -> None:\n  def run(    397.904 s
+# In[127] def experiment_find_the_best_max_block_size(src_size=64,    303.484 s
+# In[142] def compare_boundary_rules_on_cropped_windows_of_images(\n  160.067 s
+# In[ 98] def test_profile_downsampling(\n    shape, new_shape,       157.586 s
+# In[ 95] def test_best_dimension_ordering_for_resize_timing(dtype=   139.139 s
+# In[ 94] def test_gamma_conversion_from_and_to_uint8_timings() ->    66.550 s
+# In[103] if EFFORT >= 2:\n  test_profile_upsampling((1024, 1024, 3), 50.498 s
+# In[185] def run_lint() -> None:\n  """Run checks on *.py notebook   49.730 s
+# In[159] def experiment_with_convolution() -> None:\n  # https://    16.024 s
+# In[ 62] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2) 15.911 s
+# In[101] if EFFORT >= 1:\n  test_profile_upsampling((1024, 1024, 1), 13.100 s
+# In[161] def test_inverse_convolution_2d(\n    gridscale=2.0,        13.083 s
+# In[175] def experiment_compare_downsampling_with_other_libraries(    9.291 s
+# In[ 52] def test_profile_resample() -> None:\n  def run(src_shape,   8.076 s
+# In[173] def experiment_compare_upsampling_with_other_libraries(      8.017 s
+# In[ 97] def test_compare_timing_of_resize_and_media_show_image() ->  6.615 s
+# In[115] def experiment_shear_image(\n    downscale=4, degrees=30,    4.682 s
+# In[130] if EFFORT >= 1:\n  visualize_filters({f"\'{name}\'":         3.850 s
+# In[ 92] def experiment_measure_executor_overhead(task=lambda _:      3.788 s
+# In[ 38] hh.pdoc_help(resampler.resize)\nhh.no_vertical_scroll()      3.756 s
 
 # EFFORT=3
-# Total time: 1056.34 s
+# Total time: ? s
 
 
 # %% [markdown]
