@@ -54,10 +54,10 @@ class TestResampler(unittest.TestCase):
     warnings.filterwarnings('ignore', message='.*the imp module is deprecated')
 
   def test_resize_on_list(self) -> None:
-    array = [3.0, 5.0, 8.0, 7.0]
+    lst = [3.0, 5.0, 8.0, 7.0]
     expected = np.array([2.84536097, 3.6902174, 5.58573019, 7.77282572, 7.8097826, 6.79608312])
-    np.testing.assert_allclose(resampler.resize(array, (6,)), expected)
-    np.testing.assert_allclose(resampler.resize(np.array(array), (6,)), expected)
+    np.testing.assert_allclose(resampler.resize(lst, (6,)), expected)
+    np.testing.assert_allclose(resampler.resize(np.array(lst), (6,)), expected)
 
   def test_precision(self) -> None:
     _check_eq(resampler._real_precision(np.dtype(np.float32)), np.float32)
@@ -390,7 +390,8 @@ class TestResampler(unittest.TestCase):
         _check_eq(upsampled.shape, (*new_shape, 3))
         coords = np.moveaxis(np.indices(shape) + 0.5, 0, -1) / shape
         downsampled = resampler.resample(upsampled, coords)
-        rms = np.sqrt(np.mean(np.square(np.array(array) - np.array(downsampled)))).item()
+        difference = resampler._arr_numpy(array) - resampler._arr_numpy(downsampled)
+        rms = np.sqrt(np.mean(np.square(difference))).item()
         assert 0.07 <= rms <= 0.08, rms
 
   def test_identity_resampling_with_many_boundary_rules(self) -> None:
@@ -422,15 +423,15 @@ class TestResampler(unittest.TestCase):
     assert np.allclose(new, [1, 2, 5, 6])
 
   def test_resample_using_coords_of_various_shapes(self) -> None:
-    for array in [
+    for lst in [
         8,
         [7],
         [0, 1, 6, 6],
         [[0, 1], [10, 16]],
         [[0], [1], [6], [6]],
     ]:
-      with self.subTest(array=array):
-        array = np.array(array, np.float64)
+      with self.subTest(lst=lst):
+        array = np.array(lst, np.float64)
         for shape in [(), (1,), (2,), (1, 1), (1, 2), (3, 1), (2, 2)]:
           coords = np.full(shape, 0.4)
           try:
