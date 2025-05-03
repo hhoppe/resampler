@@ -244,6 +244,7 @@ class _DownsampleIn2dUsingBoxFilter:
           'resampler: This runtime error may be due to a corrupt resampler/__pycache__;'
           ' try deleting that directory.'
       )
+      print(message, file=sys.stdout, flush=True)
       print(message, file=sys.stderr, flush=True)
       raise
 
