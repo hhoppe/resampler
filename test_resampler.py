@@ -286,7 +286,7 @@ class TestResampler(unittest.TestCase):
               arraylib=arraylib,
           )[0]
 
-        results = {}
+        results: dict[str, _NDArray] = {}
         for arraylib in resampler.ARRAYLIBS:
           sparse_matrix = resize_matrix(arraylib)
           match arraylib:
