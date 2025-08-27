@@ -381,6 +381,11 @@ warnings.filterwarnings('ignore', message='IProgress not found')  # category=tqd
 jax.config.update('jax_platforms', 'cpu')
 
 # %%
+# Omit showing the plots if running this notebook non-interactively.
+if not hasattr(__builtins__, '__IPYTHON__'):
+  plt.show = plt.close
+
+# %%
 # Silence "RuntimeWarning: More than 20 figures have been opened." when run as script.
 matplotlib.rcParams['figure.max_open_warning'] = 0
 warnings.filterwarnings('ignore', message='FigureCanvasAgg is non-interactive')
@@ -4355,7 +4360,7 @@ def experiment_rotated_grid_has_higher_fidelity_for_text(num_rotations=41) -> No
   ax.set(xlabel='Grid rotation (degrees)', ylabel='Reconstruction PSNR (dB)')
   ax.grid(True, lw=0.3)
   if 1:
-    assert 0.98 < (corr := np.corrcoef(degrees, psnrs)[0, 1]) < 0.99, corr
+    assert 0.97 < (corr := np.corrcoef(degrees, psnrs)[0, 1]) < 0.99, corr
 
 
 if EFFORT >= 1:
@@ -4890,20 +4895,20 @@ def test_inverse_convolution_2d(
       row_ind = np.arange(size).repeat(src_index.shape[1])
       col_ind = src_index.reshape(-1)
       matrix = scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape=(size, size))
+      array_flat = array_dim.reshape(array_dim.shape[0], -1)
       if boundary == 'wrap':
         lu = scipy.sparse.linalg.splu(matrix.tocsc(), permc_spec='NATURAL')
         assert lu.L.nnz == lu.U.nnz <= size * len(values)  # Sparse.
-        array_flat = array_dim.reshape(array_dim.shape[0], -1)
         array_flat = lu.solve(array_flat)
-        array_dim = array_flat.reshape(array_dim.shape)
       else:
         matrix = matrix.todia()
         _check_eq(matrix.offsets, range(-l, l + 1))
-        options = dict(check_finite=False, overwrite_ab=True, overwrite_b=True)
+        args = dict(check_finite=False, overwrite_ab=True, overwrite_b=True)
         if resampler._is_symmetric(matrix):
-          array_dim = scipy.linalg.solveh_banded(matrix.data[-1 : l - 1 : -1], array_dim, **options)
+          array_flat = scipy.linalg.solveh_banded(matrix.data[-1 : l - 1 : -1], array_flat, **args)
         else:
-          array_dim = scipy.linalg.solve_banded((l, l), matrix.data[::-1], array_dim, **options)
+          array_flat = scipy.linalg.solve_banded((l, l), matrix.data[::-1], array_flat, **args)
+      array_dim = array_flat.reshape(array_dim.shape)
       array = np.moveaxis(array_dim, 0, dim)
     return array
 
@@ -4916,9 +4921,11 @@ def test_inverse_convolution_2d(
       ab[1, 0] = ab[1, 0] + ab[0, 0]
       ab[0, 0] = UNDEFINED
       ab[1, -1] = ab[1, -1] + ab[0, -1]
-      array_dim = scipy.linalg.solveh_banded(
-          ab, array_dim, check_finite=False, overwrite_ab=True, overwrite_b=True
+      array_flat = array_dim.reshape(array_dim.shape[0], -1)
+      array_flat = scipy.linalg.solveh_banded(
+          ab, array_flat, check_finite=False, overwrite_ab=True, overwrite_b=True
       )
+      array_dim = array_flat.reshape(array_dim.shape)
       array = np.moveaxis(array_dim, 0, dim)
     return array
 

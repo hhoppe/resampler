@@ -108,16 +108,16 @@ class TestResampler(unittest.TestCase):
   def test_downsample_in_2d_using_box_filter(self) -> None:
     for shape in [(6, 6), (4, 4)]:
       for ch in [1, 2, 3, 4]:
-        array = np.ones((*shape, ch), np.float32)
-        new = resampler._downsample_in_2d_using_box_filter(array, (2, 2))
-        _check_eq(new.shape, (2, 2, ch))
-        assert np.allclose(new, 1.0)
+        array1 = np.ones((*shape, ch), np.float32)
+        new1 = resampler._downsample_in_2d_using_box_filter(array1, (2, 2))
+        _check_eq(new1.shape, (2, 2, ch))
+        assert np.allclose(new1, 1.0)
 
     for shape in [(6, 6), (4, 4)]:
-      array = np.ones(shape, np.float32)
-      new = resampler._downsample_in_2d_using_box_filter(array, (2, 2))
-      _check_eq(new.shape, (2, 2))
-      assert np.allclose(new, 1.0)
+      array2 = np.ones(shape, np.float32)
+      new2 = resampler._downsample_in_2d_using_box_filter(array2, (2, 2))
+      _check_eq(new2.shape, (2, 2))
+      assert np.allclose(new2, 1.0)
 
   def test_block_shape_with_min_size(self) -> None:
     for compact in [True, False]:
