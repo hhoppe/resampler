@@ -4,7 +4,7 @@
 """
 
 __docformat__ = 'google'
-__version__ = '0.8.9'
+__version__ = '1.0.0'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -2575,6 +2575,8 @@ def _apply_digital_filter_1d_numpy(
       cval = np.tile(cval.reshape(-1), array_dim[0].size // cval.size)
     array_dim = array_dim - cval_weight.reshape(-1, *(1,) * array_dim[0].ndim) * cval
 
+  array_flat = array_dim.reshape(array_dim.shape[0], -1)
+
   if is_banded:
     matrix = matrix.todia()
     assert np.all(np.diff(matrix.offsets) == 1)  # Consecutive, often [-l, l].
@@ -2582,15 +2584,16 @@ def _apply_digital_filter_1d_numpy(
     assert l <= original_l + 1 and u <= original_l + 1, (l, u, original_l)
     options = dict(check_finite=False, overwrite_ab=True, overwrite_b=False)
     if _is_symmetric(matrix):
-      array_dim = scipy.linalg.solveh_banded(matrix.data[-1 : l - 1 : -1], array_dim, **options)
+      array_flat = scipy.linalg.solveh_banded(matrix.data[-1 : l - 1 : -1], array_flat, **options)
     else:
-      array_dim = scipy.linalg.solve_banded((l, u), matrix.data[::-1], array_dim, **options)
+      array_flat = scipy.linalg.solve_banded((l, u), matrix.data[::-1], array_flat, **options)
 
   else:
     lu = scipy.sparse.linalg.splu(matrix.tocsc(), permc_spec='NATURAL')
     assert all(s <= size * len(values) for s in (lu.L.nnz, lu.U.nnz))  # Sparse.
-    array_dim = lu.solve(array_dim.reshape(array_dim.shape[0], -1)).reshape(array_dim.shape)
+    array_flat = lu.solve(array_flat)
 
+  array_dim = array_flat.reshape(array_dim.shape)
   return np.moveaxis(array_dim, 0, axis)
 
 
