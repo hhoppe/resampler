@@ -381,9 +381,9 @@ warnings.filterwarnings('ignore', message='IProgress not found')  # category=tqd
 jax.config.update('jax_platforms', 'cpu')
 
 # %%
-# Omit showing the plots if running this notebook non-interactively.
-if not hasattr(__builtins__, '__IPYTHON__'):
-  plt.show = plt.close
+# Disable graphics plot windows when running this notebook as a script.
+if not hh.in_notebook():
+  plt.show = lambda *args, **kwargs: None
 
 # %%
 # Silence "RuntimeWarning: More than 20 figures have been opened." when run as script.
