@@ -18,7 +18,7 @@ import os
 import sys
 import types
 import typing
-from typing import Any, Generic, Literal, Union
+from typing import Any, Generic, Literal, TypeAlias, Union
 
 import numpy as np
 import numpy.typing
@@ -49,24 +49,24 @@ if typing.TYPE_CHECKING:
   import tensorflow as tf
   import torch
 
-  _DType = np.dtype[Any]  # (Requires Python 3.9 or TYPE_CHECKING.)
-  _NDArray = numpy.typing.NDArray[Any]
-  _DTypeLike = numpy.typing.DTypeLike
-  _ArrayLike = numpy.typing.ArrayLike
-  _TensorflowTensor: typing.TypeAlias = tf.Tensor
-  _TorchTensor: typing.TypeAlias = torch.Tensor
-  _JaxArray: typing.TypeAlias = jax.numpy.ndarray
+  _DType: TypeAlias = np.dtype[Any]  # (Requires Python 3.9 or TYPE_CHECKING.)
+  _NDArray: TypeAlias = numpy.typing.NDArray[Any]
+  _DTypeLike: TypeAlias = numpy.typing.DTypeLike
+  _ArrayLike: TypeAlias = numpy.typing.ArrayLike
+  _TensorflowTensor: TypeAlias = tf.Tensor
+  _TorchTensor: TypeAlias = torch.Tensor
+  _JaxArray: TypeAlias = jax.numpy.ndarray
 
 else:
   # Typically, create named types for use in the `pdoc` documentation.
   # But here, these are superseded by the declarations in __init__.pyi!
-  _DType = Any
-  _NDArray = Any
-  _DTypeLike = Any
-  _ArrayLike = Any
-  _TensorflowTensor = Any
-  _TorchTensor = Any
-  _JaxArray = Any
+  _DType: TypeAlias = Any
+  _NDArray: TypeAlias = Any
+  _DTypeLike: TypeAlias = Any
+  _ArrayLike: TypeAlias = Any
+  _TensorflowTensor: TypeAlias = Any
+  _TorchTensor: TypeAlias = Any
+  _JaxArray: TypeAlias = Any
 
 _Array = typing.TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
 _AnyArray = Union[_NDArray, _TensorflowTensor, _TorchTensor, _JaxArray]
