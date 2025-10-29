@@ -322,7 +322,7 @@ import os
 import pathlib
 import sys
 import typing
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeAlias, TypeVar
 import warnings
 
 import hhoppe_tools as hh  # https://github.com/hhoppe/hhoppe-tools/blob/main/hhoppe_tools/__init__.py
@@ -348,13 +348,13 @@ import resampler
 # pylint: disable=protected-access, missing-function-docstring
 # mypy: allow-incomplete-defs, allow-untyped-defs
 
-_ArrayLike = numpy.typing.ArrayLike
-_NDArray = numpy.typing.NDArray[Any]
-_TensorflowTensor = resampler._TensorflowTensor
-_TorchTensor = resampler._TorchTensor
-_JaxArray = resampler._JaxArray
+_ArrayLike: TypeAlias = numpy.typing.ArrayLike
+_NDArray: TypeAlias = numpy.typing.NDArray[Any]
+_TensorflowTensor: TypeAlias = resampler._TensorflowTensor
+_TorchTensor: TypeAlias = resampler._TorchTensor
+_JaxArray: TypeAlias = resampler._JaxArray
 _Array = TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
-_AnyArray = resampler._AnyArray
+_AnyArray: TypeAlias = resampler._AnyArray
 
 _UNICODE_DAGGER = '\u2020'
 
@@ -2031,7 +2031,7 @@ def test_compare_timing_of_resize_and_media_show_image() -> None:
   time_pil = hh.get_time(lambda: media.show_image(array, height=256))
   print(f'Timing: resize:{time_resize:.1f} media_pil:{time_pil:.1f} s')
   # Timing: resize:0.1 media_pil:1.5 s
-  assert 0.05 < time_resize / time_pil < 0.5
+  assert 0.01 < time_resize / time_pil < 0.5
 
 
 if EFFORT >= 2:

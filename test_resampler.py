@@ -9,7 +9,7 @@ import functools
 import itertools
 import math
 import os
-from typing import Any
+from typing import Any, TypeAlias
 import unittest
 import warnings
 
@@ -19,9 +19,9 @@ import scipy
 
 import resampler
 
-_ArrayLike = numpy.typing.ArrayLike
-_NDArray = numpy.typing.NDArray[Any]
-_TensorflowTensor = Any
+_ArrayLike: TypeAlias = numpy.typing.ArrayLike
+_NDArray: TypeAlias = numpy.typing.NDArray[Any]
+_TensorflowTensor: TypeAlias = Any
 
 # pylint: disable=protected-access, missing-function-docstring, too-many-public-methods
 
