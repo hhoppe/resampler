@@ -4,7 +4,7 @@
 """
 
 __docformat__ = 'google'
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -41,7 +41,7 @@ try:
   import numba
 except ModuleNotFoundError:
   numba = sys.modules['numba'] = types.ModuleType('numba')
-  numba.njit = _noop_decorator
+  numba.njit = _noop_decorator  # type: ignore[attr-defined]
 using_numba = hasattr(numba, 'jit')
 
 if typing.TYPE_CHECKING:
@@ -254,7 +254,7 @@ class _DownsampleIn2dUsingBoxFilter:
 _downsample_in_2d_using_box_filter = _DownsampleIn2dUsingBoxFilter()
 
 
-@numba.njit(nogil=True, fastmath=True, cache=True)  # type: ignore[misc]
+@numba.njit(nogil=True, fastmath=True, cache=True)  # type: ignore[untyped-decorator]
 def _numba_serial_csr_dense_mult(
     indptr: _NDArray,
     indices: _NDArray,
@@ -280,7 +280,7 @@ def _numba_serial_csr_dense_mult(
 # I tried using the "minimal" "parallel=" config but this did not result in any jit speedup:
 #  parallel=dict(comprehension=False, prange=True, numpy=True, reduction=False,
 #                setitem=False, stencil=False, fusion=False)
-@numba.njit(parallel=True, fastmath=True, cache=True)  # type: ignore[misc]
+@numba.njit(parallel=True, fastmath=True, cache=True)  # type: ignore[untyped-decorator]
 def _numba_parallel_csr_dense_mult(
     indptr: _NDArray,
     indices: _NDArray,
@@ -451,7 +451,7 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
     assert self.array.ndim == sparse.ndim == 2 and sparse.shape[1] == self.array.shape[0]
     # Empirically faster than with default numba.config.NUMBA_NUM_THREADS (e.g., 24).
     if using_numba:
-      num_threads2 = min(6, os.cpu_count()) if num_threads == 'auto' else num_threads
+      num_threads2 = min(6, os.cpu_count() or 1) if num_threads == 'auto' else num_threads
       src = np.ascontiguousarray(self.array)  # Like .ravel() in _mul_multivector().
       dtype = np.result_type(sparse.dtype, src.dtype)
       dst = np.empty((sparse.shape[0], src.shape[1]), dtype)
@@ -804,7 +804,8 @@ _CANDIDATE_ARRAYLIBS = {
 
 def is_available(arraylib: str) -> bool:
   """Return whether the array library (e.g. 'tensorflow') is available as an installed package."""
-  return importlib.util.find_spec(arraylib) is not None  # Faster than trying to import it.
+  # Faster than trying to import it.
+  return importlib.util.find_spec(arraylib) is not None  # type: ignore[attr-defined]
 
 
 _DICT_ARRAYLIBS = {
@@ -906,13 +907,13 @@ def _arr_matmul_sparse_dense(
 def _arr_concatenate(arrays: Sequence[_Array], axis: int, /) -> _Array:
   """Return the equivalent of `np.concatenate(arrays, axis)`."""
   arraylib = _arr_arraylib(arrays[0])
-  return _DICT_ARRAYLIBS[arraylib].concatenate(arrays, axis)  # type: ignore
+  return _DICT_ARRAYLIBS[arraylib].concatenate(arrays, axis)
 
 
 def _arr_einsum(subscripts: str, /, *operands: _Array) -> _Array:
   """Return the equivalent of `np.einsum(subscripts, *operands, optimize=True)`."""
   arraylib = _arr_arraylib(operands[0])
-  return _DICT_ARRAYLIBS[arraylib].einsum(subscripts, *operands)  # type: ignore
+  return _DICT_ARRAYLIBS[arraylib].einsum(subscripts, *operands)
 
 
 def _arr_swapaxes(array: _Array, axis1: int, axis2: int, /) -> _Array:
@@ -2438,7 +2439,7 @@ def _apply_digital_filter_1d(
           grad_output, gridtype, boundary, cval, filter, axis, True
       )
 
-    @tf.custom_gradient  # type: ignore[misc]
+    @tf.custom_gradient  # type: ignore[untyped-decorator]
     def tensorflow_inverse_convolution(x: _TensorflowTensor) -> _TensorflowTensor:
       # Although `forward` accesses parameters gridtype, boundary, etc., it is not stateful
       # because the function is redefined on each invocation of _apply_digital_filter_1d.
@@ -2490,7 +2491,7 @@ def _apply_digital_filter_1d(
     # https://github.com/google/jax/blob/main/docs/notebooks/How_JAX_primitives_work.ipynb  :-(
     # https://github.com/google/jax/issues/5934
 
-    @jax.custom_gradient  # type: ignore[misc]
+    @jax.custom_gradient  # type: ignore[untyped-decorator]
     def jax_inverse_convolution(x: _JaxArray) -> _JaxArray:
       # This function is not jax-traceable due to the presence of to_py(), so jit and grad fail.
       x_py = np.asarray(x)  # to_py() deprecated.
@@ -2550,7 +2551,7 @@ def _apply_digital_filter_1d_numpy(
   values = filter(x)
   size = array_dim.shape[0]
   src_index = np.arange(size)[:, None] + np.arange(len(values)) - l
-  weight = np.full((size, len(values)), values)
+  weight: _NDArray = np.full((size, len(values)), values)
   src_position = np.broadcast_to(0.5, len(values))
   src_index, weight = boundary.apply(src_index, weight, src_position, size, gridtype)
   if gridtype.name == 'primal' and boundary.name == 'wrap':
@@ -2897,7 +2898,9 @@ def _create_jaxjit_resize() -> Callable[..., _Array]:
   import jax
 
   jitted: Any = jax.jit(
-      _original_resize, static_argnums=(1,), static_argnames=list(_original_resize.__kwdefaults__)
+      _original_resize,
+      static_argnums=(1,),
+      static_argnames=list(_original_resize.__kwdefaults__ or []),
   )
   return jitted
 
@@ -3540,7 +3543,7 @@ def pil_image_resize(
   if array.ndim == 1:
     return pil_image_resize(array[None], (1, *shape), filter=filter)[0]
   if not hasattr(PIL.Image, 'Resampling'):  # Pillow<9.0
-    PIL.Image.Resampling = PIL.Image
+    PIL.Image.Resampling = PIL.Image  # type: ignore
   filters = {
       'impulse': PIL.Image.Resampling.NEAREST,
       'box': PIL.Image.Resampling.BOX,
@@ -3552,13 +3555,12 @@ def pil_image_resize(
   if filter not in filters:
     raise ValueError(f'{filter=} not in {filters=}.')
   pil_resample = filters[filter]
+  ny, nx = shape
   if array.ndim == 2:
-    return np.array(
-        PIL.Image.fromarray(array).resize(shape[::-1], resample=pil_resample), array.dtype
-    )
+    return np.array(PIL.Image.fromarray(array).resize((nx, ny), resample=pil_resample), array.dtype)
   stack = []
   for channel in np.moveaxis(array, -1, 0):
-    pil_image = PIL.Image.fromarray(channel).resize(shape[::-1], resample=pil_resample)
+    pil_image = PIL.Image.fromarray(channel).resize((nx, ny), resample=pil_resample)
     stack.append(np.array(pil_image, array.dtype))
   return np.dstack(stack)
 
@@ -3817,7 +3819,7 @@ def _resizer_is_available(library_function: str) -> bool:
   """Return whether the resizer is available as an installed package."""
   top_name = library_function.split('.', 1)[0]
   module = {'PIL': 'Pillow', 'cv': 'cv2', 'tf': 'tensorflow'}.get(top_name, top_name)
-  return importlib.util.find_spec(module) is not None
+  return importlib.util.find_spec(module) is not None  # type: ignore[attr-defined]
 
 
 _RESIZERS = {
