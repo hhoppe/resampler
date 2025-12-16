@@ -294,13 +294,14 @@
 # # Notebook header
 
 # %%
-# !command -v ffmpeg >/dev/null || conda install -y ffmpeg >&/dev/null || (apt update && apt install -y ffmpeg)  # For mediapy.
+# !command -v ffmpeg >/dev/null || conda install -y ffmpeg >/dev/null 2>/dev/null || (apt update && apt install -y ffmpeg)  # For mediapy.
 
 # %%
-# !pip list | grep opencv-python >/dev/null || pip install -q opencv-python-headless
+# Install opencv-python-headless if neither opencv-python nor opencv-python-headless is installed.
+# !python -c "exit(__import__('importlib.util').util.find_spec('cv2') is None)" || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q autopep8 hhoppe-tools 'jax[cpu]' matplotlib mediapy mypy numba numpy \
+# !pip install -q autopep8 hhoppe-tools "jax[cpu]" matplotlib mediapy mypy numba numpy \
 #   pdoc Pillow pyink pylint pytest resampler scipy scikit-image tensorflow-cpu torch
 
 # %%
@@ -5454,6 +5455,8 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
   }
   images = {}
   for name, func in funcs.items():
+    if name.startswith('jax.image.resize') and sys.platform == 'win32':
+      continue  # Skip because it hangs for some unknown reason.
     func()  # Pre-compile/jit the code.
     elapsed, image = hh.get_time_and_result(func, max_time=0.05)
     image = resampler._arr_numpy(image)
