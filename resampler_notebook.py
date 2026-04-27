@@ -419,12 +419,9 @@ EXAMPLE_PHOTO = media.read_image(f'{_URL_BASE}/lillian_640x480.png')  # (480, 64
 @functools.cache
 def example_tissot_image() -> _NDArray:
   """Return image of shape (1000, 2000, 3) from
-  https://commons.wikimedia.org/wiki/File:Tissot_indicatrix_world_map_equirectangular_proj.svg"""
-  url = (
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/'
-      'Tissot_indicatrix_world_map_equirectangular_proj.svg/'
-      '2000px-Tissot_indicatrix_world_map_equirectangular_proj.svg.png'
-  )
+  https://commons.wikimedia.org/wiki/File:Tissot_indicatrix_world_map_equirectangular_proj.svg
+  convert -size 2000x Tissot_indicatrix_world_map_equirectangular_proj.svg tissot_2000px.png"""
+  url = 'https://github.com/hhoppe/data/raw/main/tissot_2000px.png'
   return media.read_image(url)[..., :3]
 
 
