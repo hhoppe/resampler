@@ -4,7 +4,7 @@
 """
 
 __docformat__ = 'google'
-__version__ = '1.0.1'
+__version__ = '1.0.2'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -90,7 +90,7 @@ def _complex_precision(dtype: _DTypeLike, /) -> _DType:
 
 
 def _get_precision(
-    precision: _DTypeLike, dtypes: list[_DType], weight_dtypes: list[_DType], /
+    precision: _DTypeLike | None, dtypes: list[_DType], weight_dtypes: list[_DType], /
 ) -> _DType:
   """Return dtype based on desired precision or on data and weight types."""
   precision2 = np.dtype(
@@ -341,7 +341,7 @@ class _Arraylib(abc.ABC, Generic[_Array]):
     return self.array
 
   @abc.abstractmethod
-  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _Array:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike | None = None) -> _Array:
     """Return the equivalent of `self.array.clip(low, high, dtype=dtype)` with `numpy` `dtype`."""
 
   @abc.abstractmethod
@@ -413,7 +413,7 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
   def astype(self, dtype: _DTypeLike) -> _NDArray:
     return self.array.astype(dtype, copy=False)
 
-  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _NDArray:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike | None = None) -> _NDArray:
     return self.array.clip(low, high, dtype=dtype)
 
   def square(self) -> _NDArray:
@@ -514,7 +514,7 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
   def reshape(self, shape: tuple[int, ...]) -> _TensorflowTensor:
     return self.tf.reshape(self.array, shape)
 
-  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _TensorflowTensor:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike | None = None) -> _TensorflowTensor:
     array = self.array
     if dtype is not None:
       array = self.tf.cast(array, dtype)
@@ -635,7 +635,7 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
   def possibly_make_contiguous(self) -> _TorchTensor:
     return self.array.contiguous()
 
-  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _TorchTensor:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike | None = None) -> _TorchTensor:
     array = self.array
     array = _arr_astype(array, dtype) if dtype is not None else array
     return array.clip(low, high)
@@ -700,7 +700,8 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
     import torch
 
     indices = np.vstack((row_ind, col_ind))
-    return torch.sparse_coo_tensor(torch.as_tensor(indices), torch.as_tensor(data), shape)
+    with torch.sparse.check_sparse_tensor_invariants(enable=False):
+      return torch.sparse_coo_tensor(torch.as_tensor(indices), torch.as_tensor(data), shape)
     # .coalesce() is unnecessary because indices/data are already merged.
 
 
@@ -734,7 +735,7 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
   def possibly_make_contiguous(self) -> _JaxArray:
     return self.array.copy()
 
-  def clip(self, low: Any, high: Any, dtype: _DTypeLike = None) -> _JaxArray:
+  def clip(self, low: Any, high: Any, dtype: _DTypeLike | None = None) -> _JaxArray:
     array = self.array
     if dtype is not None:
       array = array.astype(dtype)  # (copy=False is unavailable)
@@ -861,7 +862,9 @@ def _arr_possibly_make_contiguous(array: _Array, /) -> _Array:
   return _as_arr(array).possibly_make_contiguous()
 
 
-def _arr_clip(array: _Array, low: _Array, high: _Array, /, dtype: _DTypeLike = None) -> _Array:
+def _arr_clip(
+    array: _Array, low: _Array, high: _Array, /, dtype: _DTypeLike | None = None
+) -> _Array:
   """Return the equivalent of `array.clip(low, high, dtype)` with `numpy` `dtype`."""
   return _as_arr(array).clip(low, high, dtype)
 
@@ -2615,8 +2618,8 @@ def resize(
     dst_gamma: str | Gamma | None = None,
     scale: float | Iterable[float] = 1.0,
     translate: float | Iterable[float] = 0.0,
-    precision: _DTypeLike = None,
-    dtype: _DTypeLike = None,
+    precision: _DTypeLike | None = None,
+    dtype: _DTypeLike | None = None,
     dim_order: Iterable[int] | None = None,
     num_threads: int | Literal['auto'] = 'auto',
 ) -> _Array:
@@ -3002,8 +3005,8 @@ def resample(
     src_gamma: str | Gamma | None = None,
     dst_gamma: str | Gamma | None = None,
     jacobian: _ArrayLike | None = None,
-    precision: _DTypeLike = None,
-    dtype: _DTypeLike = None,
+    precision: _DTypeLike | None = None,
+    dtype: _DTypeLike | None = None,
     max_block_size: int = 40_000,
     debug: bool = False,
 ) -> _Array:
@@ -3312,8 +3315,8 @@ def resample_affine(
     dst_gridtype: str | Gridtype | Iterable[str | Gridtype] | None = None,
     filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
     prefilter: str | Filter | Iterable[str | Filter] | None = None,
-    precision: _DTypeLike = None,
-    dtype: _DTypeLike = None,
+    precision: _DTypeLike | None = None,
+    dtype: _DTypeLike | None = None,
     **kwargs: Any,
 ) -> _Array:
   """Resample a source array using an affinely transformed grid of given shape.
