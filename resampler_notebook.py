@@ -360,8 +360,13 @@ _AnyArray: TypeAlias = resampler._AnyArray
 _UNICODE_DAGGER = '\u2020'
 
 # %%
-EFFORT = typing.cast(Literal[0, 1, 2, 3], hh.get_env_int('EFFORT', 1))
-"""Controls the breadth and precision of the notebook experiments; 0 <= value <= 3."""
+EFFORT = typing.cast(Literal[0, 1, 2, 3], hh.get_env_int('EFFORT', 2))
+"""Controls the breadth and precision of the notebook experiments; 0 <= value <= 3.
+  EFFORT=0 ~15 s
+  EFFORT=1 ~130 s
+  EFFORT=2 ~1450 s (for archived notebook)
+  EFFORT=3 ~1480 s
+"""
 assert 0 <= EFFORT <= 3
 
 _ORIGINAL_GLOBALS = list(globals())
@@ -4470,9 +4475,11 @@ def visualize_prefiltering_as_scale_is_varied(
   videos = collections.defaultdict(list)
   for filter in filters:
     for scale in np.linspace(0.9, 1.1, 61):
-      video = resampler.resize(array, new_shape, scale=scale, filter=filter)[3:-3, 3:-3]
-      videos[f"'{filter}'"].append(video)
-  media.show_videos(videos, qp=14, fps=20, height=shape[0] * 1.5, border=True, columns=4)
+      image = resampler.resize(array, new_shape, scale=scale, filter=filter)[3:-3, 3:-3]
+      videos[f"'{filter}'"].append(image)
+  # Note that Windows Firefox uses Windows Media Foundation which fails to read H264/mp4 videos
+  # with dimension smaller than 34x34, so here it is best to use codec='gif'.
+  media.show_videos(videos, codec='gif', fps=20, height=shape[0] * 1.5, border=True, columns=4)
 
 
 if EFFORT >= 1:
