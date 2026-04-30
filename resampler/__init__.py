@@ -1,7 +1,6 @@
 """resampler: fast differentiable resizing and warping of arbitrary grids.
-
-.. include:: ../README.md
 """
+# Note that pydoc module description is taken from __init__.pyi!
 
 __docformat__ = 'google'
 __version__ = '1.0.2'
@@ -18,7 +17,7 @@ import os
 import sys
 import types
 import typing
-from typing import Any, Generic, Literal, TypeAlias, Union
+from typing import Any, Generic, Literal, TypeAlias, TypeVar, Union
 
 import numpy as np
 import numpy.typing
@@ -42,14 +41,14 @@ try:
 except ModuleNotFoundError:
   numba = sys.modules['numba'] = types.ModuleType('numba')
   numba.njit = _noop_decorator  # type: ignore[attr-defined]
-using_numba = hasattr(numba, 'jit')
+_using_numba = hasattr(numba, 'jit')
 
 if typing.TYPE_CHECKING:
   import jax.numpy
   import tensorflow as tf
   import torch
 
-  _DType: TypeAlias = np.dtype[Any]  # (Requires Python 3.9 or TYPE_CHECKING.)
+  _DType: TypeAlias = np.dtype[Any]
   _NDArray: TypeAlias = numpy.typing.NDArray[Any]
   _DTypeLike: TypeAlias = numpy.typing.DTypeLike
   _ArrayLike: TypeAlias = numpy.typing.ArrayLike
@@ -68,7 +67,7 @@ else:
   _TorchTensor: TypeAlias = Any
   _JaxArray: TypeAlias = Any
 
-_Array = typing.TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
+_Array = TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
 _AnyArray = Union[_NDArray, _TensorflowTensor, _TorchTensor, _JaxArray]
 
 
@@ -175,7 +174,7 @@ class _DownsampleIn2dUsingBoxFilter:
     self._jitted_function: dict[tuple[_DType, int, int, int], Callable[[_NDArray], _NDArray]] = {}
 
   def __call__(self, array: _NDArray, shape: tuple[int, int]) -> _NDArray:
-    assert using_numba
+    assert _using_numba
     assert array.ndim in (2, 3), array.ndim
     _check_eq(len(shape), 2)
     dtype = array.dtype
@@ -450,7 +449,7 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
   ) -> _NDArray:
     assert self.array.ndim == sparse.ndim == 2 and sparse.shape[1] == self.array.shape[0]
     # Empirically faster than with default numba.config.NUMBA_NUM_THREADS (e.g., 24).
-    if using_numba:
+    if _using_numba:
       num_threads2 = min(6, os.cpu_count() or 1) if num_threads == 'auto' else num_threads
       src = np.ascontiguousarray(self.array)  # Like .ravel() in _mul_multivector().
       dtype = np.result_type(sparse.dtype, src.dtype)
@@ -803,14 +802,14 @@ _CANDIDATE_ARRAYLIBS = {
 }
 
 
-def is_available(arraylib: str) -> bool:
+def _is_available(arraylib: str) -> bool:
   """Return whether the array library (e.g. 'tensorflow') is available as an installed package."""
   # Faster than trying to import it.
   return importlib.util.find_spec(arraylib) is not None  # type: ignore[attr-defined]
 
 
 _DICT_ARRAYLIBS = {
-    arraylib: cls for arraylib, cls in _CANDIDATE_ARRAYLIBS.items() if is_available(arraylib)
+    arraylib: cls for arraylib, cls in _CANDIDATE_ARRAYLIBS.items() if _is_available(arraylib)
 }
 
 ARRAYLIBS = list(_DICT_ARRAYLIBS)
@@ -2770,7 +2769,7 @@ def resize(
   cval = _arr_numpy(src_gamma2.decode(cval, precision))
 
   can_use_fast_box_downsampling = (
-      using_numba
+      _using_numba
       and arraylib == 'numpy'
       and len(shape2) == 2
       and array_ndim in (2, 3)

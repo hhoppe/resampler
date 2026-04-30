@@ -28,8 +28,10 @@ https://github.com/mitmproxy/pdoc/blob/main/pdoc/templates/default/module.html.j
     {% elif 'ExtendSamples' in doc.qualname %}
     {% elif 'OverrideExteriorValue' in doc.qualname %}
     {% elif 'Boundary.' in doc.qualname %}
+    {% elif doc.qualname.endswith('Filter') and doc.qualname != 'Filter' %}
     {% elif 'Filter.' in doc.qualname %}
     {% elif 'Gamma.' in doc.qualname %}
+    {% elif 'IdentityGamma' in doc.qualname %}
     {% elif 'PowerGamma' in doc.qualname %}
     {% elif 'SrgbGamma' in doc.qualname %}
     {% elif 'resize_in_' in doc.qualname %}

@@ -1,4 +1,7 @@
-"""resampler: fast differentiable resizing and warping of arbitrary grids."""
+"""resampler: fast differentiable resizing and warping of arbitrary grids.
+
+.. include:: ../README.md
+"""
 
 from __future__ import annotations
 
@@ -15,7 +18,7 @@ import numpy.typing as npt
 # pylint: disable=super-init-not-called
 
 if typing.TYPE_CHECKING:
-  _DType = np.dtype[Any]  # (Requires Python 3.9 or TYPE_CHECKING.)
+  _DType = np.dtype[Any]
   _NDArray = np.ndarray[Any, Any]
   _DTypeLike = npt.DTypeLike
   _ArrayLike = npt.ArrayLike
