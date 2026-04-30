@@ -305,8 +305,8 @@
 #   pdoc Pillow pyink pylint pytest resampler scipy scikit-image tensorflow-cpu torch
 
 # %%
-# %load_ext autoreload
-# %autoreload 2
+# # %load_ext autoreload
+# # %autoreload 2
 
 # %%
 """Python notebook demonstrating the `resampler` package."""
@@ -1820,7 +1820,7 @@ def test_multithreading(tiny_test=False, verbose=False) -> None:
   def numba_threaded_resize() -> _NDArray:  # ~1.05x faster than ThreadPoolExecutor
     csr = resize_matrix
     dst = np.empty((dst_size, width), np.float32)
-    numba.set_num_threads(6)  # Faster than default numba.config.NUMBA_NUM_THREADS (24).
+    numba.set_num_threads(min(6, numba.config.NUMBA_NUM_THREADS))  # Faster when default is 24.
     resampler._numba_parallel_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
     return dst
 
