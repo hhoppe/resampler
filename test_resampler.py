@@ -472,13 +472,13 @@ class TestResampler(unittest.TestCase):
     for arraylib in resampler.ARRAYLIBS:
       resizer0 = functools.partial(resampler.resize_in_arraylib, arraylib=arraylib)
       configs.append((resizer0, 'lanczos3'))
-    configs.append((resampler.pil_image_resize, 'lanczos3'))
-    configs.append((resampler.cv_resize, 'lanczos4'))
-    configs.append((resampler.scipy_ndimage_resize, 'cardinal3'))
-    configs.append((resampler.skimage_transform_resize, 'cardinal3'))
-    configs.append((resampler.tf_image_resize, 'lanczos3'))
-    configs.append((resampler.torch_nn_resize, 'sharpcubic'))
-    configs.append((resampler.jax_image_resize, 'lanczos3'))
+    configs.append((resampler._pil_image_resize, 'lanczos3'))
+    configs.append((resampler._cv_resize, 'lanczos4'))
+    configs.append((resampler._scipy_ndimage_resize, 'cardinal3'))
+    configs.append((resampler._skimage_transform_resize, 'cardinal3'))
+    configs.append((resampler._tf_image_resize, 'lanczos3'))
+    configs.append((resampler._torch_nn_resize, 'sharpcubic'))
+    configs.append((resampler._jax_image_resize, 'lanczos3'))
     for config in configs:
       resizer, filter = config
       if resizer not in resampler._RESIZERS.values():  # Skip if the package is not installed.

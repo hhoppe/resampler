@@ -399,9 +399,9 @@ def rotate_image_about_center(
     **kwargs: Any,
 ) -> _NDArray:
   ...
-def pil_image_resize(array: _ArrayLike, /, shape: Iterable[int], *, filter: str) -> _NDArray: ...
-def cv_resize(array: _ArrayLike, /, shape: Iterable[int], *, filter: str) -> _NDArray: ...
-def scipy_ndimage_resize(
+def _pil_image_resize(array: _ArrayLike, /, shape: Iterable[int], *, filter: str) -> _NDArray: ...
+def _cv_resize(array: _ArrayLike, /, shape: Iterable[int], *, filter: str) -> _NDArray: ...
+def _scipy_ndimage_resize(
     array: _ArrayLike,
     /,
     shape: Iterable[int],
@@ -411,7 +411,7 @@ def scipy_ndimage_resize(
     cval: float = 0.0,
 ) -> _NDArray:
   ...
-def skimage_transform_resize(
+def _skimage_transform_resize(
     array: _ArrayLike,
     /,
     shape: Iterable[int],
@@ -421,15 +421,15 @@ def skimage_transform_resize(
     cval: float = 0.0,
 ) -> _NDArray:
   ...
-def tf_image_resize(
+def _tf_image_resize(
     array: _ArrayLike, /, shape: Iterable[int], *, filter: str, antialias: bool = True
 ) -> _TensorflowTensor:
   ...
-def torch_nn_resize(
+def _torch_nn_resize(
     array: _ArrayLike, /, shape: Iterable[int], *, filter: str, antialias: bool = False
 ) -> _TorchTensor:
   ...
-def jax_image_resize(
+def _jax_image_resize(
     array: _ArrayLike,
     /,
     shape: Iterable[int],

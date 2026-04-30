@@ -1,9 +1,9 @@
-"""resampler: fast differentiable resizing and warping of arbitrary grids.
-"""
+"""resampler: fast differentiable resizing and warping of arbitrary grids."""
+
 # Note that pydoc module description is taken from __init__.pyi!
 
 __docformat__ = 'google'
-__version__ = '1.0.2'
+__version__ = '1.0.3'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 from collections.abc import Callable, Iterable, Sequence
@@ -41,7 +41,7 @@ try:
 except ModuleNotFoundError:
   numba = sys.modules['numba'] = types.ModuleType('numba')
   numba.njit = _noop_decorator  # type: ignore[attr-defined]
-_using_numba = hasattr(numba, 'jit')
+_USING_NUMBA = hasattr(numba, 'jit')
 
 if typing.TYPE_CHECKING:
   import jax.numpy
@@ -174,7 +174,7 @@ class _DownsampleIn2dUsingBoxFilter:
     self._jitted_function: dict[tuple[_DType, int, int, int], Callable[[_NDArray], _NDArray]] = {}
 
   def __call__(self, array: _NDArray, shape: tuple[int, int]) -> _NDArray:
-    assert _using_numba
+    assert _USING_NUMBA
     assert array.ndim in (2, 3), array.ndim
     _check_eq(len(shape), 2)
     dtype = array.dtype
@@ -449,7 +449,7 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
   ) -> _NDArray:
     assert self.array.ndim == sparse.ndim == 2 and sparse.shape[1] == self.array.shape[0]
     # Empirically faster than with default numba.config.NUMBA_NUM_THREADS (e.g., 24).
-    if _using_numba:
+    if _USING_NUMBA:
       num_threads2 = min(6, os.cpu_count() or 1) if num_threads == 'auto' else num_threads
       src = np.ascontiguousarray(self.array)  # Like .ravel() in _mul_multivector().
       dtype = np.result_type(sparse.dtype, src.dtype)
@@ -2769,7 +2769,7 @@ def resize(
   cval = _arr_numpy(src_gamma2.decode(cval, precision))
 
   can_use_fast_box_downsampling = (
-      _using_numba
+      _USING_NUMBA
       and arraylib == 'numpy'
       and len(shape2) == 2
       and array_ndim in (2, 3)
@@ -3522,7 +3522,7 @@ def rotate_image_about_center(
   return image
 
 
-def pil_image_resize(
+def _pil_image_resize(
     array: _ArrayLike,
     /,
     shape: Iterable[int],
@@ -3543,7 +3543,7 @@ def pil_image_resize(
   shape = tuple(shape)
   _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
-    return pil_image_resize(array[None], (1, *shape), filter=filter)[0]
+    return _pil_image_resize(array[None], (1, *shape), filter=filter)[0]
   if not hasattr(PIL.Image, 'Resampling'):  # Pillow<9.0
     PIL.Image.Resampling = PIL.Image  # type: ignore
   filters = {
@@ -3567,7 +3567,7 @@ def pil_image_resize(
   return np.dstack(stack)
 
 
-def cv_resize(
+def _cv_resize(
     array: _ArrayLike,
     /,
     shape: Iterable[int],
@@ -3587,7 +3587,7 @@ def cv_resize(
   shape = tuple(shape)
   _check_eq(len(shape), 2 if array.ndim >= 2 else 1)
   if array.ndim == 1:
-    return cv_resize(array[None], (1, *shape), filter=filter)[0]
+    return _cv_resize(array[None], (1, *shape), filter=filter)[0]
   filters = {
       'impulse': cv.INTER_NEAREST,  # Or consider cv.INTER_NEAREST_EXACT.
       'triangle': cv.INTER_LINEAR_EXACT,  # Or just cv.INTER_LINEAR.
@@ -3605,7 +3605,7 @@ def cv_resize(
   return result
 
 
-def scipy_ndimage_resize(
+def _scipy_ndimage_resize(
     array: _ArrayLike,
     /,
     shape: Iterable[int],
@@ -3637,7 +3637,7 @@ def scipy_ndimage_resize(
   return scipy.ndimage.map_coordinates(array, coords, order=order, mode=mode, cval=cval)
 
 
-def skimage_transform_resize(
+def _skimage_transform_resize(
     array: _ArrayLike,
     /,
     shape: Iterable[int],
@@ -3680,7 +3680,7 @@ _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
 }
 
 
-def tf_image_resize(
+def _tf_image_resize(
     array: _ArrayLike,
     /,
     shape: Iterable[int],
@@ -3706,9 +3706,9 @@ def tf_image_resize(
   _check_eq(len(shape), 2 if ndim >= 2 else 1)
   match ndim:
     case 1:
-      return tf_image_resize(array2[None], (1, *shape), filter=filter, antialias=antialias)[0]
+      return _tf_image_resize(array2[None], (1, *shape), filter=filter, antialias=antialias)[0]
     case 2:
-      return tf_image_resize(array2[..., None], shape, filter=filter, antialias=antialias)[..., 0]
+      return _tf_image_resize(array2[..., None], shape, filter=filter, antialias=antialias)[..., 0]
     case _:
       method = _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER[filter]
       return tf.image.resize(array2, shape, method=method, antialias=antialias)
@@ -3722,7 +3722,7 @@ _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
 }
 
 
-def torch_nn_resize(
+def _torch_nn_resize(
     array: _ArrayLike,
     /,
     shape: Iterable[int],
@@ -3764,7 +3764,7 @@ def torch_nn_resize(
       return local_resize(a.moveaxis(2, 0)[None])[0].moveaxis(0, 2)
 
 
-def jax_image_resize(
+def _jax_image_resize(
     array: _ArrayLike,
     /,
     shape: Iterable[int],
@@ -3807,13 +3807,13 @@ def jax_image_resize(
 
 _CANDIDATE_RESIZERS = {
     'resampler.resize': resize,
-    'PIL.Image.resize': pil_image_resize,
-    'cv.resize': cv_resize,
-    'scipy.ndimage.map_coordinates': scipy_ndimage_resize,
-    'skimage.transform.resize': skimage_transform_resize,
-    'tf.image.resize': tf_image_resize,
-    'torch.nn.functional.interpolate': torch_nn_resize,
-    'jax.image.scale_and_translate': jax_image_resize,
+    'PIL.Image.resize': _pil_image_resize,
+    'cv.resize': _cv_resize,
+    'scipy.ndimage.map_coordinates': _scipy_ndimage_resize,
+    'skimage.transform.resize': _skimage_transform_resize,
+    'tf.image.resize': _tf_image_resize,
+    'torch.nn.functional.interpolate': _torch_nn_resize,
+    'jax.image.scale_and_translate': _jax_image_resize,
 }
 
 
@@ -3836,25 +3836,25 @@ def _find_closest_filter(filter: str, resizer: Callable[..., Any]) -> str:
   match filter:
     case 'box_like':
       return {
-          cv_resize: 'trapezoid',
-          skimage_transform_resize: 'box',
-          tf_image_resize: 'trapezoid',
-          torch_nn_resize: 'trapezoid',
+          _cv_resize: 'trapezoid',
+          _skimage_transform_resize: 'box',
+          _tf_image_resize: 'trapezoid',
+          _torch_nn_resize: 'trapezoid',
       }.get(resizer, 'box')
     case 'cubic_like':
       return {
-          cv_resize: 'sharpcubic',
-          scipy_ndimage_resize: 'cardinal3',
-          skimage_transform_resize: 'cardinal3',
-          torch_nn_resize: 'sharpcubic',
+          _cv_resize: 'sharpcubic',
+          _scipy_ndimage_resize: 'cardinal3',
+          _skimage_transform_resize: 'cardinal3',
+          _torch_nn_resize: 'sharpcubic',
       }.get(resizer, 'cubic')
     case 'high_quality':
       return {
-          pil_image_resize: 'lanczos3',
-          cv_resize: 'lanczos4',
-          scipy_ndimage_resize: 'cardinal5',
-          skimage_transform_resize: 'cardinal5',
-          torch_nn_resize: 'sharpcubic',
+          _pil_image_resize: 'lanczos3',
+          _cv_resize: 'lanczos4',
+          _scipy_ndimage_resize: 'cardinal5',
+          _skimage_transform_resize: 'cardinal5',
+          _torch_nn_resize: 'sharpcubic',
       }.get(resizer, 'lanczos5')
     case _:
       return filter

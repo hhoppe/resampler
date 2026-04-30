@@ -3,7 +3,7 @@
 # <a name="Resampler-notebook"></a>
 #
 # [Hugues Hoppe](https://hhoppe.com/)
-# &nbsp;&nbsp; Aug 2022.
+# &nbsp;&nbsp; 2026
 #
 # [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 # &nbsp;
@@ -1347,7 +1347,7 @@ def test_pil_image_resize() -> None:
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
-    result = resampler.pil_image_resize(original, shape, filter=filter)
+    result = resampler._pil_image_resize(original, shape, filter=filter)
     reference = resampler.resize(original, shape, filter=filter, boundary='natural')
     atol = 2e-7 if gridscale in (2.0, 1.0, 0.5) else 3e-6
     assert np.allclose(result, reference, rtol=0, atol=atol), (config, result, reference)
@@ -1360,13 +1360,13 @@ test_pil_image_resize()
 def test_undocumented_lanczos_in_pil_image() -> None:
   array = np.array([0, 0, 0, 1, 0, 0, 0], np.float32)
   new_len = len(array) * 2
-  new_array = resampler.pil_image_resize(array, (new_len,), filter='lanczos3')
+  new_array = resampler._pil_image_resize(array, (new_len,), filter='lanczos3')
   lanczos = resampler.resize(
       array, (new_len,), filter=resampler.LanczosFilter(radius=3), boundary='natural'
   )
   assert np.allclose(new_array, lanczos)
 
-  new_array = resampler.pil_image_resize(array, (new_len,), filter='cubic')
+  new_array = resampler._pil_image_resize(array, (new_len,), filter='cubic')
   cubic = resampler.resize(array, (new_len,), filter='cubic', boundary='natural')
   assert np.allclose(new_array, cubic)
 
@@ -1401,7 +1401,7 @@ def test_cv_resize() -> None:
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
-    result = resampler.cv_resize(original, shape, filter=filter)
+    result = resampler._cv_resize(original, shape, filter=filter)
     filter2: Any = resampler.LanczosFilter(radius=4) if filter == 'lanczos4' else filter
     reference = resampler.resize(original, shape, filter=filter2, boundary='clamp')
     atol = 5e-6 if filter == 'lanczos4' else 2e-7
@@ -1419,7 +1419,7 @@ def test_sharper_cubic_filter_in_opencv(debug=False) -> None:
   array = np.array([0, 0, 0, 0, 1, 0, 0, 0], np.float32)
   new_len = len(array) * 2
   reference = resampler.resize(array, (new_len,), filter='sharpcubic')
-  new_array = resampler.cv_resize(array, (new_len,), filter='sharpcubic')
+  new_array = resampler._cv_resize(array, (new_len,), filter='sharpcubic')
   if debug:
     with np.printoptions(linewidth=300):
       print(np.vstack([reference, new_array]))
@@ -1467,7 +1467,7 @@ def test_scipy_ndimage_resize() -> None:
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
-    result = resampler.scipy_ndimage_resize(original, shape, filter=filter, boundary=boundary)
+    result = resampler._scipy_ndimage_resize(original, shape, filter=filter, boundary=boundary)
     reference = resampler.resize(original, shape, filter=filter, boundary=boundary)
     assert np.allclose(result, reference, rtol=0, atol=2e-6), (config, result, reference)
 
@@ -1505,7 +1505,7 @@ def test_skimage_transform_resize() -> None:
     row = [1, 0, 0, 0, 0, 0, 2, 0] if at_boundary else [0, 0, 0, 1, 0, 0, 0, 0]
     original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
-    result = resampler.skimage_transform_resize(original, shape, filter=filter, boundary=boundary)
+    result = resampler._skimage_transform_resize(original, shape, filter=filter, boundary=boundary)
     reference = resampler.resize(original, shape, filter=filter, boundary=boundary)
     assert np.allclose(result, reference, rtol=0, atol=2e-6), (config, result, reference)
 
@@ -1542,7 +1542,9 @@ def test_tf_image_resize(debug=False) -> None:
       continue  # Avoid comparing against poor (aliased) downsampling.
     if filter == 'cubic' and not antialias:
       continue  # Cubic without `antialias` uses an older, different code path.
-    tfi_result = resampler.tf_image_resize(array, shape, filter=filter, antialias=antialias).numpy()
+    tfi_result = resampler._tf_image_resize(
+        array, shape, filter=filter, antialias=antialias
+    ).numpy()
     reference = resampler.resize(array, shape, boundary='natural', filter=filter)
     # atol=4e-6 works most of the time, but fails intermittently, likely due to parallelism.
     assert np.allclose(tfi_result, reference, rtol=0, atol=1e-5), config
@@ -1584,7 +1586,7 @@ def test_torch_nn_resize() -> None:
     if filter in ['triangle', 'sharpcubic'] and gridscale < 1.0:
       continue  # torch.nn code misbehaves; align_corners=False malfunctions for gridscale < 1.
     shape = (int(original.shape[0] * gridscale),)
-    result = resampler.torch_nn_resize(original, shape, filter=filter).numpy()
+    result = resampler._torch_nn_resize(original, shape, filter=filter).numpy()
     reference = resampler.resize(original, shape, filter=filter, boundary='clamp')
     assert np.allclose(result, reference, rtol=0, atol=0), (config, result, reference)
 
@@ -1654,7 +1656,7 @@ def test_jax_image_resize() -> None:
     shape = (int(original.shape[0] * gridscale),)
     kwargs: Any = dict(filter=filter, scale=scale, translate=translate)
     # to_py() deprecated.
-    result = np.asarray(resampler.jax_image_resize(original, shape, **kwargs))
+    result = np.asarray(resampler._jax_image_resize(original, shape, **kwargs))
     reference = resampler.resize(original, shape, **kwargs, boundary='natural')
     assert np.allclose(result, reference, rtol=0, atol=1e-5), (config, result, reference)
 
@@ -1984,7 +1986,7 @@ def experiment_with_resize_timing() -> None:
           'to': lambda: resampler.resize(array_for_lib['torch'], *args, **kwargs),
           'jax': lambda: resampler.resize(array_for_lib['jax'], *args, **kwargs),
           'jj': lambda: resampler.jaxjit_resize(array_for_lib['jax'], *args, **kwargs),
-          'tfi': lambda: resampler.tf_image_resize(
+          'tfi': lambda: resampler._tf_image_resize(
               array_for_lib['tensorflow'], *args, filter=resampler._DEFAULT_FILTER
           ),
       }
@@ -2112,7 +2114,7 @@ def test_profile_downsampling(
       'resize_in_torch': lambda: resampler.resize_in_torch(*a, filter=filter),
       'resize_in_jax': lambda: resampler.resize_in_jax(*a, filter=filter),
       'jaxjit_resize': lambda: resampler.jaxjit_resize(*a, filter=filter),
-      'tf_image_resize': lambda: resampler.tf_image_resize(*a, filter=filter),
+      '_tf_image_resize': lambda: resampler._tf_image_resize(*a, filter=filter),
   }
   if filter == 'trapezoid':
     functions = {
@@ -2169,7 +2171,7 @@ if EFFORT >= 2:
 # resize_in_torch     : 0.008 s
 # resize_in_jax       : 0.059 s
 # jaxjit_resize       : 0.021 s
-# tf_image_resize     : 0.064 s
+# _tf_image_resize    : 0.064 s
 # reshape_mean        : 0.108 s
 # reshape2            : 0.107 s
 # reshape3            : 0.117 s
@@ -2184,7 +2186,7 @@ if EFFORT >= 2:
 # resize_in_torch     : 0.021 s
 # resize_in_jax       : 0.142 s
 # jaxjit_resize       : 0.122 s
-# tf_image_resize     : 0.070 s
+# _tf_image_resize    : 0.070 s
 
 # %% [markdown]
 # Conclusions:
@@ -2209,11 +2211,11 @@ def test_profile_upsampling(
       'resize_in_torch': lambda: resampler.resize_in_torch(*a, filter=filter),
       'resize_in_jax': lambda: resampler.resize_in_jax(*a, filter=filter),
       'jaxjit_resize': lambda: resampler.jaxjit_resize(*a, filter=filter),
-      'tf_image_resize': lambda: resampler.tf_image_resize(*a, filter=filter, antialias=False),
-      'cv_resize': lambda: resampler.cv_resize(*a, filter=cv_filter),
+      '_tf_image_resize': lambda: resampler._tf_image_resize(*a, filter=filter, antialias=False),
+      '_cv_resize': lambda: resampler._cv_resize(*a, filter=cv_filter),
   }
   if filter in ['cubic', 'triangle', 'trapezoid']:
-    functions['torch.nn.interp'] = lambda: resampler.torch_nn_resize(
+    functions['torch.nn.interp'] = lambda: resampler._torch_nn_resize(
         *a, filter=torch_filter, antialias=False
     )
   print(f'# ** {shape} -> {new_shape} {filter} {dtype}:')
@@ -3529,10 +3531,10 @@ def visualize_boundary_rules_in_1d(
         title = f"{'boundary=' if column_index == 0 else ''}'{s_boundary}'{dagger}"
         ax.set_title(title, x=0.5, y=1.05, fontsize=14)
       expected_discrepancy = (
-          resizer in [resampler.scipy_ndimage_resize, resampler.skimage_transform_resize]
+          resizer in [resampler._scipy_ndimage_resize, resampler._skimage_transform_resize]
           and boundary in ['clamp', 'border']
           and filter not in ['box', 'triangle']
-      ) or (resizer is resampler.scipy_ndimage_resize and boundary == 'border')
+      ) or (resizer is resampler._scipy_ndimage_resize and boundary == 'border')
       assert discrepancy == expected_discrepancy, (resizer, filter, boundary, discrepancy)
 
     plt.subplots_adjust(left=0.035)
@@ -5336,27 +5338,27 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0) -> None:
       'jaxjit_resize lanczos3': lambda: resampler.jaxjit_resize(*a, filter='lanczos3'),
       'jaxjit_resize cubic': lambda: resampler.jaxjit_resize(*a, filter='cubic'),
       'resample lanczos3': lambda: resampler._resize_using_resample(*a, filter='lanczos3'),
-      'PIL.Image.resize lanczos3': lambda: resampler.pil_image_resize(*a, filter='lanczos3'),
-      'PIL.Image.resize cubic': lambda: resampler.pil_image_resize(*a, filter='cubic'),
+      'PIL.Image.resize lanczos3': lambda: resampler._pil_image_resize(*a, filter='lanczos3'),
+      'PIL.Image.resize cubic': lambda: resampler._pil_image_resize(*a, filter='cubic'),
       # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (gridscale, gridscale, 1.0)),
-      'map_coordinates order=3': lambda: resampler.scipy_ndimage_resize(*a, filter='cardinal3'),
-      'skimage.transform.resize': lambda: resampler.skimage_transform_resize(
+      'map_coordinates order=3': lambda: resampler._scipy_ndimage_resize(*a, filter='cardinal3'),
+      'skimage.transform.resize': lambda: resampler._skimage_transform_resize(
           *a, filter='cardinal3'
       ),
-      'tf.resize lanczos5': lambda: resampler.tf_image_resize(*a, filter='lanczos5'),
-      'tf.resize lanczos3': lambda: resampler.tf_image_resize(*a, filter='lanczos3'),
-      # 'tf.resize cubic new': lambda: resampler.tf_image_resize(*a, filter='cubic'),  # newer; resize_with_scale_and_translate('keyscubic')
-      'tf.resize cubic (aa False)': lambda: resampler.tf_image_resize(
+      'tf.resize lanczos5': lambda: resampler._tf_image_resize(*a, filter='lanczos5'),
+      'tf.resize lanczos3': lambda: resampler._tf_image_resize(*a, filter='lanczos3'),
+      # 'tf.resize cubic new': lambda: resampler._tf_image_resize(*a, filter='cubic'),  # newer; resize_with_scale_and_translate('keyscubic')
+      'tf.resize cubic (aa False)': lambda: resampler._tf_image_resize(
           *a, filter='cubic', antialias=False
       ),  # older; gen_image_ops.resize_bicubic()
-      'torch.nn.interp sharpcubic': lambda: resampler.torch_nn_resize(*a, filter='sharpcubic'),
-      'torch.nn.interpolate triangle': lambda: resampler.torch_nn_resize(*a, filter='triangle'),
-      # 'torch.nn.interp cubic AA': lambda: resampler.torch_nn_resize(*a, filter='sharpcubic', antialias=True),
-      # 'torch.nn.interp triangle AA': lambda: resampler.torch_nn_resize(*a, 'filter=triangle', antialias=True),
-      'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(*a, filter='lanczos3'),
-      'jax.image.resize triangle': lambda: resampler.jax_image_resize(*a, filter='triangle'),
-      'cv.resize lanczos4': lambda: resampler.cv_resize(*a, filter='lanczos4'),
-      'cv.resize sharpcubic': lambda: resampler.cv_resize(*a, filter='sharpcubic'),
+      'torch.nn.interp sharpcubic': lambda: resampler._torch_nn_resize(*a, filter='sharpcubic'),
+      'torch.nn.interpolate triangle': lambda: resampler._torch_nn_resize(*a, filter='triangle'),
+      # 'torch.nn.interp cubic AA': lambda: resampler._torch_nn_resize(*a, filter='sharpcubic', antialias=True),
+      # 'torch.nn.interp triangle AA': lambda: resampler._torch_nn_resize(*a, 'filter=triangle', antialias=True),
+      'jax.image.resize lanczos3': lambda: resampler._jax_image_resize(*a, filter='lanczos3'),
+      'jax.image.resize triangle': lambda: resampler._jax_image_resize(*a, filter='triangle'),
+      'cv.resize lanczos4': lambda: resampler._cv_resize(*a, filter='lanczos4'),
+      'cv.resize sharpcubic': lambda: resampler._cv_resize(*a, filter='sharpcubic'),
   }
   images = {}
   for name, func in funcs.items():
@@ -5433,29 +5435,29 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
       'jaxjit_resize lanczos3': lambda: resampler.jaxjit_resize(*a, filter='lanczos3'),
       'jaxjit_resize trapezoid': lambda: resampler.jaxjit_resize(*a, filter='trapezoid'),
       'resample lanczos3': lambda: resampler._resize_using_resample(*a, filter='lanczos3'),
-      'PIL.Image.resize lanczos3': lambda: resampler.pil_image_resize(*a, filter='lanczos3'),
-      # 'PIL.Image.resize cubic': lambda: resampler.pil_image_resize(*a, filter='cubic'),
-      'PIL.Image.resize box': lambda: resampler.pil_image_resize(*a, filter='box'),
+      'PIL.Image.resize lanczos3': lambda: resampler._pil_image_resize(*a, filter='lanczos3'),
+      # 'PIL.Image.resize cubic': lambda: resampler._pil_image_resize(*a, filter='cubic'),
+      'PIL.Image.resize box': lambda: resampler._pil_image_resize(*a, filter='box'),
       # 'ndimage.zoom': lambda: scipy.ndimage.zoom(array, (gridscale, gridscale, 1.0)),
-      'map_coordinates order=3': lambda: resampler.scipy_ndimage_resize(*a, filter='cardinal3'),
-      'skimage.transform.resize': lambda: resampler.skimage_transform_resize(
+      'map_coordinates order=3': lambda: resampler._scipy_ndimage_resize(*a, filter='cardinal3'),
+      'skimage.transform.resize': lambda: resampler._skimage_transform_resize(
           *a, filter='cardinal3'
       ),
-      'tf.resize lanczos3': lambda: resampler.tf_image_resize(*a, filter='lanczos3'),
-      'tf.resize trapezoid': lambda: resampler.tf_image_resize(*a, filter='trapezoid'),
-      # 'torch.nn.interpolate cubic': lambda: resampler.torch_nn_resize(*a, filter='sharpcubic'),
-      # 'torch.nn.interpolate triangle': lambda: resampler.torch_nn_resize(*a, filter='triangle'),
-      'torch.nn.interp cubic AA': lambda: resampler.torch_nn_resize(
+      'tf.resize lanczos3': lambda: resampler._tf_image_resize(*a, filter='lanczos3'),
+      'tf.resize trapezoid': lambda: resampler._tf_image_resize(*a, filter='trapezoid'),
+      # 'torch.nn.interpolate cubic': lambda: resampler._torch_nn_resize(*a, filter='sharpcubic'),
+      # 'torch.nn.interpolate triangle': lambda: resampler._torch_nn_resize(*a, filter='triangle'),
+      'torch.nn.interp cubic AA': lambda: resampler._torch_nn_resize(
           *a, filter='sharpcubic', antialias=True
       ),
-      'torch.nn.interp triangle AA': lambda: resampler.torch_nn_resize(
+      'torch.nn.interp triangle AA': lambda: resampler._torch_nn_resize(
           *a, filter='triangle', antialias=True
       ),
-      'torch.nn.interp trapezoid': lambda: resampler.torch_nn_resize(*a, filter='trapezoid'),
-      'jax.image.resize lanczos3': lambda: resampler.jax_image_resize(*a, filter='lanczos3'),
-      'jax.image.resize triangle': lambda: resampler.jax_image_resize(*a, filter='triangle'),
-      'cv.resize lanczos4': lambda: resampler.cv_resize(*a, filter='lanczos4'),  # Aliased.
-      'cv.resize trapezoid': lambda: resampler.cv_resize(*a, filter='trapezoid'),
+      'torch.nn.interp trapezoid': lambda: resampler._torch_nn_resize(*a, filter='trapezoid'),
+      'jax.image.resize lanczos3': lambda: resampler._jax_image_resize(*a, filter='lanczos3'),
+      'jax.image.resize triangle': lambda: resampler._jax_image_resize(*a, filter='triangle'),
+      'cv.resize lanczos4': lambda: resampler._cv_resize(*a, filter='lanczos4'),  # Aliased.
+      'cv.resize trapezoid': lambda: resampler._cv_resize(*a, filter='trapezoid'),
   }
   images = {}
   for name, func in funcs.items():
