@@ -1,6 +1,10 @@
-"""resampler: fast differentiable resizing and warping of arbitrary grids."""
+"""resampler: fast differentiable resizing and warping of arbitrary grids.
 
-# Note that pydoc module description is taken from __init__.pyi!
+.. include:: ../README.md
+"""
+
+# Note that pydoc uses the module docstring in both __init__.py (for section headings) and
+# __init__.pyi (for the actual content)!
 
 __docformat__ = 'google'
 __version__ = '1.0.3'
