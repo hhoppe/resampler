@@ -1,5 +1,5 @@
 [Hugues Hoppe](https://hhoppe.com/)
-&nbsp;&nbsp; Aug 2022.
+&nbsp;&nbsp; Aug 2026.
 
 [**[Open in Colab]**](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
 &nbsp;
