@@ -310,6 +310,12 @@
 
 # %%
 """Python notebook demonstrating the `resampler` package."""
+try:
+  # WSL2 workaround: force early load to claim glibc static TLS before torch.
+  import triton  # noqa: F401  # pylint: disable=unused-import
+except ModuleNotFoundError:
+  pass
+
 import collections
 from collections.abc import Callable, Iterable, Mapping, Sequence
 import concurrent.futures
@@ -1820,7 +1826,8 @@ def test_multithreading(tiny_test=False, verbose=False) -> None:
   def numba_threaded_resize() -> _NDArray:  # ~1.05x faster than ThreadPoolExecutor
     csr = resize_matrix
     dst = np.empty((dst_size, width), np.float32)
-    numba.set_num_threads(min(6, numba.config.NUMBA_NUM_THREADS))  # Faster when default is 24.
+    # Faster when default is 24.
+    numba.set_num_threads(min(6, numba.config.NUMBA_NUM_THREADS))  # type: ignore
     resampler._numba_parallel_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
     return dst
 
@@ -2742,7 +2749,7 @@ def test_tensorflow_optimize_image_for_desired_upsampling(
   upsampled = model(array)
   rms = get_rms(upsampled, desired)
   if debug:
-    print(f'rms_loss={rms:.4f}')
+    print(f'{operation=} {filter=} rms_loss={rms:.4f}')
     images = {'optimized': array, 'upsampled': upsampled, 'desired': desired}
     media.show_images(images, height=80, border=True)
   assert rms < 0.08, operation
@@ -2767,8 +2774,9 @@ if EFFORT >= 1:
 
 # %%
 def test_torch_optimize_image_for_desired_upsampling(
-    src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=30
+    src_shape=(8, 8, 3), dst_shape=(16, 16), num_steps=30, debug=False
 ) -> None:
+  # Without the early "import triton", I was getting a segmentation fault in this function on WSL2.
   configs = [
       ('resize', 'reflect', 'triangle', 'float64'),
       ('resample', 'border', 'cubic', 'float64'),
@@ -2780,6 +2788,8 @@ def test_torch_optimize_image_for_desired_upsampling(
       ('resample', 'natural', 'cardinal3', 'float64'),
   ]
   for config in configs:
+    if debug:
+      print(f'start {config=}')
     operation, boundary, filter, dtype = config
     array_np = np.full(src_shape, 0.5, dtype)
     array = torch.tensor(array_np, requires_grad=True)
@@ -2810,9 +2820,9 @@ def test_torch_optimize_image_for_desired_upsampling(
 
     upsampled = model(array).detach()
     rms = get_rms(upsampled, desired)
-    debug = filter == 'triangle'
-    if debug:
-      print(f'rms_loss={rms:.4f}')
+    debug2 = debug or filter == 'triangle'
+    if debug2:
+      print(f'{config=} rms_loss={rms:.4f}')
       images = {'optimized': array.detach(), 'upsampled': upsampled, 'desired': desired}
       media.show_images(images, height=80, border=True)
     assert rms < 0.08, (config, rms)
