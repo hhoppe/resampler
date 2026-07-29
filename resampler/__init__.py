@@ -3,14 +3,15 @@
 .. include:: ../README.md
 """
 
+from __future__ import annotations
+
 # Note that pydoc uses the module docstring in both __init__.py (for section headings) and
 # __init__.pyi (for the actual content)!
 
 __docformat__ = 'google'
-__version__ = '1.0.3'
+__version__ = '1.0.4'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
-from collections.abc import Callable, Iterable, Sequence
 import abc
 import dataclasses
 import functools
@@ -21,10 +22,11 @@ import os
 import sys
 import types
 import typing
-from typing import Any, Generic, Literal, TypeAlias, TypeVar, Union
+from collections.abc import Callable, Iterable, Sequence
+from typing import Any, Generic, Literal, TypeAlias, TypeVar
 
 import numpy as np
-import numpy.typing
+import numpy.typing as npt
 import scipy.interpolate
 import scipy.linalg
 import scipy.ndimage
@@ -48,14 +50,15 @@ except ModuleNotFoundError:
 _USING_NUMBA = hasattr(numba, 'jit')
 
 if typing.TYPE_CHECKING:
+  import jax.experimental.sparse
   import jax.numpy
   import tensorflow as tf
   import torch
 
   _DType: TypeAlias = np.dtype[Any]
-  _NDArray: TypeAlias = numpy.typing.NDArray[Any]
-  _DTypeLike: TypeAlias = numpy.typing.DTypeLike
-  _ArrayLike: TypeAlias = numpy.typing.ArrayLike
+  _NDArray: TypeAlias = npt.NDArray[Any]
+  _DTypeLike: TypeAlias = npt.DTypeLike
+  _ArrayLike: TypeAlias = npt.ArrayLike
   _TensorflowTensor: TypeAlias = tf.Tensor
   _TorchTensor: TypeAlias = torch.Tensor
   _JaxArray: TypeAlias = jax.numpy.ndarray
@@ -72,7 +75,7 @@ else:
   _JaxArray: TypeAlias = Any
 
 _Array = TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
-_AnyArray = Union[_NDArray, _TensorflowTensor, _TorchTensor, _JaxArray]
+_AnyArray = _NDArray | _TensorflowTensor | _TorchTensor | _JaxArray
 
 
 def _check_eq(a: Any, b: Any, /) -> None:
@@ -132,10 +135,10 @@ def _sinc(x: _ArrayLike, /) -> _NDArray:
     return result.item() if x_is_scalar else result
 
 
-def _is_symmetric(matrix: scipy.sparse.spmatrix, /, tol: float = 1e-10) -> bool:
+def _is_symmetric(matrix: Any, /, tol: float = 1e-10) -> bool:
   """Return True if the sparse matrix is symmetric."""
-  norm: float = scipy.sparse.linalg.norm(matrix - matrix.T, np.inf)
-  return norm <= tol
+  norm = scipy.sparse.linalg.norm(matrix - matrix.transpose(), np.inf)
+  return bool(norm <= tol)
 
 
 def _cache_sampled_1d_function(
@@ -337,7 +340,8 @@ class _Arraylib(abc.ABC, Generic[_Array]):
 
   def reshape(self, shape: tuple[int, ...]) -> _Array:
     """Return the equivalent of `self.array.reshape(shape)`."""
-    return self.array.reshape(shape)
+    array: Any = self.array
+    return array.reshape(shape)
 
   def possibly_make_contiguous(self) -> _Array:
     """Return a contiguous copy of `self.array` or just `self.array` if already contiguous."""
@@ -357,7 +361,8 @@ class _Arraylib(abc.ABC, Generic[_Array]):
 
   def getitem(self, indices: Any) -> _Array:
     """Return the equivalent of `self.array[indices]` (a "gather" operation)."""
-    return self.array[indices]
+    array: Any = self.array
+    return array[indices]
 
   @abc.abstractmethod
   def where(self, if_true: Any, if_false: Any) -> _Array:
@@ -389,7 +394,7 @@ class _Arraylib(abc.ABC, Generic[_Array]):
   @abc.abstractmethod
   def make_sparse_matrix(
       data: _NDArray, row_ind: _NDArray, col_ind: _NDArray, shape: tuple[int, int]
-  ) -> _Array:
+  ) -> Any:
     """Return the equivalent of `scipy.sparse.csr_matrix(data, (row_ind, col_ind), shape=shape)`.
     However, the indices must be ordered and unique."""
 
@@ -486,7 +491,7 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
   @staticmethod
   def make_sparse_matrix(
       data: _NDArray, row_ind: _NDArray, col_ind: _NDArray, shape: tuple[int, int]
-  ) -> _NDArray:
+  ) -> scipy.sparse.csr_matrix:
     return scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape=shape)
 
 
@@ -553,14 +558,14 @@ class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
   def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     # Note that a tensorflow.Tensor does not have strides.
     # Our heuristic is to process dimension 1 first iff dimension 0 is upsampling.  Improve?
-    src_shape: tuple[int, ...] = self.array.shape[: len(dst_shape)]
+    src_shape = typing.cast(tuple[int, ...], tuple(self.array.shape[: len(dst_shape)]))
     dims = list(range(len(src_shape)))
     if len(dims) > 1 and dst_shape[0] / src_shape[0] > 1.0:
       dims[:2] = [1, 0]
     return dims
 
   def premult_with_sparse(
-      self, sparse: 'tf.sparse.SparseTensor', num_threads: int | Literal['auto']
+      self, sparse: tf.sparse.SparseTensor, num_threads: int | Literal['auto']
   ) -> _TensorflowTensor:
     import tensorflow as tf
 
@@ -623,7 +628,7 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
     return np.dtype(numpy_type)
 
   def astype(self, dtype: _DTypeLike) -> _TorchTensor:
-    torch_type = {
+    torch_types: dict[Any, Any] = {
         np.float32: self.torch.float32,
         np.float64: self.torch.float64,
         np.complex64: self.torch.complex64,
@@ -632,8 +637,8 @@ class _TorchArraylib(_Arraylib[_TorchTensor]):
         np.int16: self.torch.int16,
         np.int32: self.torch.int32,
         np.int64: self.torch.int64,
-    }[np.dtype(dtype).type]
-    return self.array.type(torch_type)
+    }
+    return self.array.type(torch_types[np.dtype(dtype).type])
 
   def possibly_make_contiguous(self) -> _TorchTensor:
     return self.array.contiguous()
@@ -733,7 +738,7 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
     return np.dtype(self.array.dtype)
 
   def astype(self, dtype: _DTypeLike) -> _JaxArray:
-    return self.array.astype(dtype)  # (copy=False is unavailable)
+    return self.array.astype(np.dtype(dtype))  # (copy=False is unavailable)
 
   def possibly_make_contiguous(self) -> _JaxArray:
     return self.array.copy()
@@ -741,7 +746,7 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
   def clip(self, low: Any, high: Any, dtype: _DTypeLike | None = None) -> _JaxArray:
     array = self.array
     if dtype is not None:
-      array = array.astype(dtype)  # (copy=False is unavailable)
+      array = array.astype(np.dtype(dtype))  # (copy=False is unavailable)
     return self.jnp.clip(array, low, high)
 
   def square(self) -> _JaxArray:
@@ -752,7 +757,7 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
 
   def where(self, if_true: Any, if_false: Any) -> _JaxArray:
     condition = self.array
-    return self.jnp.where(condition, if_true, if_false)
+    return typing.cast(Any, self.jnp.where(condition, if_true, if_false))
 
   def transpose(self, axes: Sequence[int]) -> _JaxArray:
     return self.jnp.transpose(self.array, tuple(axes))
@@ -768,7 +773,7 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
     return dims
 
   def premult_with_sparse(
-      self, sparse: 'jax.experimental.sparse.BCOO', num_threads: int | Literal['auto']
+      self, sparse: jax.experimental.sparse.BCOO, num_threads: int | Literal['auto']
   ) -> _JaxArray:
     del num_threads
     return sparse @ self.array  # Calls jax.bcoo_multiply_dense().
@@ -788,13 +793,14 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
   @staticmethod
   def make_sparse_matrix(
       data: _NDArray, row_ind: _NDArray, col_ind: _NDArray, shape: tuple[int, int]
-  ) -> _JaxArray:
+  ) -> Any:
     # https://jax.readthedocs.io/en/latest/jax.experimental.sparse.html
     import jax.experimental.sparse
+    import jax.numpy as jnp
 
-    indices = np.vstack((row_ind, col_ind)).T
+    indices = jnp.asarray(np.vstack((row_ind, col_ind)).T)
     return jax.experimental.sparse.BCOO(
-        (data, indices), shape=shape, indices_sorted=True, unique_indices=True
+        (jnp.asarray(data), indices), shape=shape, indices_sorted=True, unique_indices=True
     )
 
 
@@ -812,7 +818,7 @@ def _is_available(arraylib: str) -> bool:
   return importlib.util.find_spec(arraylib) is not None  # type: ignore[attr-defined]
 
 
-_DICT_ARRAYLIBS = {
+_DICT_ARRAYLIBS: dict[str, Any] = {
     arraylib: cls for arraylib, cls in _CANDIDATE_ARRAYLIBS.items() if _is_available(arraylib)
 }
 
@@ -827,27 +833,35 @@ ARRAYLIBS = list(_DICT_ARRAYLIBS)
 """
 
 
-def _as_arr(array: _Array, /) -> _Arraylib[_Array]:
+def _as_arr(array: _AnyArray, /) -> _Arraylib[Any]:
   """Return `array` wrapped as an `_Arraylib` for dispatch of functions."""
+  if isinstance(array, (tuple, list)):
+    raise ValueError(f'{array} not recognized.  Perhaps convert it using np.asarray().')
   for cls in _DICT_ARRAYLIBS.values():
     if cls.recognize(array):
-      return cls(array)  # type: ignore[abstract]
+      return cls(array)
   raise ValueError(f'{array} {type(array)} {type(array).__module__} unrecognized by {ARRAYLIBS}.')
 
 
-def _arr_arraylib(array: _Array, /) -> str:
+def _arr_arraylib(array: _AnyArray, /) -> str:
   """Return the name of the `Arraylib` representing `array`."""
   return _as_arr(array).arraylib
 
 
-def _arr_numpy(array: _Array, /) -> _NDArray:
+def _arr_numpy(array: _AnyArray, /) -> _NDArray:
   """Return a `numpy` version of `array`."""
   return _as_arr(array).numpy()
 
 
-def _arr_dtype(array: _Array, /) -> _DType:
+def _arr_dtype(array: _AnyArray, /) -> _DType:
   """Return the equivalent of `array.dtype` as a `numpy` `dtype`."""
   return _as_arr(array).dtype()
+
+
+def _arr_shape(array: _AnyArray, /) -> tuple[int, ...]:
+  """Return `array.shape` as a `tuple` of `int`."""
+  array2: Any = array
+  return tuple(array2.shape)
 
 
 def _arr_astype(array: _Array, dtype: _DTypeLike, /) -> _Array:
@@ -865,9 +879,7 @@ def _arr_possibly_make_contiguous(array: _Array, /) -> _Array:
   return _as_arr(array).possibly_make_contiguous()
 
 
-def _arr_clip(
-    array: _Array, low: _Array, high: _Array, /, dtype: _DTypeLike | None = None
-) -> _Array:
+def _arr_clip(array: _Array, low: Any, high: Any, /, dtype: _DTypeLike | None = None) -> _Array:
   """Return the equivalent of `array.clip(low, high, dtype)` with `numpy` `dtype`."""
   return _as_arr(array).clip(low, high, dtype)
 
@@ -882,12 +894,12 @@ def _arr_sqrt(array: _Array, /) -> _Array:
   return _as_arr(array).sqrt()
 
 
-def _arr_getitem(array: _Array, indices: _Array, /) -> _Array:
+def _arr_getitem(array: _Array, indices: Any, /) -> _Array:
   """Return the equivalent of `array[indices]`."""
   return _as_arr(array).getitem(indices)
 
 
-def _arr_where(condition: _Array, if_true: _Array, if_false: _Array, /) -> _Array:
+def _arr_where(condition: _Array, if_true: Any, if_false: Any, /) -> _Array:
   """Return the equivalent of `np.where(condition, if_true, if_false)`."""
   return _as_arr(condition).where(if_true, if_false)
 
@@ -897,7 +909,7 @@ def _arr_transpose(array: _Array, axes: Sequence[int], /) -> _Array:
   return _as_arr(array).transpose(axes)
 
 
-def _arr_best_dims_order_for_resize(array: _Array, dst_shape: tuple[int, ...], /) -> list[int]:
+def _arr_best_dims_order_for_resize(array: _AnyArray, dst_shape: tuple[int, ...], /) -> list[int]:
   """Return the best order in which to process dims for resizing `array` to `dst_shape`."""
   return _as_arr(array).best_dims_order_for_resize(dst_shape)
 
@@ -924,7 +936,7 @@ def _arr_einsum(subscripts: str, /, *operands: _Array) -> _Array:
 
 def _arr_swapaxes(array: _Array, axis1: int, axis2: int, /) -> _Array:
   """Return the equivalent of `np.swapaxes(array, axis1, axis2)`."""
-  ndim = len(array.shape)
+  ndim = len(_arr_shape(array))
   assert 0 <= axis1 < ndim and 0 <= axis2 < ndim, (axis1, axis2, ndim)
   axes = list(range(ndim))
   axes[axis1] = axis2
@@ -934,7 +946,7 @@ def _arr_swapaxes(array: _Array, axis1: int, axis2: int, /) -> _Array:
 
 def _arr_moveaxis(array: _Array, source: int, destination: int, /) -> _Array:
   """Return the equivalent of `np.moveaxis(array, source, destination)`."""
-  ndim = len(array.shape)
+  ndim = len(_arr_shape(array))
   assert 0 <= source < ndim and 0 <= destination < ndim, (source, destination, ndim)
   axes = [n for n in range(ndim) if n != source]
   axes.insert(destination, source)
@@ -951,7 +963,7 @@ def _make_sparse_matrix(
 
 def _make_array(array: _ArrayLike, arraylib: str, /) -> Any:
   """Return an array from the library `arraylib` initialized with the `numpy` `array`."""
-  return _DICT_ARRAYLIBS[arraylib](np.asarray(array)).array  # type: ignore[abstract]
+  return _DICT_ARRAYLIBS[arraylib](np.asarray(array)).array
 
 
 # Because np.ndarray supports strides, np.moveaxis() and np.permute() are constant-time.
@@ -969,7 +981,7 @@ def _block_shape_with_min_size(
   if math.prod(shape) < min_size:
     raise ValueError(f'Shape {shape} smaller than min_size {min_size}.')
   if compact:
-    root = int(math.ceil(min_size ** (1 / len(shape))))
+    root = math.ceil(min_size ** (1 / len(shape)))
     block_shape = np.minimum(shape, root)
     for dim in range(len(shape)):
       if block_shape[dim] == 2 and block_shape.prod() >= min_size * 2:
@@ -985,38 +997,38 @@ def _block_shape_with_min_size(
   return tuple(block_shape)
 
 
-def _array_split(array: _Array, axis: int, num_sections: int) -> list[Any]:
+def _array_split(array: _Array, axis: int, num_sections: int) -> list[_Array]:
   """Split `array` into `num_sections` along `axis`."""
-  assert 0 <= axis < len(array.shape)
-  assert 1 <= num_sections <= array.shape[axis]
+  assert 0 <= axis < len(_arr_shape(array))
+  assert 1 <= num_sections <= _arr_shape(array)[axis]
 
   if 0:
     split = np.array_split(array, num_sections, axis=axis)  # Numpy-specific.
 
   else:
     # Adapted from https://github.com/numpy/numpy/blob/main/numpy/lib/shape_base.py#L739-L792.
-    num_total = array.shape[axis]
+    num_total = _arr_shape(array)[axis]
     num_each, num_extra = divmod(num_total, num_sections)
     section_sizes = [0] + num_extra * [num_each + 1] + (num_sections - num_extra) * [num_each]
     div_points = np.array(section_sizes).cumsum()
     split = []
-    tmp = _arr_swapaxes(array, axis, 0)
+    tmp: Any = _arr_swapaxes(array, axis, 0)
     for i in range(num_sections):
       split.append(_arr_swapaxes(tmp[div_points[i] : div_points[i + 1]], axis, 0))
 
   return split
 
 
-def _split_array_into_blocks(array: _Array, block_shape: Sequence[int], start_axis: int = 0) -> Any:
+def _split_array_into_blocks(array: Any, block_shape: Sequence[int], start_axis: int = 0) -> Any:
   """Split `array` into nested lists of blocks of size at most `block_shape`."""
   # See https://stackoverflow.com/a/50305924.  (If the block_shape is known to
   # exactly partition the array, see https://stackoverflow.com/a/16858283.)
-  if len(block_shape) > len(array.shape):
-    raise ValueError(f'Block ndim {len(block_shape)} > array ndim {len(array.shape)}.')
+  if len(block_shape) > len(_arr_shape(array)):
+    raise ValueError(f'Block ndim {len(block_shape)} > array ndim {len(_arr_shape(array))}.')
   if start_axis == len(block_shape):
     return array
 
-  num_sections = math.ceil(array.shape[start_axis] / block_shape[start_axis])
+  num_sections = math.ceil(_arr_shape(array)[start_axis] / block_shape[start_axis])
   split = _array_split(array, start_axis, num_sections)
   return [_split_array_into_blocks(split_a, block_shape, start_axis + 1) for split_a in split]
 
@@ -1207,6 +1219,7 @@ class RemapCoordinates(abc.ABC):
     ...
 
 
+@dataclasses.dataclass(frozen=True)
 class NoRemapCoordinates(RemapCoordinates):
   """The coordinates are not remapped."""
 
@@ -1214,6 +1227,7 @@ class NoRemapCoordinates(RemapCoordinates):
     return point
 
 
+@dataclasses.dataclass(frozen=True)
 class MirrorRemapCoordinates(RemapCoordinates):
   """The coordinates are reflected across the domain boundaries so that they lie in the unit
   interval.  The resulting function is continuous but not smooth across the boundaries."""
@@ -1223,6 +1237,7 @@ class MirrorRemapCoordinates(RemapCoordinates):
     return np.where(point >= 1.0, 2.0 - point, point)
 
 
+@dataclasses.dataclass(frozen=True)
 class TileRemapCoordinates(RemapCoordinates):
   """The coordinates are mapped to the unit interval using a "modulo 1.0" operation.  The resulting
   function is generally discontinuous across the domain boundaries."""
@@ -1249,6 +1264,7 @@ class ExtendSamples(abc.ABC):
     reference only interior samples.  Return `new_index, new_weight`."""
 
 
+@dataclasses.dataclass(frozen=True)
 class ReflectExtendSamples(ExtendSamples):
   """Find the interior sample by reflecting across domain boundaries."""
 
@@ -1259,6 +1275,7 @@ class ReflectExtendSamples(ExtendSamples):
     return index, weight
 
 
+@dataclasses.dataclass(frozen=True)
 class WrapExtendSamples(ExtendSamples):
   """Wrap the interior samples periodically.  For a `'primal'` grid, the last
   sample is ignored as its value is replaced by the first sample."""
@@ -1270,6 +1287,7 @@ class WrapExtendSamples(ExtendSamples):
     return index, weight
 
 
+@dataclasses.dataclass(frozen=True)
 class ClampExtendSamples(ExtendSamples):
   """Use the nearest interior sample."""
 
@@ -1280,6 +1298,7 @@ class ClampExtendSamples(ExtendSamples):
     return index, weight
 
 
+@dataclasses.dataclass(frozen=True)
 class ReflectClampExtendSamples(ExtendSamples):
   """Extend the grid samples from [0, 1] into [-1, 0] using reflection and then define grid
   samples outside [-1, 1] as that of the nearest sample."""
@@ -1291,6 +1310,7 @@ class ReflectClampExtendSamples(ExtendSamples):
     return index, weight
 
 
+@dataclasses.dataclass(frozen=True)
 class BorderExtendSamples(ExtendSamples):
   """Let all exterior samples have the constant value (`cval`)."""
 
@@ -1309,6 +1329,7 @@ class BorderExtendSamples(ExtendSamples):
     return index, weight
 
 
+@dataclasses.dataclass(frozen=True)
 class ValidExtendSamples(ExtendSamples):
   """Assign all domain samples weight 1 and all outside samples weight 0.
   Compute a weighted reconstruction and divide by the reconstructed weight."""
@@ -1331,6 +1352,7 @@ class ValidExtendSamples(ExtendSamples):
     return index, weight
 
 
+@dataclasses.dataclass(frozen=True)
 class LinearExtendSamples(ExtendSamples):
   """Linearly extrapolate beyond boundary samples."""
 
@@ -1366,6 +1388,7 @@ class LinearExtendSamples(ExtendSamples):
     return index, weight
 
 
+@dataclasses.dataclass(frozen=True)
 class QuadraticExtendSamples(ExtendSamples):
   """Quadratically extrapolate beyond boundary samples."""
 
@@ -1440,6 +1463,7 @@ class OverrideExteriorValue:
       weight[is_outside, :] = 0.0
 
 
+@dataclasses.dataclass(frozen=True)
 class NoOverrideExteriorValue(OverrideExteriorValue):
   """The function value is not overridden."""
 
@@ -1447,6 +1471,7 @@ class NoOverrideExteriorValue(OverrideExteriorValue):
     pass
 
 
+@dataclasses.dataclass(frozen=True)
 class UnitDomainOverrideExteriorValue(OverrideExteriorValue):
   """Values outside the unit interval [0, 1] are replaced by the constant `cval`."""
 
@@ -1458,6 +1483,7 @@ class UnitDomainOverrideExteriorValue(OverrideExteriorValue):
     self.override_using_signed_distance(weight, point, signed_distance)
 
 
+@dataclasses.dataclass(frozen=True)
 class PlusMinusOneOverrideExteriorValue(OverrideExteriorValue):
   """Values outside the interval [-1, 1] are replaced by the constant `cval`."""
 
@@ -2116,9 +2142,9 @@ def _to_float_01(array: _Array, /, dtype: _DTypeLike) -> _Array:
   match array_dtype.type:
     case np.uint8 | np.uint16 | np.uint32:
       if _arr_arraylib(array) == 'numpy':
-        assert isinstance(array, np.ndarray)  # Help mypy.
-        return np.multiply(array, 1 / np.iinfo(array_dtype).max, dtype=dtype)
-      return _arr_astype(array, dtype) / np.iinfo(array_dtype).max
+        result: Any = np.multiply(array, 1 / np.iinfo(array_dtype).max, dtype=dtype)
+        return result
+      return typing.cast(_Array, _arr_astype(array, dtype) / np.iinfo(array_dtype).max)
     case _:
       assert np.issubdtype(array_dtype, np.floating)
       return _arr_clip(array, 0.0, 1.0, dtype)
@@ -2130,9 +2156,11 @@ def _from_float(array: _Array, /, dtype: _DTypeLike) -> _Array:
   dtype = np.dtype(dtype)
   match dtype.type:
     case np.uint8 | np.uint16:
-      return typing.cast(_Array, _arr_astype(array * np.float32(np.iinfo(dtype).max) + 0.5, dtype))
+      scale32 = typing.cast(float, np.float32(np.iinfo(dtype.name).max))
+      return _arr_astype(typing.cast(_Array, array * scale32 + 0.5), dtype)
     case np.uint32:
-      return typing.cast(_Array, _arr_astype(array * np.float64(np.iinfo(dtype).max) + 0.5, dtype))
+      scale64 = typing.cast(float, np.float64(np.iinfo(dtype.name).max))
+      return _arr_astype(typing.cast(_Array, array * scale64 + 0.5), dtype)
     case _:
       assert np.issubdtype(dtype, np.floating)
       return _arr_astype(array, dtype)
@@ -2188,7 +2216,7 @@ class IdentityGamma(Gamma):
     if np.issubdtype(dtype, np.unsignedinteger):
       return _from_float(_arr_clip(array, 0.0, 1.0), dtype)
     if np.issubdtype(dtype, np.integer):
-      return _arr_astype(array + 0.5, dtype)
+      return _arr_astype(typing.cast(_Array, array + 0.5), dtype)
     return _arr_astype(array, dtype)
 
 
@@ -2208,11 +2236,14 @@ class PowerGamma(Gamma):
       return _arr_getitem(decode_table, array)
 
     array = _to_float_01(array, dtype)
-    return _arr_square(array) if self.power == 2 else array**self.power
+    return _arr_square(array) if self.power == 2 else typing.cast(_Array, array**self.power)
 
   def encode(self, array: _Array, /, dtype: _DTypeLike) -> _Array:
     array = _arr_clip(array, 0.0, 1.0)
-    array = _arr_sqrt(array) if self.power == 2 else array ** (1.0 / self.power)
+    if self.power == 2:
+      array = _arr_sqrt(array)
+    else:
+      array = typing.cast(_Array, array ** (1.0 / self.power))
     return _from_float(array, dtype)
 
 
@@ -2231,13 +2262,15 @@ class SrgbGamma(Gamma):
       return _arr_getitem(decode_table, array)
 
     x = _to_float_01(array, dtype)
-    return _arr_where(x > 0.04045, ((x + 0.055) / 1.055) ** 2.4, x / 12.92)
+    return _arr_where(typing.cast(_Array, x > 0.04045), ((x + 0.055) / 1.055) ** 2.4, x / 12.92)
 
   def encode(self, array: _Array, /, dtype: _DTypeLike) -> _Array:
     x = _arr_clip(array, 0.0, 1.0)
     # Unfortunately, exponentiation is slow, and np.digitize() is even slower.
     # pytype: disable=wrong-arg-types
-    x = _arr_where(x > 0.0031308, x ** (1.0 / 2.4) * 1.055 - (0.055 - 1e-17), x * 12.92)
+    x = _arr_where(
+        typing.cast(_Array, x > 0.0031308), x ** (1.0 / 2.4) * 1.055 - (0.055 - 1e-17), x * 12.92
+    )
     # pytype: enable=wrong-arg-types
     return _from_float(x, dtype)
 
@@ -2309,7 +2342,7 @@ def _create_resize_matrix(
     translate: float = 0.0,
     dtype: _DTypeLike = np.float64,
     arraylib: str = 'numpy',
-) -> tuple[_Array, _Array | None]:
+) -> tuple[Any, _AnyArray | None]:
   """Compute affine weights for 1D resampling from `src_size` to `dst_size`.
 
   Compute a sparse matrix in which each row expresses a destination sample value as a combination
@@ -2446,7 +2479,7 @@ def _apply_digital_filter_1d(
       )
 
     @tf.custom_gradient  # type: ignore[untyped-decorator]
-    def tensorflow_inverse_convolution(x: _TensorflowTensor) -> _TensorflowTensor:
+    def tensorflow_inverse_convolution(x: _TensorflowTensor) -> Any:
       # Although `forward` accesses parameters gridtype, boundary, etc., it is not stateful
       # because the function is redefined on each invocation of _apply_digital_filter_1d.
       y = tf.numpy_function(forward, [x], x.dtype, stateful=False)
@@ -2498,7 +2531,7 @@ def _apply_digital_filter_1d(
     # https://github.com/google/jax/issues/5934
 
     @jax.custom_gradient  # type: ignore[untyped-decorator]
-    def jax_inverse_convolution(x: _JaxArray) -> _JaxArray:
+    def jax_inverse_convolution(x: _JaxArray) -> Any:
       # This function is not jax-traceable due to the presence of to_py(), so jit and grad fail.
       x_py = np.asarray(x)  # to_py() deprecated.
       a = _apply_digital_filter_1d_numpy(x_py, gridtype, boundary, cval, filter, axis, False)
@@ -2516,8 +2549,11 @@ def _apply_digital_filter_1d(
     return jax_inverse_convolution(array)
 
   assert arraylib == 'numpy'
-  assert isinstance(array, np.ndarray)  # Help mypy.
-  return _apply_digital_filter_1d_numpy(array, gridtype, boundary, cval, filter, axis, False)
+  array_np: Any = array
+  result: Any = _apply_digital_filter_1d_numpy(
+      array_np, gridtype, boundary, cval, filter, axis, False
+  )
+  return result
 
 
 def _apply_digital_filter_1d_numpy(
@@ -2574,7 +2610,7 @@ def _apply_digital_filter_1d_numpy(
   col_ind = src_index.reshape(-1)
   matrix = scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape=(size, size))
   if compute_backward:
-    matrix = matrix.T
+    matrix = matrix.transpose()
 
   if boundary.uses_cval and not compute_backward:
     cval_weight = 1.0 - np.asarray(matrix.sum(axis=-1))[:, 0]
@@ -2600,7 +2636,7 @@ def _apply_digital_filter_1d_numpy(
     assert all(s <= size * len(values) for s in (lu.L.nnz, lu.U.nnz))  # Sparse.
     array_flat = lu.solve(array_flat)
 
-  array_dim = array_flat.reshape(array_dim.shape)
+  array_dim = np.asarray(array_flat).reshape(array_dim.shape)
   return np.moveaxis(array_dim, 0, axis)
 
 
@@ -2720,25 +2756,23 @@ def resize(
 
   **Unit test:**
 
-  >>> result = resize([1.0, 4.0, 5.0], shape=(4,))
+  >>> result = resize(np.array([1.0, 4.0, 5.0]), shape=(4,))
   >>> assert np.allclose(result, [0.74240461, 2.88088827, 4.68647155, 5.02641199])
   """
-  if isinstance(array, (tuple, list)):
-    array = np.asarray(array)
   arraylib = _arr_arraylib(array)
   array_dtype = _arr_dtype(array)
   if not np.issubdtype(array_dtype, np.number):
-    raise ValueError(f'Type {array.dtype} is not numeric.')
+    raise ValueError(f'Type {array_dtype} is not numeric.')
   shape2 = tuple(shape)
-  array_ndim = len(array.shape)
+  array_ndim = len(_arr_shape(array))
   if not 0 < len(shape2) <= array_ndim:
-    raise ValueError(f'Shape {array.shape} cannot be resized to {shape2}.')
-  src_shape = array.shape[: len(shape2)]
+    raise ValueError(f'Shape {_arr_shape(array)} cannot be resized to {shape2}.')
+  src_shape = _arr_shape(array)[: len(shape2)]
   src_gridtype2, dst_gridtype2 = _get_gridtypes(
       gridtype, src_gridtype, dst_gridtype, len(shape2), len(shape2)
   )
   boundary2 = np.broadcast_to(np.array(boundary), len(shape2))
-  cval = np.broadcast_to(cval, array.shape[len(shape2) :])
+  cval = np.broadcast_to(cval, _arr_shape(array)[len(shape2) :])
   prefilter = filter if prefilter is None else prefilter
   filter2 = [_get_filter(f) for f in np.broadcast_to(np.array(filter), len(shape2))]
   prefilter2 = [_get_filter(f) for f in np.broadcast_to(np.array(prefilter), len(shape2))]
@@ -2746,14 +2780,14 @@ def resize(
   src_gamma2, dst_gamma2 = _get_src_dst_gamma(gamma, src_gamma, dst_gamma, array_dtype, dtype)
   scale2 = np.broadcast_to(np.array(scale), len(shape2))
   translate2 = np.broadcast_to(np.array(translate), len(shape2))
-  del (shape, src_gridtype, dst_gridtype, boundary, filter, prefilter)
-  del (src_gamma, dst_gamma, scale, translate)
+  del shape, src_gridtype, dst_gridtype, boundary, filter, prefilter
+  del src_gamma, dst_gamma, scale, translate
   precision = _get_precision(precision, [array_dtype, dtype], [])
   weight_precision = _real_precision(precision)
 
   is_noop = (
-      all(src == dst for src, dst in zip(src_shape, shape2))
-      and all(gt1 == gt2 for gt1, gt2 in zip(src_gridtype2, dst_gridtype2))
+      all(src == dst for src, dst in zip(src_shape, shape2, strict=True))
+      and all(gt1 == gt2 for gt1, gt2 in zip(src_gridtype2, dst_gridtype2, strict=True))
       and all(f.interpolating for f in prefilter2)
       and np.all(scale2 == 1.0)
       and np.all(translate2 == 0.0)
@@ -2777,8 +2811,8 @@ def resize(
       and arraylib == 'numpy'
       and len(shape2) == 2
       and array_ndim in (2, 3)
-      and all(src > dst for src, dst in zip(src_shape, shape2))
-      and all(src % dst == 0 for src, dst in zip(src_shape, shape2))
+      and all(src > dst for src, dst in zip(src_shape, shape2, strict=True))
+      and all(src % dst == 0 for src, dst in zip(src_shape, shape2, strict=True))
       and all(gridtype.name == 'dual' for gridtype in src_gridtype2)
       and all(gridtype.name == 'dual' for gridtype in dst_gridtype2)
       and all(f.name in ('box', 'trapezoid') for f in prefilter2)
@@ -2786,10 +2820,8 @@ def resize(
       and np.all(translate2 == 0.0)
   )
   if can_use_fast_box_downsampling:
-    assert isinstance(array, np.ndarray)  # Help mypy.
-    array = _downsample_in_2d_using_box_filter(array, typing.cast(Any, shape2))
-    array = dst_gamma2.encode(array, dtype)
-    return array
+    array2 = _downsample_in_2d_using_box_filter(typing.cast(_NDArray, array), shape2)
+    return typing.cast(_Array, dst_gamma2.encode(array2, dtype))
 
   # Multidimensional resize can be expressed using einsum() with multiple per-dim resize matrices,
   # e.g., as in jax.image.resize().  A benefit is to seek the optimal order of multiplications.
@@ -2800,7 +2832,7 @@ def resize(
 
   for dim in dim_order:
     skip_resize_on_this_dim = (
-        shape2[dim] == array.shape[dim]
+        shape2[dim] == _arr_shape(array)[dim]
         and scale2[dim] == 1.0
         and translate2[dim] == 0.0
         and filter2[dim].interpolating
@@ -2809,9 +2841,9 @@ def resize(
       continue
 
     def get_is_minification() -> bool:
-      src_in_samples = src_gridtype2[dim].size_in_samples(array.shape[dim])
-      dst_in_samples = dst_gridtype2[dim].size_in_samples(shape2[dim])
-      return dst_in_samples / src_in_samples * scale2[dim] < 1.0
+      src_in_samples = src_gridtype2[dim].size_in_samples(_arr_shape(array)[dim])  # noqa: B023
+      dst_in_samples = dst_gridtype2[dim].size_in_samples(shape2[dim])  # noqa: B023
+      return dst_in_samples / src_in_samples * scale2[dim] < 1.0  # noqa: B023
 
     is_minification = get_is_minification()
     boundary_dim = boundary2[dim]
@@ -2819,7 +2851,7 @@ def resize(
       boundary_dim = 'clamp' if is_minification else 'reflect'
     boundary_dim = _get_boundary(boundary_dim)
     resize_matrix, cval_weight = _create_resize_matrix(
-        array.shape[dim],
+        _arr_shape(array)[dim],
         shape2[dim],
         src_gridtype=src_gridtype2[dim],
         dst_gridtype=dst_gridtype2[dim],
@@ -2833,7 +2865,7 @@ def resize(
     )
 
     array_dim: _Array = _arr_moveaxis(array, dim, 0)
-    array_flat = _arr_reshape(array_dim, (array_dim.shape[0], -1))
+    array_flat: Any = _arr_reshape(array_dim, (_arr_shape(array_dim)[0], -1))
     array_flat = _arr_possibly_make_contiguous(array_flat)
     if not is_minification and filter2[dim].requires_digital_filter:
       array_flat = _apply_digital_filter_1d(
@@ -2842,19 +2874,20 @@ def resize(
 
     array_flat = _arr_matmul_sparse_dense(resize_matrix, array_flat, num_threads=num_threads)
     if cval_weight is not None:
-      cval_flat = np.broadcast_to(cval, array_dim.shape[1:]).reshape(-1)
+      cval_flat = np.broadcast_to(cval, _arr_shape(array_dim)[1:]).reshape(-1)
+      cval_weight2: Any = cval_weight
       if np.issubdtype(array_dtype, np.complexfloating):
-        cval_weight = _arr_astype(cval_weight, array_dtype)  # (Only necessary for 'tensorflow'.)
-      array_flat += cval_weight[:, None] * cval_flat
+        cval_weight2 = _arr_astype(cval_weight2, array_dtype)  # (Only necessary for 'tensorflow'.)
+      array_flat += cval_weight2[:, None] * cval_flat
 
     if is_minification and filter2[dim].requires_digital_filter:  # use prefilter2[dim]?
       array_flat = _apply_digital_filter_1d(
           array_flat, dst_gridtype2[dim], boundary_dim, cval, filter2[dim]
       )
-    array_dim = _arr_reshape(array_flat, (array_flat.shape[0], *array_dim.shape[1:]))
+    array_dim = _arr_reshape(array_flat, (_arr_shape(array_flat)[0], *_arr_shape(array_dim)[1:]))
     array = _arr_moveaxis(array_dim, 0, dim)
 
-  array = dst_gamma2.encode(array, dtype)
+  array = dst_gamma2.encode(typing.cast(_Array, array), dtype)
   return array
 
 
@@ -2888,18 +2921,18 @@ def resize_in_jax(array: _NDArray, /, *args: Any, **kwargs: Any) -> _NDArray:
 
 
 def _resize_possibly_in_arraylib(
-    array: _Array, /, *args: Any, arraylib: str, **kwargs: Any
+    array: _AnyArray, /, *args: Any, arraylib: str, **kwargs: Any
 ) -> _AnyArray:
   """If `array` is from numpy, evaluate `resize()` using the array library from `ARRAYLIBS`."""
   if _arr_arraylib(array) == 'numpy':
     return _arr_numpy(
-        _original_resize(_make_array(typing.cast(_ArrayLike, array), arraylib), *args, **kwargs)
+        _original_resize(_make_array(typing.cast(_NDArray, array), arraylib), *args, **kwargs)
     )
-  return _original_resize(array, *args, **kwargs)
+  return _original_resize(typing.cast(Any, array), *args, **kwargs)
 
 
 @functools.cache
-def _create_jaxjit_resize() -> Callable[..., _Array]:
+def _create_jaxjit_resize() -> Callable[..., Any]:
   """Lazily invoke `jax.jit` on `resize`."""
   import jax
 
@@ -2971,18 +3004,16 @@ def uniform_resize(
   """
   if scale != 1.0 or translate != 0.0:
     raise ValueError('`uniform_resize()` does not accept `scale` or `translate` parameters.')
-  if isinstance(array, (tuple, list)):
-    array = np.asarray(array)
   shape = tuple(shape)
-  array_ndim = len(array.shape)
+  array_ndim = len(_arr_shape(array))
   if not 0 < len(shape) <= array_ndim:
-    raise ValueError(f'Shape {array.shape} cannot be resized to {shape}.')
+    raise ValueError(f'Shape {_arr_shape(array)} cannot be resized to {shape}.')
   src_gridtype2, dst_gridtype2 = _get_gridtypes(
       gridtype, src_gridtype, dst_gridtype, len(shape), len(shape)
   )
   raw_scales = [
       dst_gridtype2[dim].size_in_samples(shape[dim])
-      / src_gridtype2[dim].size_in_samples(array.shape[dim])
+      / src_gridtype2[dim].size_in_samples(_arr_shape(array)[dim])
       for dim in range(len(shape))
   ]
   scale0 = {'contain': min(raw_scales), 'cover': max(raw_scales)}[object_fit]
@@ -3101,7 +3132,7 @@ def resample(
   For reference, the identity resampling for a scalar-valued grid with the default grid-type
   `'dual'` is:
 
-  >>> array = np.random.default_rng(0).random((5, 7, 3))
+  >>> array = np.random.default_rng(1).random((5, 7, 3))
   >>> coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
   >>> new_array = resample(array, coords)
   >>> assert np.allclose(new_array, array)
@@ -3116,27 +3147,26 @@ def resample(
   >>> resized = resize(array, new_shape, scale=scale, translate=translate)
   >>> assert np.allclose(resampled, resized)
   """
-  if isinstance(array, (tuple, list)):
-    array = np.asarray(array)
   arraylib = _arr_arraylib(array)
-  if len(array.shape) == 0:
-    array = array[None]
+  if len(_arr_shape(array)) == 0:
+    array = _arr_reshape(array, (1,))
   coords = np.atleast_1d(coords)
   if not np.issubdtype(_arr_dtype(array), np.number):
-    raise ValueError(f'Type {array.dtype} is not numeric.')
+    raise ValueError(f'Type {_arr_dtype(array)} is not numeric.')
   if not np.issubdtype(coords.dtype, np.floating):
     raise ValueError(f'Type {coords.dtype} is not floating.')
-  array_ndim = len(array.shape)
+  array_ndim = len(_arr_shape(array))
   if coords.ndim == 1 and coords.shape[0] > 1 and array_ndim == 1:
     coords = coords[:, None]
   grid_ndim = coords.shape[-1]
-  grid_shape = array.shape[:grid_ndim]
-  sample_shape = array.shape[grid_ndim:]
+  grid_shape = _arr_shape(array)[:grid_ndim]
+  sample_shape = _arr_shape(array)[grid_ndim:]
   resampled_ndim = coords.ndim - 1
   resampled_shape = coords.shape[:-1]
   if grid_ndim > array_ndim:
     raise ValueError(
-        f'There are more coordinate dimensions ({grid_ndim}) in {coords=} than in {array.shape=}.'
+        f'There are more coordinate dimensions ({grid_ndim}) in {coords=}'
+        f' than in array.shape={_arr_shape(array)}.'
     )
   gridtype2 = [_get_gridtype(g) for g in np.broadcast_to(np.array(gridtype), grid_ndim)]
   boundary2 = np.broadcast_to(np.array(boundary), grid_ndim).tolist()
@@ -3177,7 +3207,7 @@ def resample(
 
     def process_block(coord_block: _NDArray) -> _Array:
       return resample(
-          array,
+          typing.cast(Any, array),
           coord_block,
           gridtype=gridtype2,
           boundary=boundary2,
@@ -3198,7 +3228,7 @@ def resample(
 
   # A concrete example of upsampling:
   #   array = np.ones((5, 7, 3))  # source RGB image has height=5 width=7
-  #   coords = np.random.default_rng(0).random((8, 9, 2))  # output RGB image has height=8 width=9
+  #   coords = np.random.default_rng(1).random((8, 9, 2))  # output RGB image has height=8 width=9
   #   resample(array, coords, filter=('cubic', 'lanczos3'))
   #   grid_shape = 5, 7  grid_ndim = 2
   #   resampled_shape = 8, 9  resampled_ndim = 2
@@ -3275,7 +3305,7 @@ def resample(
   def label(dims: Iterable[int]) -> str:
     return ''.join(chr(ord('a') + i) for i in dims)
 
-  operands = [samples]  # (8, 9, 4, 6, 3)
+  operands: list[Any] = [samples]  # (8, 9, 4, 6, 3)
   assert samples_ndim < 26  # Letters 'a' through 'z'.
   labels = [label(range(samples_ndim))]  # ['abcde']
   for dim in range(grid_ndim):
@@ -3364,8 +3394,6 @@ def resample_affine(
     where each grid value is resampled from `array`.  Thus the shape of the returned array is
     `shape + array.shape[matrix.shape[0]:]`.
   """
-  if isinstance(array, (tuple, list)):
-    array = np.asarray(array)
   shape = tuple(shape)
   matrix = np.asarray(matrix)
   dst_ndim = len(shape)
@@ -3374,9 +3402,10 @@ def resample_affine(
   src_ndim = matrix.shape[0]
   # grid_shape = array.shape[:src_ndim]
   is_affine = matrix.shape[1] == dst_ndim + 1
-  if src_ndim > len(array.shape):
+  if src_ndim > len(_arr_shape(array)):
     raise ValueError(
-        f'Matrix {matrix} has more rows ({matrix.shape[0]}) than ndim in {array.shape=}.'
+        f'Matrix {matrix} has more rows ({matrix.shape[0]}) than ndim in'
+        f' array.shape={_arr_shape(array)}.'
     )
   if matrix.shape[1] != dst_ndim and not is_affine:
     raise ValueError(
@@ -3433,13 +3462,12 @@ def _resize_using_resample(
     **kwargs: Any,
 ) -> _Array:
   """Use the more general `resample` operation for `resize`, as a debug tool."""
-  if isinstance(array, (tuple, list)):
-    array = np.asarray(array)
   shape = tuple(shape)
   scale = np.broadcast_to(scale, len(shape))
   translate = np.broadcast_to(translate, len(shape))
   # TODO: let resample() do prefiltering for proper downsampling.
-  has_minification = np.any(np.array(shape) < array.shape[: len(shape)]) or np.any(scale < 1.0)
+  src_shape = _arr_shape(array)[: len(shape)]
+  has_minification = np.any(np.array(shape) < src_shape) or np.any(scale < 1.0)
   filter2 = [_get_filter(f) for f in np.broadcast_to(np.array(filter), len(shape))]
   has_auto_trapezoid = any(f.name == 'trapezoid' for f in filter2)
   if fallback and (has_minification or has_auto_trapezoid):

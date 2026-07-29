@@ -84,7 +84,7 @@ import matplotlib.pyplot as plt
 ```
 
 ```python
-array = [3.0, 5.0, 8.0, 7.0]  # 4 source samples in 1D.
+array = np.array([3.0, 5.0, 8.0, 7.0])  # 4 source samples in 1D.
 new_dual = resampler.resize(array, (32,))  # (default gridtype='dual') 8x resolution.
 new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
 
