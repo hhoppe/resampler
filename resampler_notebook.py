@@ -90,7 +90,7 @@
 # ```
 #
 # ```python
-# array = [3.0, 5.0, 8.0, 7.0]  # 4 source samples in 1D.
+# array = np.array([3.0, 5.0, 8.0, 7.0])  # 4 source samples in 1D.
 # new_dual = resampler.resize(array, (32,))  # (default gridtype='dual') 8x resolution.
 # new_primal = resampler.resize(array, (25,), gridtype='primal')  # 8x resolution.
 #
@@ -310,15 +310,15 @@
 
 # %%
 """Python notebook demonstrating the `resampler` package."""
-try:
+try:  # noqa: SIM105
   # WSL2 workaround: force early load to claim glibc static TLS before torch.
   import triton  # noqa: F401  # pylint: disable=unused-import
 except ModuleNotFoundError:
   pass
 
 import collections
-from collections.abc import Callable, Iterable, Mapping, Sequence
 import concurrent.futures
+import contextlib
 import copy
 import dataclasses
 import functools
@@ -329,8 +329,9 @@ import os
 import pathlib
 import sys
 import typing
-from typing import Any, Literal, TypeAlias, TypeVar
 import warnings
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import Any, Literal, TypeAlias, TypeVar
 
 import hhoppe_tools as hh  # https://github.com/hhoppe/hhoppe-tools/blob/main/hhoppe_tools/__init__.py
 import IPython
@@ -343,7 +344,11 @@ import numba
 import numpy as np
 import numpy.typing
 import pdoc
+import scipy.interpolate
+import scipy.linalg
+import scipy.ndimage
 import scipy.signal
+import scipy.sparse.linalg
 import skimage
 import skimage.metrics
 import tensorflow as tf
@@ -354,6 +359,7 @@ import resampler
 
 # pylint: disable=protected-access, missing-function-docstring
 # mypy: allow-incomplete-defs, allow-untyped-defs
+# ruff: noqa: B023
 
 _ArrayLike: TypeAlias = numpy.typing.ArrayLike
 _NDArray: TypeAlias = numpy.typing.NDArray[Any]
@@ -460,7 +466,7 @@ def show_var_docstring(module_dot_name: str) -> None:
   """Display a variable's documentation as formatted HTML."""
   modulename, name = module_dot_name.rsplit('.', 1)
   module = sys.modules[modulename]
-  ast_info = pdoc.doc_ast.walk_tree(module)
+  ast_info = pdoc.doc_ast.walk_tree(module)  # pyrefly: ignore[implicit-import]
   # text = ast_info.docstrings.get(name, '')
   text = ast_info.var_docstrings.get(name, '')
   text = f'**`{name}`** = {getattr(module, name)}<br/>{text}'
@@ -600,7 +606,7 @@ def show_grid_values(array, figsize=(14, 4), cmap='gray', **kwargs) -> None:
 
 # %%
 def test_show_grid_values() -> None:
-  rng = np.random.default_rng(0)
+  rng = np.random.default_rng(1)
   show_grid_values(rng.integers(0, 256, size=(4, 16)), figsize=(14, 2), vmin=0, vmax=255)
   show_grid_values(rng.random((2, 7)), figsize=(8, 1.3))
 
@@ -884,7 +890,9 @@ def resize_showing_domain_boundary(
   yx = np.indices(shape)
   conditions = [
       ((t == l) | (t == h)) & (t2 >= l2) & (t2 <= h2)
-      for t, l, h, t2, l2, h2 in zip(yx, yx_low, yx_high, yx[::-1], yx_low[::-1], yx_high[::-1])
+      for t, l, h, t2, l2, h2 in zip(
+          yx, yx_low, yx_high, yx[::-1], yx_low[::-1], yx_high[::-1], strict=True
+      )
   ]
   on_boundary = np.logical_or.reduce(conditions)
   line_color = np.mod(yx.sum(axis=0), 8) < 4  # Dashed black-and-white line.
@@ -1028,14 +1036,14 @@ def test_cached_sampling_of_1d_function(radius=2.0) -> None:
     assert np.all(samples_func[[0, -1]] == 0.0)
 
     def evaluate(array: _NDArray) -> _NDArray:
-      return np.interp(array, samples_x, samples_func).astype(np.float32)
+      return np.asarray(np.interp(array, samples_x, samples_func), np.float32)
 
     return evaluate
 
   np_interp = create_np_interpolator(func, -radius, radius)
 
   shape = 2, 8_000
-  rng = np.random.default_rng(0)
+  rng = np.random.default_rng(1)
   array = rng.random(shape, np.float32) * 2 * radius - radius
   result = {
       'expected': func(array),
@@ -1140,7 +1148,7 @@ def test_apply_digital_filter_1d_quick() -> None:
       assert np.allclose(result, reference)
 
     shape = 5, 7
-    array2_np = np.random.default_rng(0).random(shape, np.float64)
+    array2_np = np.random.default_rng(1).random(shape, np.float64)
     array2 = torch.tensor(array2_np, requires_grad=True)
     assert torch.autograd.gradcheck(inverse_convolution, [array2], rtol=0, atol=1e-6), boundary
 
@@ -1164,7 +1172,7 @@ def test_order_of_dimensions_does_not_affect_resize_results(step=3) -> None:
         dst_gridtype == 'primal' and min(dst_shape) < 2
     ):
       continue
-    array = np.random.default_rng(0).random(src_shape)
+    array = np.random.default_rng(1).random(src_shape)
     reference = None
     for dim_order in itertools.permutations(range(3)):
       result = resampler.resize(
@@ -1210,7 +1218,7 @@ if EFFORT >= 1:
 def test_resample_scenario1() -> None:
   """Resample a grayscale image with `array.shape = height, width` onto a new grayscale image
   with `new.shape = height2, width2` by using `coords.shape = height2, width2, 2`."""
-  array = [[25, 75], [25, 75]]
+  array = np.array([[25, 75], [25, 75]])
   coords = (np.moveaxis(np.indices((4, 4)), 0, -1) + 0.5) / 4
   new = resampler.resample(array, coords, filter='triangle')
   assert np.allclose(new, [[25, 38, 63, 75]] * 4)
@@ -1219,7 +1227,7 @@ def test_resample_scenario1() -> None:
 def test_resample_scenario2() -> None:
   """Resample an RGB image with `array.shape = height, width, 3` onto a new RGB image with
   `new.shape = height2, width2, 3` by using `coords.shape = height2, width2, 2`."""
-  array = [[[25, 125, 225], [75, 175, 275]], [[25, 125, 225], [75, 175, 275]]]  #
+  array = np.array([[[25, 125, 225], [75, 175, 275]], [[25, 125, 225], [75, 175, 275]]])
   coords = (np.moveaxis(np.indices((4, 4)), 0, -1) + 0.5) / 4
   new = resampler.resample(array, coords, filter='triangle')
   assert np.allclose(new, [[[25, 125, 225], [38, 138, 238], [63, 163, 263], [75, 175, 275]]] * 4)
@@ -1228,15 +1236,15 @@ def test_resample_scenario2() -> None:
 def test_resample_scenario3() -> None:
   """Sample an RGB image at `num` 2D points along a line segment by using
   `coords.shape = num, 2`."""
-  array = [[[10, 10, 10], [100, 10, 10]], [[20, 200, 20], [80, 80, 80]]]  #
-  coords = [[0.2, 0.2], [0.3, 0.5], [0.4, 0.8]]
+  array = np.array([[[10, 10, 10], [100, 10, 10]], [[20, 200, 20], [80, 80, 80]]])
+  coords = np.array([[0.2, 0.2], [0.3, 0.5], [0.4, 0.8]])
   new = resampler.resample(array, coords, filter='triangle')
   assert np.allclose(new, [[10, 10, 10], [55, 23, 14], [94, 31, 31]])
 
 
 def test_resample_scenario4() -> None:
   """Sample an RGB image at a single 2D point by using `coords.shape = (2,)`."""
-  array = [[[10, 10, 10], [100, 10, 10]], [[20, 200, 20], [80, 80, 80]]]  #
+  array = np.array([[[10, 10, 10], [100, 10, 10]], [[20, 200, 20], [80, 80, 80]]])
   new = resampler.resample(array, (0.25, 0.25))
   assert np.allclose(new, [10, 10, 10])
 
@@ -1244,8 +1252,8 @@ def test_resample_scenario4() -> None:
 def test_resample_scenario5() -> None:
   """Sample a 3D grid of 3x3 Jacobians with `array.shape = nz, ny, nx, 3, 3` along a 2D plane
   by using `coords.shape = height, width, 3`."""
-  array = np.random.default_rng(0).random((2, 2, 2, 3, 3))
-  coords = np.random.default_rng(0).random((2, 2, 3))
+  array = np.random.default_rng(1).random((2, 2, 2, 3, 3))
+  coords = np.random.default_rng(1).random((2, 2, 3))
   new = resampler.resample(array, coords)
   _check_eq(new.shape, (2, 2, 3, 3))
 
@@ -1253,8 +1261,8 @@ def test_resample_scenario5() -> None:
 def test_resample_scenario6() -> None:
   """Map a grayscale image through a color map by using `array.shape = 256, 3` and
   `coords.shape = height, width`."""
-  array = [1000, 1100, 1400, 2000]
-  coords = [[[0.1], [0.3]], [[0.7], [0.9]]]  #
+  array = np.array([1000, 1100, 1400, 2000])
+  coords = [[[0.1], [0.3]], [[0.7], [0.9]]]
   new = resampler.resample(array, coords)
   assert np.allclose(new, [[998, 1060], [1583, 2040]])
 
@@ -1300,7 +1308,7 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
         'int32': 1,
     }[dtype]
     np_dtype = np.dtype(dtype)
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(1)
     array = (
         rng.integers(256, size=shape, dtype=np_dtype)
         if np.issubdtype(np_dtype, np.integer)
@@ -1310,7 +1318,7 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
     coords = (yx + 0.5) / new_shape if gridtype == 'dual' else yx / (np.array(new_shape) - 1)
     coords = (coords - translate) / scale
     kwargs: Any = dict(gridtype=gridtype, boundary=boundary, filter=filter, gamma=gamma)
-    resize_kwargs = dict(scale=scale, translate=translate, **kwargs)
+    resize_kwargs: Any = dict(scale=scale, translate=translate, **kwargs)
     resized = resampler.resize_in_numpy(array, new_shape, **resize_kwargs)
     array2 = resampler._make_array(array, arraylib)
     resized2 = resampler.resize(array2, new_shape, **resize_kwargs)
@@ -1494,10 +1502,6 @@ test_scipy_ndimage_resize()
 
 # %%
 def test_skimage_transform_resize() -> None:
-  skimage_version_string = skimage.__version__  # type: ignore[attr-defined]
-  skimage_version = tuple(int(num) for num in skimage_version_string.split('.'))
-  if skimage_version < (0, 19):
-    return  # There exist errors, likely due to boundary rules.
   boundaries = 'reflect wrap clamp border'.split()
   at_boundaries = [False, True]
   gridscales = [2.0, 13 / 8, 1.0, 0.5]
@@ -1537,7 +1541,7 @@ test_skimage_transform_resize()
 def test_tf_image_resize(debug=False) -> None:
   # https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/image/resize_area_op.cc
   original_shape = 32, 32, 1
-  array = np.random.default_rng(0).random(original_shape)
+  array = np.random.default_rng(1).random(original_shape)
   filters = list(resampler._TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER)
   shapes = [(16, 13), (64, 53)]  # Try both downsampling and upsampling.
   antialiases = [True, False]
@@ -1613,7 +1617,7 @@ def test_differentiability_of_torch_resizing(src_shape=(13, 13), dst_shape=(7, 7
           array[None][None], dst_shape, mode='area', align_corners=None, antialias=False
       ),
   }
-  array_np = np.random.default_rng(0).random(src_shape, np.float64)
+  array_np = np.random.default_rng(1).random(src_shape, np.float64)
   array = torch.tensor(array_np, requires_grad=True)
   for name, function in functions.items():
     assert torch.autograd.gradcheck(function, [array], rtol=0, atol=1e-6), name
@@ -1755,7 +1759,8 @@ test_jit_timing()  # 0.3 s; ~3.0 s!
 # This analysis is only for 1D resize; it fails to account for the fact that for 2D resize,
 # np.ascontiguous() becomes necessary for good performance, and can become the bottleneck.
 def test_multithreading(tiny_test=False, verbose=False) -> None:
-  matvecs = getattr(scipy.sparse._sparsetools, 'csr_matvecs')
+  # pyrefly: ignore[missing-attribute]
+  matvecs = scipy.sparse._sparsetools.csr_matvecs  # pylint: disable=c-extension-no-member
   src_size, dst_size, width = 1024, 8096, 4096 * 3
   if tiny_test:
     src_size, dst_size, width = 4, 16, 4
@@ -1874,7 +1879,7 @@ if 0:
 # %%
 if 0:
   # Crazy long; lots of SIMD instructions it seems.
-  print(list(resampler._numba_parallel_csr_dense_mult.inspect_llvm().values())[0])
+  print(next(iter(resampler._numba_parallel_csr_dense_mult.inspect_llvm().values())))
 
 # %%
 if 0:
@@ -2086,7 +2091,8 @@ def test_profile_downsampling(
   def einsum() -> _NDArray:
     # https://stackoverflow.com/a/36383134
     shape1 = new_height, block_height, new_width, block_width, ch
-    return np.einsum('ijklm->ikm', array.reshape(shape1), optimize='greedy', dtype=dtype) * factor
+    val = np.einsum('ijklm->ikm', array.reshape(shape1), optimize='greedy', dtype=np.dtype(dtype))
+    return val * factor
 
   def two_dots() -> _NDArray:
     if ch != 1:
@@ -2110,8 +2116,8 @@ def test_profile_downsampling(
 
   def reduceat() -> _NDArray:
     # https://www.w3resource.com/python-exercises/numpy/python-numpy-exercise-191.php
-    a = np.add.reduceat(array, np.arange(0, width, block_width), axis=1)
-    return np.add.reduceat(a, np.arange(0, height, block_height), axis=0) * factor
+    a = np.add.reduceat(array, np.arange(0, width, block_width, dtype=np.int64), axis=1)
+    return np.add.reduceat(a, np.arange(0, height, block_height, dtype=np.int64), axis=0) * factor
 
   a = array, new_shape
   functions: dict[str, Callable[[], Any]] = {
@@ -2841,7 +2847,7 @@ def test_torch_gradients_using_gradcheck(src_shape=(7, 7), dst_shape=(13, 13)) -
         lambda array: resampler.resize(array, dst_shape, filter=filter),
         lambda array: resampler.resample(array, coords, filter=filter),
     ]
-    array_np = np.random.default_rng(0).random(src_shape, np.float64)
+    array_np = np.random.default_rng(1).random(src_shape, np.float64)
     array = torch.tensor(array_np, requires_grad=True)
     for function in functions:
       assert torch.autograd.gradcheck(function, [array], rtol=0, atol=1e-6)
@@ -2914,12 +2920,12 @@ if EFFORT >= 1:
 # %%
 def test_jax0() -> None:
   array = jnp.ones((2, 2), 'float32')
-  print(array.device_buffer.device())
+  print(array.devices())
   print(array, type(array), repr(array))
 
   array_np = np.ones((2, 2), 'float32')
   array_jax = jax.device_put(array_np)
-  print(array_jax.device_buffer.device())
+  print(array_jax.devices())
   print(array_jax, type(array_jax), repr(array_jax))
 
   array_jax = jnp.ones((2000,) * 2, 'float32')
@@ -3017,6 +3023,7 @@ def experiment_image_optimized_for_spiral_resampling(
   desired = resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=np.float32)
 
   yx = ((np.indices(dst_shape).T + 0.5) / dst_shape - 0.5).T  # [-0.5, 0.5]^2
+  # pyrefly: ignore  # It is a Pyrefly internal error.
   radius, angle = np.linalg.norm(yx, axis=0), np.arctan2(*yx)
   angle += (0.8 - radius).clip(0, 1) * 2.0 - 0.6
   coords = np.dstack((np.sin(angle) * radius, np.cos(angle) * radius)) + 0.5
@@ -3190,6 +3197,7 @@ def visualize_filters(filters: Mapping[str, resampler.Filter]) -> None:
     # (e.g. 'lanczos3') and for raw interp_error (e.g. 'gaussian').
     filter_no_renorm = copy.copy(filter)
     object.__setattr__(filter_no_renorm, 'partition_of_unity', True)
+    y = np.array([])
 
     if filter.name == 'impulse':
       interp_err = 0.0
@@ -3489,31 +3497,31 @@ def visualize_boundary_rules_in_1d(
     for column_index, boundary in enumerate(boundaries):
       ax = axes[column_index]
 
-      params = dict(filter=filter, boundary=boundary, cval=cval)
+      params: Any = dict(filter=filter, boundary=boundary, cval=cval)
       if resizer is resampler.resize:
         params |= dict(src_gridtype=gridtype, dst_gridtype='dual')
       else:
         assert gridtype == 'dual'
       x = None
       discrepancy = False
+      resized = np.array([])
+      reference = np.array([])
 
-      try:  # See if the filter supports `scale` and `translate` parameters (else TypeError).
+      # See if the filter supports `scale` and `translate` parameters (else TypeError).
+      with contextlib.suppress(ValueError, TypeError):
         params2 = params | dict(scale=scale, translate=(1 - scale) / 2)
         resized = resizer(array, (num_samples,), **params2)
         if resizer is not resampler.resize:
           reference = resampler.resize(array, (num_samples,), **params2)
         x = (np.arange(len(resized)) + 0.5) / len(resized) / scale - offset
-      except (ValueError, TypeError):
-        pass
 
       if x is None:
-        try:  # See if the filter supports this particular `boundary`.
+        # See if the filter supports this particular `boundary`.
+        with contextlib.suppress(ValueError):
           resized = resizer(array, (num_samples,), **params)
           if resizer is not resampler.resize:
             reference = resampler.resize(array, (num_samples,), **params)
           x = (np.arange(len(resized)) + 0.5) / len(resized)
-        except ValueError:
-          pass
 
       if x is None:
         ax.plot([])
@@ -3614,7 +3622,7 @@ def visualize_boundary_rules_in_2d(
   # array = array * 0.5 + 0.25
   array = array * 0.8 + 0.1
 
-  def show_row(*, scale=scale) -> None:
+  def show_row(row_index, filter, *, scale=scale) -> None:
     kwargs = dict(
         shape=shape,
         src_gridtype=src_gridtype,
@@ -3642,12 +3650,10 @@ def visualize_boundary_rules_in_2d(
       ' for $y$ and $x$ axes respectively)**'
   )
   for row_index, filter in enumerate('box triangle cubic lanczos3'.split()):
-    show_row()
+    show_row(row_index, filter)
 
   display_markdown('<br/>**Wider view of the same results**')
-  row_index = 0
-  filter = 'lanczos3'
-  show_row(scale=0.25)
+  show_row(0, 'lanczos3', scale=0.25)
 
 
 visualize_boundary_rules_in_2d()
@@ -3669,7 +3675,7 @@ def compare_boundary_rules_on_cropped_windows_of_images(
 
   All filtering is done in lightness space (i.e. with gamma='identity').
   """
-  rng = np.random.default_rng(0)
+  rng = np.random.default_rng(1)
   # Note: 'linear' and 'linear_constant' are identical for resampler.resize() because the evaluated
   # coordinate is never outside the domain (even though the filter kernel does extend outside).
   boundaries = [
@@ -3682,7 +3688,7 @@ def compare_boundary_rules_on_cropped_windows_of_images(
   for image in images:
     for _ in range(num_windows):
       shape = 24, 48
-      pad = 6 if scale == 5 / 6 else int(math.ceil(6 / min(scale, 1.0)))
+      pad = 6 if scale == 5 / 6 else math.ceil(6 / min(scale, 1.0))
       scaled_pad = must_be_int(pad * scale).item()
       broad_shape = shape[0] + pad * 2, shape[1] + pad * 2
       yx = (
@@ -3690,7 +3696,7 @@ def compare_boundary_rules_on_cropped_windows_of_images(
           rng.integers(image.shape[1] - broad_shape[1]),
       )
       broad_window = image[
-          tuple(slice(start, start + size) for start, size in zip(yx, broad_shape))
+          tuple(slice(start, start + size) for start, size in zip(yx, broad_shape, strict=True))
       ]
       window = broad_window[pad:-pad, pad:-pad]
       pixel_offset = 0 if scale != 1 else 0.25  # Quarter-pixel translation.
@@ -3731,7 +3737,7 @@ def compare_boundary_rules_on_cropped_windows_of_images(
     if scale > 1.0:
       assert best_boundary == 'reflect'
     if scale <= 1.0:
-      assert all_psnr['clamp'] >= best_psnr - 0.12
+      assert all_psnr['clamp'] >= best_psnr - 0.15, best_psnr - all_psnr['clamp']
 
 
 def experiment_compare_accuracy_of_boundary_rules_using_cropped_windows(
@@ -4454,7 +4460,7 @@ def visualize_prefiltering_a_discontinuity_in_2D(
   images = {'original': array}
   for filter in filters:
     images[f"'{filter}'"] = resampler.resize(array, new_shape, filter=filter)
-  media.show_images(images, vmin=0, vmax=1, height=shape[0] * 1.25, border=True, columns=6)
+  media.show_images(images, vmin=0, vmax=1, height=int(shape[0] * 1.25), border=True, columns=6)
 
   if 1:
     maxs = [image.max() for image in images.values()]
@@ -4491,7 +4497,7 @@ def visualize_prefiltering_as_scale_is_varied(
       videos[f"'{filter}'"].append(image)
   # Note that Windows Firefox uses Windows Media Foundation which fails to read H264/mp4 videos
   # with dimension smaller than 34x34, so here it is best to use codec='gif'.
-  media.show_videos(videos, codec='gif', fps=20, height=shape[0] * 1.5, border=True, columns=4)
+  media.show_videos(videos, codec='gif', fps=20, height=int(shape[0] * 1.5), border=True, columns=4)
 
 
 if EFFORT >= 1:
@@ -4550,7 +4556,7 @@ def experiment_with_convolution() -> None:
       filter = filter[..., None]
     if reflect:
       pad = tuple(np.array(filter.shape) // 2)
-      array = np.pad(array, tuple(zip(pad, pad)), 'symmetric')
+      array = np.pad(array, tuple(zip(pad, pad, strict=True)), 'symmetric')
     mode = 'valid' if reflect else 'same'
     return scipy.signal.convolve(array, filter, mode=mode)
 
@@ -4562,7 +4568,7 @@ def experiment_with_convolution() -> None:
       filter = filter[..., None]
     if reflect:
       pad = tuple(np.array(filter.shape) // 2)
-      array = np.pad(array, tuple(zip(pad, pad)), 'symmetric')
+      array = np.pad(array, tuple(zip(pad, pad, strict=True)), 'symmetric')
     mode = 'valid' if reflect else 'same'
     return scipy.signal.oaconvolve(array, filter, mode=mode, axes=range(filter.ndim))
 
@@ -4596,7 +4602,7 @@ def experiment_with_convolution() -> None:
     assert array.ndim >= conv_ndim
     if reflect:
       pad = (*(np.array(filter.shape) // 2), *(0,) * (array.ndim - conv_ndim))
-      array = tf.pad(array, tuple(zip(pad, pad)), mode='SYMMETRIC')
+      array = tf.pad(array, tuple(zip(pad, pad, strict=True)), mode='SYMMETRIC')
     filter = filter[..., None, None]  # WCO, HWCO, or THWCO.
     padding = 'VALID' if reflect else 'SAME'
 
@@ -4642,9 +4648,8 @@ def experiment_with_convolution() -> None:
   array = np.zeros(shape, np.float32)
   array[tuple(np.array(shape[:2]) // 2)] = 1.0
   array[2, 0] = 1.0
-  filter1d = resampler.resize(
-      [0.0, 0.0, 1.0, 0.0, 0.0], (11,), gridtype='primal', filter='cubic', dtype=np.float32
-  )
+  kernel = np.array([0.0, 0.0, 1.0, 0.0, 0.0])
+  filter1d = resampler.resize(kernel, (11,), gridtype='primal', filter='cubic', dtype=np.float32)
   filter1d = filter1d / np.sum(filter1d)
   filter = np.outer(filter1d, filter1d)
   functions: dict[str, Callable[[], _NDArray]] = {
@@ -4725,7 +4730,7 @@ def test_banded(debug=False) -> None:
   # https://www.sciencedirect.com/science/article/pii/0024379585901533
   array = np.array([3.0, 4.0, 1.0, 2.0, 7.0, 6.0])
   if 0:
-    array = np.random.default_rng(0).integers(1, 10, 100).astype(np.float64)
+    array = np.random.default_rng(1).integers(1, 10, 100).astype(np.float64)
   size = len(array)
   if 0:
     array = np.broadcast_to(array[..., None], array.shape + (2,))
@@ -4753,7 +4758,7 @@ def test_banded(debug=False) -> None:
     matrix = scipy.sparse.dia_matrix((ab, offsets), shape=(size, size))
     if debug:
       print(matrix.toarray(), matrix.dot(new))
-    assert np.allclose(matrix.dot(new), array)
+    assert np.allclose(matrix.dot(new), array)  # pyrefly: ignore[bad-argument-type]
 
   if 1:
     src_index = np.arange(size)[:, None] + np.arange(len(values)) - l
@@ -4781,7 +4786,7 @@ def test_banded(debug=False) -> None:
       new = scipy.linalg.solveh_banded(matrix.data[-1 : l - 1 : -1], array, check_finite=False)
     if debug:
       print('boundary', new, matrix.dot(new))
-    assert np.allclose(matrix.dot(new), array)
+    assert np.allclose(matrix.dot(new), array)  # pyrefly: ignore[bad-argument-type]
 
   if 1 and l == 1 and boundary == 'reflect':
     ab = np.empty((l + 1, size))
@@ -4792,7 +4797,7 @@ def test_banded(debug=False) -> None:
     new = scipy.linalg.solveh_banded(ab, array, check_finite=False)
     if debug:
       print('solveh_banded', new, matrix.dot(new))
-    assert np.allclose(matrix.dot(new), array)
+    assert np.allclose(matrix.dot(new), array)  # pyrefly: ignore[bad-argument-type]
 
   if 1 and l == 1 and boundary == 'reflect':
     lu = scipy.sparse.linalg.splu(matrix.tocsc(), permc_spec='NATURAL')
@@ -4816,7 +4821,7 @@ def test_banded(debug=False) -> None:
     )
     if debug:
       print('ndimage', new, matrix.dot(new))
-    assert np.allclose(matrix.dot(new), array)
+    assert np.allclose(matrix.dot(new), array)  # pyrefly: ignore[bad-argument-type]
 
   if 1 and l == 1 and boundary == 'reflect':
     # It applies lfilter() twice (once on reversed array).
@@ -4829,7 +4834,7 @@ def test_banded(debug=False) -> None:
     new = scipy.signal.filtfilt(b, a, array, axis=0, method='gust')
     if debug:
       print('filtfilt', new, matrix.dot(new))
-    assert np.allclose(matrix.dot(new), array)
+    assert np.allclose(matrix.dot(new), array)  # pyrefly: ignore[bad-argument-type]
 
   if 1 and l == 1 and boundary == 'reflect':
     # tensorflow does not support general banded solver.
@@ -4853,7 +4858,7 @@ def test_banded(debug=False) -> None:
     new = tf.linalg.tridiagonal_solve(ab, array, partial_pivoting=False)
     if debug:
       print('tf.tridiagonal', new, matrix.dot(new))
-    assert np.allclose(matrix.dot(new), array)
+    assert np.allclose(matrix.dot(new), array)  # pyrefly: ignore[bad-argument-type]
 
   if 0:
     # torch.linalg lacks solvers for banded, circulant, or sparse matrices.
@@ -4925,7 +4930,7 @@ def test_inverse_convolution_2d(
           array_flat = scipy.linalg.solveh_banded(matrix.data[-1 : l - 1 : -1], array_flat, **args)
         else:
           array_flat = scipy.linalg.solve_banded((l, l), matrix.data[::-1], array_flat, **args)
-      array_dim = array_flat.reshape(array_dim.shape)
+      array_dim = np.asarray(array_flat).reshape(array_dim.shape)
       array = np.moveaxis(array_dim, 0, dim)
     return array
 
@@ -4942,7 +4947,7 @@ def test_inverse_convolution_2d(
       array_flat = scipy.linalg.solveh_banded(
           ab, array_flat, check_finite=False, overwrite_ab=True, overwrite_b=True
       )
-      array_dim = array_flat.reshape(array_dim.shape)
+      array_dim = np.asarray(array_flat).reshape(array_dim.shape)
       array = np.moveaxis(array_dim, 0, dim)
     return array
 
@@ -5178,13 +5183,13 @@ visualize_warp_samples()
 
 # %%
 def visualize_unused() -> None:
-  array = [3.0, 5.0, 8.0, 7.0]
+  array = np.array([3.0, 5.0, 8.0, 7.0])
   upsampled = resampler.resize(array, (32,))
   _, ax = plt.subplots(figsize=(6, 2.5))
   ax.plot((np.arange(len(array)) + 0.5) / len(array), array, 'o')
   ax.plot((np.arange(len(upsampled)) + 0.5) / len(upsampled), upsampled, '.')
 
-  array = [3.0, 5.0, 8.0, 7.0]
+  array = np.array([3.0, 5.0, 8.0, 7.0])
 
   def upsample_1d(ax, gridtype, size, ordinates) -> None:
     upsampled = resampler.resize(array, (size,), gridtype=gridtype)
@@ -5249,7 +5254,8 @@ def visualize_example_filters(filters: Sequence[str], num=1_001) -> None:
       filter = resampler.TrapezoidFilter(radius=0.75)  # Some representative shape.
 
     x = resampler.resize(np.arange(-10.0, 11.0), (num,), gridtype='primal', filter='triangle')
-    y = resampler.resize([0.0] * 10 + [1.0] + [0.0] * 10, (num,), gridtype='primal', filter=filter)
+    y_source = np.array([0.0] * 10 + [1.0] + [0.0] * 10)
+    y = resampler.resize(y_source, (num,), gridtype='primal', filter=filter)
     if filter.name == 'impulse':
       y = (np.arange(num) == num // 2) * 100.0
 

@@ -92,6 +92,18 @@ good-names-rgxs = "^[a-z][a-z0-9]?|[A-Z]([A-Z_]*[A-Z])?$"
 indent-string = "  "
 expected-line-ending-format = "LF"
 
+[tool.pyrefly]
+min-severity = "warn"
+# We exclude __init__.py because pyrefly cannot currently handle the constrained TypeVar _Array!
+# However, clients will still benefit from the typing provided by __init__.pyi .
+project-excludes = ["Other/**", "*.ipynb", "resampler_other*"]
+replace-imports-with-any = ["numba.*"]
+
+[tool.pyrefly.errors]
+redundant-condition = false
+missing-import = false
+untyped-import = false
+
 [tool.pytest.ini_options]
 addopts = "--ignore-glob '*.#*' --doctest-modules --ignore Old --ignore Other --ignore resampler_other.py --ignore resampler_other_big.py --ignore example_usage.py --ignore resampler_notebook.py"
 
@@ -101,3 +113,18 @@ exclude = ['Other', 'resampler_other*']
 disable = [
     # 'ignored-abstractmethod',
 ]
+
+[tool.ruff]
+extend-exclude = ["*.ipynb"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "B", "C", "UP", "SIM", "RUF", "NPY", "PTH", "PERF",
+    "ISC", "ICN", "PIE", "RET", "TID", "TC", "I",
+]
+extend-ignore = [
+    "E402", "E501", "E721", "E741",
+    "B010", "B028", "C408", "C901",
+    "TC003", "TC006", "SIM300", "ICN001", "RET504", "SIM905", "RUF005",
+]
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?)|unused_.*)$"

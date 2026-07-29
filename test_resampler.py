@@ -4,18 +4,19 @@
 
 c:/windows/sysnative/wsl -e bash -lc 'flake8 --indent-size 2 --max-line-length=1000 --extend-ignore E302,E741,E131,E305,E402 test_resampler.py && python3 test_resampler.py'
 """
-from collections.abc import Callable
 import functools
 import itertools
 import math
 import os
-from typing import Any, TypeAlias
 import unittest
 import warnings
+from collections.abc import Callable
+from typing import Any, TypeAlias
 
 import numpy as np
 import numpy.typing
-import scipy
+import scipy.interpolate
+import scipy.sparse
 
 import resampler
 
@@ -53,11 +54,11 @@ class TestResampler(unittest.TestCase):
     # Silence the warning in package flatbuffers.
     warnings.filterwarnings('ignore', message='.*the imp module is deprecated')
 
-  def test_resize_on_list(self) -> None:
-    lst = [3.0, 5.0, 8.0, 7.0]
+  def test_resize_on_array(self) -> None:
+    array = np.array([3.0, 5.0, 8.0, 7.0])
     expected = np.array([2.84536097, 3.6902174, 5.58573019, 7.77282572, 7.8097826, 6.79608312])
-    np.testing.assert_allclose(resampler.resize(lst, (6,)), expected)
-    np.testing.assert_allclose(resampler.resize(np.array(lst), (6,)), expected)
+    np.testing.assert_allclose(resampler.resize(array, (6,)), expected)
+    np.testing.assert_allclose(resampler.resize(np.array(array), (6,)), expected)
 
   def test_precision(self) -> None:
     _check_eq(resampler._real_precision(np.dtype(np.float32)), np.float32)
@@ -96,7 +97,7 @@ class TestResampler(unittest.TestCase):
     scipy_interp = create_scipy_interpolant(func, -radius, radius)
 
     shape = 2, 8_000
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(1)
     array = rng.random(shape, np.float32) * 2 * radius - radius
     result = {'expected': func(array), 'scipy': scipy_interp(array), 'obtained': func2(array)}
 
@@ -130,7 +131,7 @@ class TestResampler(unittest.TestCase):
           assert min_size <= math.prod(block_shape) <= math.prod(shape)
 
   def test_split_2d(self) -> None:
-    numpy_array = np.random.default_rng(0).choice([1, 2, 3, 4], (5, 8))
+    numpy_array = np.random.default_rng(1).choice([1, 2, 3, 4], (5, 8))
     for arraylib in resampler.ARRAYLIBS:
       array = resampler._make_array(numpy_array, arraylib)
       blocks = resampler._split_array_into_blocks(array, [2, 3])
@@ -142,7 +143,7 @@ class TestResampler(unittest.TestCase):
 
   def test_split_3d(self) -> None:
     shape = 4, 3, 2
-    numpy_array = np.random.default_rng(0).choice([1, 2, 3, 4], shape)
+    numpy_array = np.random.default_rng(1).choice([1, 2, 3, 4], shape)
 
     for arraylib in resampler.ARRAYLIBS:
       array = resampler._make_array(numpy_array, arraylib)
@@ -275,8 +276,8 @@ class TestResampler(unittest.TestCase):
 
         def resize_matrix(arraylib: str) -> Any:
           return resampler._create_resize_matrix(
-              src_size,
-              dst_size,
+              src_size,  # noqa: B023
+              dst_size,  # noqa: B023
               src_gridtype=resampler.DualGridtype(),
               dst_gridtype=resampler.DualGridtype(),
               boundary=resampler._get_boundary('reflect'),
@@ -405,7 +406,7 @@ class TestResampler(unittest.TestCase):
 
   def test_identity_resampling(self) -> None:
     shape = 3, 2, 5
-    array = np.random.default_rng(0).random(shape)
+    array = np.random.default_rng(1).random(shape)
     coords = (np.moveaxis(np.indices(array.shape), 0, -1) + 0.5) / array.shape
     new = resampler.resample(array, coords)
     assert np.allclose(new, array, rtol=0, atol=1e-6)
@@ -446,7 +447,7 @@ class TestResampler(unittest.TestCase):
     new_shape = 4, 2, 7
     step = 37
     assert np.all(np.array(shape) <= new_shape)
-    array = np.random.default_rng(0).random(shape)
+    array = np.random.default_rng(1).random(shape)
     scale = 1.1
     translate = -0.4, -0.03, 0.4
     gammas = 'identity power2'.split()  # Sublist of resampler.GAMMAS.
