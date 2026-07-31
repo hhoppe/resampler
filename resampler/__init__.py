@@ -2267,11 +2267,9 @@ class SrgbGamma(Gamma):
   def encode(self, array: _Array, /, dtype: _DTypeLike) -> _Array:
     x = _arr_clip(array, 0.0, 1.0)
     # Unfortunately, exponentiation is slow, and np.digitize() is even slower.
-    # pytype: disable=wrong-arg-types
     x = _arr_where(
         typing.cast(_Array, x > 0.0031308), x ** (1.0 / 2.4) * 1.055 - (0.055 - 1e-17), x * 12.92
     )
-    # pytype: enable=wrong-arg-types
     return _from_float(x, dtype)
 
 

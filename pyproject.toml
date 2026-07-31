@@ -47,17 +47,18 @@ build-backend = "flit_core.buildapi"
 
 [tool.autopep8]
 indent_size = 2
-ignore = "E121,E125,E126,E129,E226,E302,E305,E501,W504,E741,E20,W503,E731"
-exclude = "Other,resampler_other*,.ipynb_checkpoints"
+ignore = "E111,E114,E121,E125,E126,E129,E226,E302,E305,E501,W504,E741,E20,W503,E731"
 aggressive = 3
 recursive = true
+exclude = "Other,resampler_other*,.ipynb_checkpoints"
 
 [tool.mypy]
 cache_dir = "~/.cache/mypy"
 ignore_missing_imports = true
 strict = true
-exclude = "(^Other|^resampler_other)"
 warn_return_any = false  # numpy typing is buggy.
+files = ["."]
+exclude = "(^Other|^resampler_other)"
 
 [[tool.mypy.overrides]]
 module = ["jax.*", "torch.*"]  # mypy seems to run forever on jax; and slowly on torch.
@@ -94,10 +95,8 @@ expected-line-ending-format = "LF"
 
 [tool.pyrefly]
 min-severity = "warn"
-# We exclude __init__.py because pyrefly cannot currently handle the constrained TypeVar _Array!
-# However, clients will still benefit from the typing provided by __init__.pyi .
-project-excludes = ["Other/**", "*.ipynb", "resampler_other*"]
 replace-imports-with-any = ["numba.*"]
+project-excludes = ["Other/**", "*.ipynb", "resampler_other*"]
 
 [tool.pyrefly.errors]
 redundant-condition = false
@@ -109,10 +108,8 @@ addopts = "--ignore-glob '*.#*' --doctest-modules --ignore Old --ignore Other --
 
 [tool.pytype]
 keep_going = true
+inputs = ["."]
 exclude = ['Other', 'resampler_other*']
-disable = [
-    # 'ignored-abstractmethod',
-]
 
 [tool.ruff]
 extend-exclude = ["*.ipynb"]
