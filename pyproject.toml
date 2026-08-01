@@ -84,7 +84,7 @@ disable = [
 reports = false
 score = false
 recursive = true
-ignore-paths = [".*ipynb_checkpoints", "^.pytype", ".*/.pytype", "Other", "resampler_other.*"]
+ignore-paths = [".*ipynb_checkpoints", "Other", "resampler_other.*"]
 
 [tool.pylint.basic]
 good-names-rgxs = "^[a-z][a-z0-9]?|[A-Z]([A-Z_]*[A-Z])?$"
@@ -105,11 +105,6 @@ untyped-import = false
 
 [tool.pytest.ini_options]
 addopts = "--ignore-glob '*.#*' --doctest-modules --ignore Old --ignore Other --ignore resampler_other.py --ignore resampler_other_big.py --ignore example_usage.py --ignore resampler_notebook.py"
-
-[tool.pytype]
-keep_going = true
-inputs = ["."]
-exclude = ["Other", "resampler_other*"]
 
 [tool.ruff]
 extend-exclude = ["*.ipynb"]
