@@ -2960,7 +2960,7 @@ if EFFORT >= 1:
 # %%
 def test_jax2() -> None:
   def resized_sum(array: resampler._Array) -> Any:
-    return resampler.resize(array, (3, 3)).sum()
+    return typing.cast(Any, resampler.resize(array, (3, 3))).sum()
 
   array = jnp.ones((2, 2))
   new = jax.grad(resized_sum)(array)
