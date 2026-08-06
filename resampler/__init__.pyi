@@ -28,20 +28,17 @@ if typing.TYPE_CHECKING:
   # (1) Strictly take all the dependencies on these large packages.
   import jax.experimental.sparse
   import jax.numpy
-  import tensorflow as tf
   import torch
 
-  _TensorflowTensor: TypeAlias = tf.Tensor
   _TorchTensor: TypeAlias = torch.Tensor
   _JaxArray: TypeAlias = jax.numpy.ndarray
 
   # (2) Bypass the dependencies to speed up mypy.
-  # _TensorflowTensor: TypeAlias = Any
   # _TorchTensor: TypeAlias = Any
   # _JaxArray: TypeAlias = Any
 
-  _Array = TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
-  _AnyArray = _NDArray | _TensorflowTensor | _TorchTensor | _JaxArray
+  _Array = TypeVar('_Array', _NDArray, _TorchTensor, _JaxArray)
+  _AnyArray = _NDArray | _TorchTensor | _JaxArray
 
 else:
   # Create named types for use in the `pdoc` documentation.
@@ -50,7 +47,6 @@ else:
   _DTypeLike = TypeVar('_DTypeLike')
   _ArrayLike = TypeVar('_ArrayLike')
 
-  _TensorflowTensor = TypeVar('_TensorflowTensor')
   _TorchTensor = TypeVar('_TorchTensor')
   _JaxArray = TypeVar('_JaxArray')
 
@@ -340,9 +336,6 @@ def resize_in_arraylib(
 def resize_in_numpy(
     array: _NDArray, shape: Iterable[int], /, *args: Any, **kwargs: Any
 ) -> _NDArray: ...
-def resize_in_tensorflow(
-    array: _NDArray, shape: Iterable[int], /, *args: Any, **kwargs: Any
-) -> _NDArray: ...
 def resize_in_torch(
     array: _NDArray, shape: Iterable[int], /, *args: Any, **kwargs: Any
 ) -> _NDArray: ...
@@ -444,9 +437,6 @@ def _skimage_transform_resize(
     boundary: str = 'reflect',
     cval: float = 0.0,
 ) -> _NDArray: ...
-def _tf_image_resize(
-    array: _ArrayLike, /, shape: Iterable[int], *, filter: str, antialias: bool = True
-) -> _TensorflowTensor: ...
 def _torch_nn_resize(
     array: _ArrayLike, /, shape: Iterable[int], *, filter: str, antialias: bool = False
 ) -> _TorchTensor: ...
@@ -602,7 +592,6 @@ def _numba_parallel_csr_dense_mult(
     dst: _NDArray,
 ) -> None: ...
 
-_TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER: dict[str, str]
 _TORCH_INTERPOLATE_MODE_FROM_FILTER: dict[str, str]
 _OFTUSED_BOUNDARIES: list[str]
 _DICT_GRIDTYPES: dict[str, Gridtype]

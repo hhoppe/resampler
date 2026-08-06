@@ -22,7 +22,6 @@ import resampler
 
 _ArrayLike: TypeAlias = numpy.typing.ArrayLike
 _NDArray: TypeAlias = numpy.typing.NDArray[Any]
-_TensorflowTensor: TypeAlias = Any
 
 # pylint: disable=protected-access, missing-function-docstring, too-many-public-methods
 
@@ -293,10 +292,6 @@ class TestResampler(unittest.TestCase):
           match arraylib:
             case 'numpy':
               result = sparse_matrix.toarray()
-            case 'tensorflow':
-              import tensorflow as tf
-
-              result = tf.sparse.to_dense(sparse_matrix).numpy()
             case 'torch':
               result = sparse_matrix.to_dense().numpy()
             case 'jax':
@@ -477,7 +472,6 @@ class TestResampler(unittest.TestCase):
     configs.append((resampler._cv_resize, 'lanczos4'))
     configs.append((resampler._scipy_ndimage_resize, 'cardinal3'))
     configs.append((resampler._skimage_transform_resize, 'cardinal3'))
-    configs.append((resampler._tf_image_resize, 'lanczos3'))
     configs.append((resampler._torch_nn_resize, 'sharpcubic'))
     configs.append((resampler._jax_image_resize, 'lanczos3'))
     for config in configs:
