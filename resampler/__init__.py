@@ -9,7 +9,7 @@ from __future__ import annotations
 # __init__.pyi (for the actual content)!
 
 __docformat__ = 'google'
-__version__ = '1.0.4'
+__version__ = '1.1.0'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 import abc
@@ -52,14 +52,12 @@ _USING_NUMBA = hasattr(numba, 'jit')
 if typing.TYPE_CHECKING:
   import jax.experimental.sparse
   import jax.numpy
-  import tensorflow as tf
   import torch
 
   _DType: TypeAlias = np.dtype[Any]
   _NDArray: TypeAlias = npt.NDArray[Any]
   _DTypeLike: TypeAlias = npt.DTypeLike
   _ArrayLike: TypeAlias = npt.ArrayLike
-  _TensorflowTensor: TypeAlias = tf.Tensor
   _TorchTensor: TypeAlias = torch.Tensor
   _JaxArray: TypeAlias = jax.numpy.ndarray
 
@@ -70,12 +68,11 @@ else:
   _NDArray: TypeAlias = Any
   _DTypeLike: TypeAlias = Any
   _ArrayLike: TypeAlias = Any
-  _TensorflowTensor: TypeAlias = Any
   _TorchTensor: TypeAlias = Any
   _JaxArray: TypeAlias = Any
 
-_Array = TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
-_AnyArray = _NDArray | _TensorflowTensor | _TorchTensor | _JaxArray
+_Array = TypeVar('_Array', _NDArray, _TorchTensor, _JaxArray)
+_AnyArray = _NDArray | _TorchTensor | _JaxArray
 
 
 def _check_eq(a: Any, b: Any, /) -> None:
@@ -317,7 +314,7 @@ class _Arraylib(abc.ABC, Generic[_Array]):
   """Abstract base class for abstraction of array libraries."""
 
   arraylib: str
-  """Name of array library (e.g., `'numpy'`, `'tensorflow'`, `'torch'`, `'jax'`)."""
+  """Name of array library (e.g., `'numpy'`, `'torch'`, `'jax'`)."""
 
   array: _Array
 
@@ -440,7 +437,6 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
   def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     # Our heuristics: (1) a dimension with small scaling (especially minification) gets priority,
     # and (2) timings show preference to resizing dimensions with larger strides first.
-    # (Of course, tensorflow.Tensor lacks strides, so (2) does not apply.)
     # The optimal ordering might be related to the logic in np.einsum_path().  (Unfortunately,
     # np.einsum() does not support the sparse multiplications that we require here.)
     src_shape: tuple[int, ...] = self.array.shape[: len(dst_shape)]
@@ -493,107 +489,6 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
       data: _NDArray, row_ind: _NDArray, col_ind: _NDArray, shape: tuple[int, int]
   ) -> scipy.sparse.csr_matrix:
     return scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape=shape)
-
-
-class _TensorflowArraylib(_Arraylib[_TensorflowTensor]):
-  """Tensorflow implementation of the array abstraction."""
-
-  def __init__(self, array: _NDArray) -> None:
-    import tensorflow
-
-    self.tf = tensorflow
-    super().__init__(arraylib='tensorflow', array=self.tf.convert_to_tensor(array))
-
-  @staticmethod
-  def recognize(array: Any) -> bool:
-    # Eager: tensorflow.python.framework.ops.Tensor
-    # Non-eager: tensorflow.python.ops.resource_variable_ops.ResourceVariable
-    return type(array).__module__.startswith('tensorflow.')
-
-  def numpy(self) -> _NDArray:
-    return self.array.numpy()
-
-  def dtype(self) -> _DType:
-    return np.dtype(self.array.dtype.as_numpy_dtype)
-
-  def astype(self, dtype: _DTypeLike) -> _TensorflowTensor:
-    return self.tf.cast(self.array, dtype)
-
-  def reshape(self, shape: tuple[int, ...]) -> _TensorflowTensor:
-    return self.tf.reshape(self.array, shape)
-
-  def clip(self, low: Any, high: Any, dtype: _DTypeLike | None = None) -> _TensorflowTensor:
-    array = self.array
-    if dtype is not None:
-      array = self.tf.cast(array, dtype)
-    return self.tf.clip_by_value(array, low, high)
-
-  def square(self) -> _TensorflowTensor:
-    return self.tf.square(self.array)
-
-  def sqrt(self) -> _TensorflowTensor:
-    return self.tf.sqrt(self.array)
-
-  def getitem(self, indices: Any) -> _TensorflowTensor:
-    if isinstance(indices, tuple):
-      basic = all(isinstance(x, (type(None), type(Ellipsis), int, slice)) for x in indices)
-      if not basic:
-        # We require tf.gather_nd(), which unfortunately requires broadcast expansion of indices.
-        assert all(isinstance(a, np.ndarray) for a in indices)
-        assert all(a.ndim == indices[0].ndim for a in indices)
-        broadcast_indices = np.broadcast_arrays(*indices)  # list of np.ndarray
-        indices_array = np.moveaxis(np.array(broadcast_indices), 0, -1)
-        return self.tf.gather_nd(self.array, indices_array)
-    elif _arr_dtype(indices).type in (np.uint8, np.uint16):
-      indices = self.tf.cast(indices, np.int32)
-    return self.tf.gather(self.array, indices)
-
-  def where(self, if_true: Any, if_false: Any) -> _TensorflowTensor:
-    condition = self.array
-    return self.tf.where(condition, if_true, if_false)
-
-  def transpose(self, axes: Sequence[int]) -> _TensorflowTensor:
-    return self.tf.transpose(self.array, tuple(axes))
-
-  def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
-    # Note that a tensorflow.Tensor does not have strides.
-    # Our heuristic is to process dimension 1 first iff dimension 0 is upsampling.  Improve?
-    src_shape = typing.cast(tuple[int, ...], tuple(self.array.shape[: len(dst_shape)]))
-    dims = list(range(len(src_shape)))
-    if len(dims) > 1 and dst_shape[0] / src_shape[0] > 1.0:
-      dims[:2] = [1, 0]
-    return dims
-
-  def premult_with_sparse(
-      self, sparse: tf.sparse.SparseTensor, num_threads: int | Literal['auto']
-  ) -> _TensorflowTensor:
-    import tensorflow as tf
-
-    del num_threads
-    if np.issubdtype(_arr_dtype(self.array), np.complexfloating):
-      sparse = sparse.with_values(_arr_astype(sparse.values, _arr_dtype(self.array)))
-    return tf.sparse.sparse_dense_matmul(sparse, self.array)
-
-  @staticmethod
-  def concatenate(arrays: Sequence[_TensorflowTensor], axis: int) -> _TensorflowTensor:
-    import tensorflow as tf
-
-    return tf.concat(arrays, axis)
-
-  @staticmethod
-  def einsum(subscripts: str, *operands: _TensorflowTensor) -> _TensorflowTensor:
-    import tensorflow as tf
-
-    return tf.einsum(subscripts, *operands, optimize='greedy')
-
-  @staticmethod
-  def make_sparse_matrix(
-      data: _NDArray, row_ind: _NDArray, col_ind: _NDArray, shape: tuple[int, int]
-  ) -> _TensorflowTensor:
-    import tensorflow as tf
-
-    indices = np.vstack((row_ind, col_ind)).T
-    return tf.sparse.SparseTensor(indices, data, shape)
 
 
 class _TorchArraylib(_Arraylib[_TorchTensor]):
@@ -806,14 +701,13 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
 
 _CANDIDATE_ARRAYLIBS = {
     'numpy': _NumpyArraylib,
-    'tensorflow': _TensorflowArraylib,
     'torch': _TorchArraylib,
     'jax': _JaxArraylib,
 }
 
 
 def _is_available(arraylib: str) -> bool:
-  """Return whether the array library (e.g. 'tensorflow') is available as an installed package."""
+  """Return whether the array library (e.g. 'torch') is available as an installed package."""
   # Faster than trying to import it.
   return importlib.util.find_spec(arraylib) is not None  # type: ignore[attr-defined]
 
@@ -966,12 +860,18 @@ def _make_array(array: _ArrayLike, arraylib: str, /) -> Any:
   return _DICT_ARRAYLIBS[arraylib](np.asarray(array)).array
 
 
-# Because np.ndarray supports strides, np.moveaxis() and np.permute() are constant-time.
-# However, ndarray.reshape() often creates a copy of the array if the data is non-contiguous,
-# e.g. dim=1 in an RGB image.
+# Because np.ndarray supports strides, np.moveaxis() and np.transpose() are constant-time.
+# However, ndarray.reshape() creates a copy whenever the new shape cannot be expressed using
+# strides, e.g. dim=1 in an RGB image.
+#
+# torch.Tensor also supports strides, so torch.movedim() is constant-time and
+# Tensor.reshape() has the same copy-when-necessary behavior as numpy.
 #
 # In contrast, tf.Tensor does not support strides, so tf.transpose() returns a new permuted
 # tensor.  However, tf.reshape() is always efficient.
+#
+# For jax.Array, both operations lower to XLA ops; under jit the compiler often fuses away
+# the transpose and turns the reshape into a bitcast, so neither has a fixed cost.
 
 
 def _block_shape_with_min_size(
@@ -2465,30 +2365,6 @@ def _apply_digital_filter_1d(
   assert filter.requires_digital_filter
   arraylib = _arr_arraylib(array)
 
-  if arraylib == 'tensorflow':
-    import tensorflow as tf
-
-    def forward(x: _NDArray) -> _NDArray:
-      return _apply_digital_filter_1d_numpy(x, gridtype, boundary, cval, filter, axis, False)
-
-    def backward(grad_output: _NDArray) -> _NDArray:
-      return _apply_digital_filter_1d_numpy(
-          grad_output, gridtype, boundary, cval, filter, axis, True
-      )
-
-    @tf.custom_gradient  # type: ignore[untyped-decorator]
-    def tensorflow_inverse_convolution(x: _TensorflowTensor) -> Any:
-      # Although `forward` accesses parameters gridtype, boundary, etc., it is not stateful
-      # because the function is redefined on each invocation of _apply_digital_filter_1d.
-      y = tf.numpy_function(forward, [x], x.dtype, stateful=False)
-
-      def grad(grad_output: _TensorflowTensor) -> _TensorflowTensor:
-        return tf.numpy_function(backward, [grad_output], x.dtype, stateful=False)
-
-      return y, grad
-
-    return tensorflow_inverse_convolution(array)
-
   if arraylib == 'torch':
     import torch.autograd
 
@@ -2901,11 +2777,6 @@ def resize_in_arraylib(array: _NDArray, /, *args: Any, arraylib: str, **kwargs: 
 def resize_in_numpy(array: _NDArray, /, *args: Any, **kwargs: Any) -> _NDArray:
   """Evaluate the `resize()` operation using the `numpy` library."""
   return resize_in_arraylib(array, *args, arraylib='numpy', **kwargs)
-
-
-def resize_in_tensorflow(array: _NDArray, /, *args: Any, **kwargs: Any) -> _NDArray:
-  """Evaluate the `resize()` operation using the `tensorflow` library."""
-  return resize_in_arraylib(array, *args, arraylib='tensorflow', **kwargs)
 
 
 def resize_in_torch(array: _NDArray, /, *args: Any, **kwargs: Any) -> _NDArray:
@@ -3698,52 +3569,6 @@ def _skimage_transform_resize(
   )  # type: ignore[no-untyped-call]
 
 
-_TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER = {
-    'impulse': 'nearest',
-    'trapezoid': 'area',
-    'triangle': 'bilinear',
-    'mitchell': 'mitchellcubic',
-    'cubic': 'bicubic',
-    'lanczos3': 'lanczos3',
-    'lanczos5': 'lanczos5',
-    # GaussianFilter(0.5): 'gaussian',  # radius_4 > desired_radius_3.
-}
-
-
-def _tf_image_resize(
-    array: _ArrayLike,
-    /,
-    shape: Iterable[int],
-    *,
-    filter: str,
-    boundary: str = 'natural',
-    cval: float = 0.0,
-    antialias: bool = True,
-) -> _TensorflowTensor:
-  """Invoke `tf.image.resize` using the same parameters as `resize`."""
-  import tensorflow as tf
-
-  if filter not in _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER:
-    raise ValueError(f'{filter=} not in {_TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER=}.')
-  if boundary != 'natural':
-    raise ValueError(f"{boundary=} must equal 'natural'.")
-  del cval
-  array2 = tf.convert_to_tensor(array)
-  ndim = len(array2.shape)
-  del array
-  assert 1 <= ndim <= 3
-  shape = tuple(shape)
-  _check_eq(len(shape), 2 if ndim >= 2 else 1)
-  match ndim:
-    case 1:
-      return _tf_image_resize(array2[None], (1, *shape), filter=filter, antialias=antialias)[0]
-    case 2:
-      return _tf_image_resize(array2[..., None], shape, filter=filter, antialias=antialias)[..., 0]
-    case _:
-      method = _TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER[filter]
-      return tf.image.resize(array2, shape, method=method, antialias=antialias)
-
-
 _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
     'impulse': 'nearest-exact',  # ('nearest' matches buggy OpenCV's INTER_NEAREST)
     'trapezoid': 'area',
@@ -3841,7 +3666,6 @@ _CANDIDATE_RESIZERS = {
     'cv.resize': _cv_resize,
     'scipy.ndimage.map_coordinates': _scipy_ndimage_resize,
     'skimage.transform.resize': _skimage_transform_resize,
-    'tf.image.resize': _tf_image_resize,
     'torch.nn.functional.interpolate': _torch_nn_resize,
     'jax.image.scale_and_translate': _jax_image_resize,
 }
@@ -3850,7 +3674,7 @@ _CANDIDATE_RESIZERS = {
 def _resizer_is_available(library_function: str) -> bool:
   """Return whether the resizer is available as an installed package."""
   top_name = library_function.split('.', 1)[0]
-  module = {'PIL': 'Pillow', 'cv': 'cv2', 'tf': 'tensorflow'}.get(top_name, top_name)
+  module = {'PIL': 'Pillow', 'cv': 'cv2'}.get(top_name, top_name)
   return importlib.util.find_spec(module) is not None  # type: ignore[attr-defined]
 
 
@@ -3868,7 +3692,6 @@ def _find_closest_filter(filter: str, resizer: Callable[..., Any]) -> str:
       return {
           _cv_resize: 'trapezoid',
           _skimage_transform_resize: 'box',
-          _tf_image_resize: 'trapezoid',
           _torch_nn_resize: 'trapezoid',
       }.get(resizer, 'box')
     case 'cubic_like':

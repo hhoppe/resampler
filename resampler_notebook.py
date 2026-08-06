@@ -37,7 +37,7 @@
 # - any **numeric type** (e.g., `uint8`, `float64`, `complex128`)
 #
 # - within several [**array libraries**](#Array-libraries)
-#   (`numpy`, `tensorflow`, `torch`, and `jax`);
+#   (`numpy`, `torch`, and `jax`);
 #
 # - either `'dual'` ("half-integer") or `'primal'` [**grid-type**](#Grid-types--dual-and-primal-)
 #   for each dimension;
@@ -52,12 +52,11 @@
 # - prefiltering for accurate **antialiasing** when `resize` downsampling;
 #
 # - efficient backpropagation of [**gradients**](#Gradient-backpropagation)
-#   for `tensorflow`, `torch`, and `jax`;
+#   for `torch`, and `jax`;
 #
 # - few dependencies (only `numpy` and `scipy`) and **no C extension code**, yet
 #
-# - [**faster resizing**](#Test-other-libraries) than C++ implementations
-#   in `tf.image` and `torch.nn`.
+# - [**faster resizing**](#Test-other-libraries) than C++ implementation in`torch.nn`.
 #
 # A key strategy is to leverage existing sparse matrix representations and tensor operations.
 
@@ -301,8 +300,8 @@
 # !python -c "exit(__import__('importlib.util').util.find_spec('cv2') is None)" || pip install -q opencv-python-headless
 
 # %%
-# !pip install -q autopep8 hhoppe-tools "jax[cpu]" matplotlib mediapy mypy numba numpy \
-#   pdoc Pillow pyink pylint pytest resampler scipy scikit-image tensorflow-cpu torch
+# !pip install -q autopep8 hhoppe-tools jax matplotlib mediapy mypy numba numpy \
+#   pdoc Pillow pyink pylint pyrefly pytest resampler ruff scipy scikit-image torch
 
 # %%
 # # %load_ext autoreload
@@ -325,7 +324,6 @@ import functools
 import heapq
 import itertools
 import math
-import os
 import pathlib
 import sys
 import typing
@@ -351,7 +349,6 @@ import scipy.signal
 import scipy.sparse.linalg
 import skimage
 import skimage.metrics
-import tensorflow as tf
 import torch
 import torch.autograd
 
@@ -363,10 +360,9 @@ import resampler
 
 _ArrayLike: TypeAlias = numpy.typing.ArrayLike
 _NDArray: TypeAlias = numpy.typing.NDArray[Any]
-_TensorflowTensor: TypeAlias = resampler._TensorflowTensor
 _TorchTensor: TypeAlias = resampler._TorchTensor
 _JaxArray: TypeAlias = resampler._JaxArray
-_Array = TypeVar('_Array', _NDArray, _TensorflowTensor, _TorchTensor, _JaxArray)
+_Array = TypeVar('_Array', _NDArray, _TorchTensor, _JaxArray)
 _AnyArray: TypeAlias = resampler._AnyArray
 
 _UNICODE_DAGGER = '\u2020'
@@ -384,14 +380,6 @@ assert 0 <= EFFORT <= 3
 _ORIGINAL_GLOBALS = list(globals())
 _: Any = np.seterr(all='raise')  # Let all numpy warnings raise errors.
 hh.start_timing_notebook_cells()
-
-# %%
-# Silence "This TensorFlow binary is optimized with oneAPI.."; https://stackoverflow.com/a/42121886
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
-
-# %%
-# Silence tf warning: "TqdmWarning: IProgress not found. Please update jupyter and ipywidgets."
-warnings.filterwarnings('ignore', message='IProgress not found')  # category=tqdm.TqdmWarning
 
 # %%
 # Silence "...but a CUDA-enabled jaxlib is not installed. Falling back to cpu."
@@ -514,16 +502,38 @@ def get_ssim(image1: _NDArray, image2: _NDArray) -> float:
   _check_eq(image1.shape, image2.shape)
   assert np.issubdtype(image1.dtype, np.floating)
   assert np.issubdtype(image2.dtype, np.floating)
-  if 1:
-    func = skimage.metrics.structural_similarity
-    kwargs = dict(data_range=1.0, gaussian_weights=True, sigma=1.5, use_sample_covariance=False)
-    if image1.ndim == 3:
-      kwargs |= dict(channel_axis=2)
-    # Infers win_size=11.
-    return float(func(image1, image2, **kwargs))  # type: ignore[no-untyped-call]
+  func = skimage.metrics.structural_similarity
+  kwargs = dict(data_range=1.0, gaussian_weights=True, sigma=1.5, use_sample_covariance=False)
+  if image1.ndim == 3:
+    kwargs |= dict(channel_axis=2)
+  # Infers win_size=11.
+  return float(func(image1, image2, **kwargs))  # type: ignore[no-untyped-call]
 
-  # Identical result but ~10x slower.  Default filter_size=11, filter_sigma=1.5.
-  return float(tf.image.ssim(image1, image2, max_val=1.0))
+
+# %%
+def _reference_ssim(image1: _NDArray, image2: _NDArray, max_val: float = 1.0) -> float:
+  """Return self-contained SSIM for use as an independent cross-check."""
+  filter_size, filter_sigma, k1, k2 = 11, 1.5, 0.01, 0.03
+  x = np.arange(filter_size) - (filter_size - 1) / 2
+  kernel = np.exp(-0.5 * (x / filter_sigma) ** 2)
+  kernel /= kernel.sum()
+
+  def blur(image: _NDArray) -> _NDArray:
+    """Return the separably filtered image, cropped to the 'valid' support."""
+    for axis in range(2):
+      image = scipy.ndimage.correlate1d(image, kernel, axis=axis, mode='constant')
+    pad = filter_size // 2
+    return image[pad:-pad, pad:-pad]
+
+  image1, image2 = np.atleast_3d(image1), np.atleast_3d(image2)
+  mean1, mean2 = blur(image1), blur(image2)
+  sum_mean2 = mean1**2 + mean2**2
+  cov = blur(image1 * image2) - mean1 * mean2
+  sum_var = blur(image1**2) + blur(image2**2) - sum_mean2
+  c1, c2 = (k1 * max_val) ** 2, (k2 * max_val) ** 2
+  luminance = (2 * mean1 * mean2 + c1) / (sum_mean2 + c1)
+  cs = (2 * cov + c2) / (sum_var + c2)
+  return float(np.mean(luminance * cs))
 
 
 # %%
@@ -536,7 +546,7 @@ def test_ssim() -> None:
   image3 = scipy.ndimage.convolve(image1, filter, mode='reflect')
   time1, ssim1 = hh.get_time_and_result(lambda: get_ssim(image1, image3))
   assert 0.75 < ssim1 < 0.9  # Blurring causes loss of structural detail.
-  time2, ssim2 = hh.get_time_and_result(lambda: float(tf.image.ssim(image1, image3, max_val=1.0)))
+  time2, ssim2 = hh.get_time_and_result(lambda: _reference_ssim(image1, image3))
   if EFFORT >= 2:
     print(f'{ssim1=:.6f} {ssim2=:.6f}  {time1=:.4f} {time2=:.4f}')
   assert abs(ssim1 - ssim2) < 0.0001
@@ -544,7 +554,7 @@ def test_ssim() -> None:
 
 if EFFORT >= 1:
   test_ssim()
-# ssim1=0.789012 ssim2=0.789010  time1=0.0029 time2=0.0354
+# ssim1=0.789012 ssim2=0.789012  time1=0.0027 time2=0.0020
 
 
 # %%
@@ -1337,7 +1347,7 @@ if EFFORT >= 1:
 
 
 # %% [markdown]
-# # Other libs (PIL, cv, tf, torch, ...)
+# # Other libs (PIL, cv, torch, ...)
 
 # %% [markdown]
 # **PIL.Image.resize:**
@@ -1522,51 +1532,6 @@ def test_skimage_transform_resize() -> None:
 
 test_skimage_transform_resize()
 
-# %% [markdown]
-# **tf.image.resize:**
-
-# %%
-# https://www.tensorflow.org/api_docs/python/tf/image/resize
-# It is differentiable.
-# https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/ops/image_ops_impl.py#L1549
-# https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/image/sampling_kernels.h
-# https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/image/scale_and_translate_op.cc
-# The sparse matrix multiply is in GatherRows() then GatherColumns().
-#  method='bilinear'  # or 'area', 'bicubic', 'gaussian', 'lanczos3',
-#                     #   'lanczos5', 'mitchellcubic', 'nearest'.
-#  Only 2D domain; only boundary rule is 'natural' (IgnoreOutside); only dual (half-integer) grid.
-
-
-# %%
-def test_tf_image_resize(debug=False) -> None:
-  # https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/image/resize_area_op.cc
-  original_shape = 32, 32, 1
-  array = np.random.default_rng(1).random(original_shape)
-  filters = list(resampler._TENSORFLOW_IMAGE_RESIZE_METHOD_FROM_FILTER)
-  shapes = [(16, 13), (64, 53)]  # Try both downsampling and upsampling.
-  antialiases = [True, False]
-  for config in itertools.product(filters, shapes, antialiases):
-    filter, shape, antialias = config
-    downsampling = np.any(np.array(shape) < np.array(original_shape[:2]))
-    if downsampling and not antialias:
-      continue  # Avoid comparing against poor (aliased) downsampling.
-    if filter == 'cubic' and not antialias:
-      continue  # Cubic without `antialias` uses an older, different code path.
-    tfi_result = resampler._tf_image_resize(
-        array, shape, filter=filter, antialias=antialias
-    ).numpy()
-    reference = resampler.resize(array, shape, boundary='natural', filter=filter)
-    # atol=4e-6 works most of the time, but fails intermittently, likely due to parallelism.
-    assert np.allclose(tfi_result, reference, rtol=0, atol=1e-5), config
-    rms = np.sqrt(np.mean(np.square(tfi_result - reference)))
-    if debug:
-      print(f'{filter:10} {antialias=:1}  {rms=:.2e}')
-    assert rms < 1e-6, (config, rms)
-
-
-if EFFORT >= 1:
-  test_tf_image_resize()
-
 
 # %% [markdown]
 # **torch.nn.functional.interpolate:**
@@ -1714,7 +1679,6 @@ def experiment_parallelism() -> None:
 if EFFORT >= 1:
   experiment_parallelism()
 # arraylib=numpy     : 0.277488   1.78x
-# arraylib=tensorflow: 0.326846  15.86x
 # arraylib=torch     : 0.259070  10.02x
 # arraylib=jax       : 0.688079   2.86x
 
@@ -1994,13 +1958,9 @@ def experiment_with_resize_timing() -> None:
       }
       functions: dict[str, Callable[[], _AnyArray]] = {
           'np': lambda: resampler.resize(array_for_lib['numpy'], *args, **kwargs),
-          'tf': lambda: resampler.resize(array_for_lib['tensorflow'], *args, **kwargs),
           'to': lambda: resampler.resize(array_for_lib['torch'], *args, **kwargs),
           'jax': lambda: resampler.resize(array_for_lib['jax'], *args, **kwargs),
           'jj': lambda: resampler.jaxjit_resize(array_for_lib['jax'], *args, **kwargs),
-          'tfi': lambda: resampler._tf_image_resize(
-              array_for_lib['tensorflow'], *args, filter=resampler._DEFAULT_FILTER
-          ),
       }
       src_str = str(src_shape).replace(' ', '')
       dst_str = str(dst_shape).replace(' ', '')
@@ -2024,27 +1984,27 @@ def experiment_with_resize_timing() -> None:
 
 if EFFORT >= 2:
   experiment_with_resize_timing()
-# uint8   (1024,1024,1)->(4096,4096) np:0.065 tf:0.091 to:0.081 jax:0.139 jj:0.196 tfi:0.204 s
-# float32 (1024,1024,1)->(4096,4096) np:0.030 tf:0.029 to:0.041 jax:0.106 jj:0.202 tfi:0.199 s
-# float64 (1024,1024,1)->(4096,4096) np:0.042 tf:0.053 to:0.078 jax:0.211 jj:0.266 tfi:0.205 s
+# uint8   (1024,1024,1)->(4096,4096) np:0.065 to:0.081 jax:0.139 jj:0.196 s
+# float32 (1024,1024,1)->(4096,4096) np:0.030 to:0.041 jax:0.106 jj:0.202 s
+# float64 (1024,1024,1)->(4096,4096) np:0.042 to:0.078 jax:0.211 jj:0.266 s
 
-# uint8   (1024,1024,3)->(4096,4096) np:0.172 tf:0.284 to:0.250 jax:0.630 jj:0.362 tfi:0.281 s
-# float32 (1024,1024,3)->(4096,4096) np:0.065 tf:0.087 to:0.124 jax:0.325 jj:0.289 tfi:0.273 s
-# float64 (1024,1024,3)->(4096,4096) np:0.113 tf:0.166 to:0.214 jax:0.701 jj:0.521 tfi:0.282 s
+# uint8   (1024,1024,3)->(4096,4096) np:0.172 to:0.250 jax:0.630 jj:0.362 s
+# float32 (1024,1024,3)->(4096,4096) np:0.065 to:0.124 jax:0.325 jj:0.289 s
+# float64 (1024,1024,3)->(4096,4096) np:0.113 to:0.214 jax:0.701 jj:0.521 s
 
-# uint8   (1000,2000,3)->(100,200)   np:0.006 tf:0.010 to:0.013 jax:0.047 jj:0.029 tfi:0.006 s
-# float32 (1000,2000,3)->(100,200)   np:0.005 tf:0.007 to:0.009 jax:0.035 jj:0.033 tfi:0.006 s
-# float64 (1000,2000,3)->(100,200)   np:0.007 tf:0.010 to:0.011 jax:0.082 jj:0.056 tfi:0.009 s
+# uint8   (1000,2000,3)->(100,200)   np:0.006 to:0.013 jax:0.047 jj:0.029 s
+# float32 (1000,2000,3)->(100,200)   np:0.005 to:0.009 jax:0.035 jj:0.033 s
+# float64 (1000,2000,3)->(100,200)   np:0.007 to:0.011 jax:0.082 jj:0.056 s
 
-# uint8   (8192,8192,3)->(2048,2048) np:0.361 tf:0.586 to:0.512 jax:1.782 jj:1.225 tfi:0.346 s
-# float32 (8192,8192,3)->(2048,2048) np:0.238 tf:0.220 to:0.286 jax:1.390 jj:1.202 tfi:0.359 s
-# float64 (8192,8192,3)->(2048,2048) np:0.434 tf:0.438 to:0.545 jax:3.109 jj:2.497 tfi:0.457 s
+# uint8   (8192,8192,3)->(2048,2048) np:0.361 to:0.512 jax:1.782 jj:1.225 s
+# float32 (8192,8192,3)->(2048,2048) np:0.238 to:0.286 jax:1.390 jj:1.202 s
+# float64 (8192,8192,3)->(2048,2048) np:0.434 to:0.545 jax:3.109 jj:2.497 s
 
 
 # %%
 def test_compare_timing_of_resize_and_media_show_image() -> None:
   array = np.full((8192, 8192, 3), 0.5, np.float32)
-  time_resize = hh.get_time(lambda: resampler.resize(array, (256, 256)))
+  time_resize = hh.get_time(lambda: resampler.resize(array, (256, 256)))  # show_image also ??
   time_pil = hh.get_time(lambda: media.show_image(array, height=256))
   print(f'Timing: resize:{time_resize:.1f} media_pil:{time_pil:.1f} s')
   # Timing: resize:0.1 media_pil:1.5 s
@@ -2123,11 +2083,9 @@ def test_profile_downsampling(
   functions: dict[str, Callable[[], Any]] = {
       'resize_serial': lambda: resampler.resize_in_numpy(*a, filter=filter, num_threads=1),
       'resize_in_numpy': lambda: resampler.resize_in_numpy(*a, filter=filter),
-      'resize_in_tensorflow': lambda: resampler.resize_in_tensorflow(*a, filter=filter),
       'resize_in_torch': lambda: resampler.resize_in_torch(*a, filter=filter),
       'resize_in_jax': lambda: resampler.resize_in_jax(*a, filter=filter),
       'jaxjit_resize': lambda: resampler.jaxjit_resize(*a, filter=filter),
-      '_tf_image_resize': lambda: resampler._tf_image_resize(*a, filter=filter),
   }
   if filter == 'trapezoid':
     functions = {
@@ -2180,11 +2138,9 @@ if EFFORT >= 2:
 # %%
 # ** (2000, 4000, 3) -> (100, 200) trapezoid float32:
 # resize_in_numpy     : 0.007 s
-# resize_in_tensorflow: 0.063 s
 # resize_in_torch     : 0.008 s
 # resize_in_jax       : 0.059 s
 # jaxjit_resize       : 0.021 s
-# _tf_image_resize    : 0.064 s
 # reshape_mean        : 0.108 s
 # reshape2            : 0.107 s
 # reshape3            : 0.117 s
@@ -2195,17 +2151,14 @@ if EFFORT >= 2:
 # reduceat            : 0.015 s
 # ** (2000, 4000, 3) -> (100, 200) lanczos3 float32:
 # resize_in_numpy     : 0.016 s
-# resize_in_tensorflow: 0.074 s
 # resize_in_torch     : 0.021 s
 # resize_in_jax       : 0.142 s
 # jaxjit_resize       : 0.122 s
-# _tf_image_resize    : 0.070 s
 
 # %% [markdown]
 # Conclusions:
 # - For `'box'`/`'trapezoid'` downsampling, the numba-jitted _DownsampleIn2dUsingBoxFilter path used
-#   in `resampler.resize_in_numpy` is the fastest --- even faster than the C++ code in
-#   `tf.image.resize`.
+#   in `resampler.resize_in_numpy` is the fastest.
 # - For `'lanczos3'` downsampling, `resampler.resize_in_numpy` is the fastest, thanks to _numba_parallel_csr_dense_mult().
 
 
@@ -2220,11 +2173,9 @@ def test_profile_upsampling(
   torch_filter = {'cubic': 'sharpcubic'}.get(filter, filter)
   functions: dict[str, Callable[[], _AnyArray]] = {
       'resize_in_numpy': lambda: resampler.resize_in_numpy(*a, filter=filter),
-      'resize_in_tensorflow': lambda: resampler.resize_in_tensorflow(*a, filter=filter),
       'resize_in_torch': lambda: resampler.resize_in_torch(*a, filter=filter),
       'resize_in_jax': lambda: resampler.resize_in_jax(*a, filter=filter),
       'jaxjit_resize': lambda: resampler.jaxjit_resize(*a, filter=filter),
-      '_tf_image_resize': lambda: resampler._tf_image_resize(*a, filter=filter, antialias=False),
       '_cv_resize': lambda: resampler._cv_resize(*a, filter=cv_filter),
   }
   if filter in ['cubic', 'triangle', 'trapezoid']:
@@ -2281,9 +2232,7 @@ if EFFORT >= 2:
 
 # %% [markdown]
 # Conclusions:
-# - For `'lanczos3'` upsampling, `resampler.resize` is faster than `tf.image.resize`.
-# - Thanks to its hardcoded `'cubic'` and `'triangle'` implementations (invoked only when
-#   `antialias=False`), `tf.image.resize` is faster, but not by that much.
+# - ??
 
 # %% [markdown]
 # # Applications and experiments
@@ -2695,86 +2644,6 @@ if EFFORT >= 1:
 # <a name="Gradient-backpropagation"></a>
 
 # %% [markdown]
-# - Tensorflow gradient-descent optimization:
-
-
-# %%
-def test_tensorflow_optimize_image_for_desired_upsampling(
-    operation='resize',
-    num_steps=30,
-    debug=False,
-    src_shape=(8, 8, 3),
-    dst_shape=(16, 16),
-    filter='triangle',
-) -> None:
-  array_np = np.full(src_shape, 0.5, np.float32)
-  array = tf.Variable(tf.convert_to_tensor(array_np))
-  desired = resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=np.float32)
-  coords = np.moveaxis(np.indices(dst_shape) + 0.5, 0, -1) / dst_shape
-
-  def get_keras_resize_model() -> tf.keras.Model:
-    x_in = tf.keras.Input(shape=src_shape, batch_size=1)
-
-    def func(x):
-      return resampler.resize(x, (x.shape[0], *dst_shape), filter=filter)
-
-    x = tf.keras.layers.Lambda(func)(x_in)
-    return tf.keras.Model(inputs=x_in, outputs=x)
-
-  keras_resize_model = get_keras_resize_model()
-  if 0:
-    keras_resize_model.summary()
-
-  def model(array) -> tf.Tensor:
-    functions: dict[str, Callable[[], tf.Tensor]] = {
-        'resize': lambda: resampler.resize(array, dst_shape, filter=filter),
-        'resample': lambda: resampler.resample(array, coords, filter=filter),
-        'keras_resize': lambda: keras_resize_model(array[None])[0],
-    }
-    return functions[operation]()
-
-  def compute_loss(upsampled) -> tf.Tensor:
-    # The learning_rate must be adapted to the magnitude of the loss value, which changes between
-    # reduce_sum() and reduce_mean().
-    return tf.math.reduce_mean(tf.math.squared_difference(upsampled, desired))
-
-  learning_rate = 1e2
-  for _ in range(num_steps):
-    with tf.GradientTape() as tape:
-      loss = compute_loss(model(array))
-    gradient = tape.gradient(loss, array)
-    array.assign_sub(learning_rate * gradient)
-
-  # This approach from TensorFlow 1 is no longer supported in TensorFlow 2.
-  # learning_rate = 1e-1
-  # optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-  # optimizer = tf.optimizers.Adam(learning_rate=learning_rate)
-  # for _ in range(num_steps):
-  #   optimizer.minimize(lambda: compute_loss(model(array)), [array])
-
-  upsampled = model(array)
-  rms = get_rms(upsampled, desired)
-  if debug:
-    print(f'{operation=} {filter=} rms_loss={rms:.4f}')
-    images = {'optimized': array, 'upsampled': upsampled, 'desired': desired}
-    media.show_images(images, height=80, border=True)
-  assert rms < 0.08, operation
-
-
-def test_tensorflow_optimize_image_for_desired_upsamplings() -> None:
-  operations = 'resize resample keras_resize'.split()
-  filters = 'triangle cardinal3'.split()
-  for config in itertools.product(operations, filters):
-    operation, filter = config
-    test_tensorflow_optimize_image_for_desired_upsampling(operation=operation, filter=filter)
-
-
-if EFFORT >= 1:
-  test_tensorflow_optimize_image_for_desired_upsampling(debug=True)
-  test_tensorflow_optimize_image_for_desired_upsamplings()
-
-
-# %% [markdown]
 # - Torch gradient-descent optimization:
 
 
@@ -3002,68 +2871,66 @@ if 0:
 # Can auto-vectorization jax.vmap(func) be used to generate a 2D convolution from a function
 # expressing a single-element combination of its neighbors?
 
-# pip install -U 'jax[cuda]' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-
 # # !nvcc --version  # CUDA version.
 
 # %% [markdown]
-# - Use Tensorflow to solve for an image whose spiral upsampling matches a desired image:
+# - Use Tensorflow to solve for an image whose spiral upsampling matches a desired image: ??
 
 
 # %%
-def experiment_image_optimized_for_spiral_resampling(
-    num_steps=30,
-    src_shape=(32, 32, 3),
-    dst_shape=(64, 64),
-    regularization_weight=0.0,
-    smoothness_weight=0.0,
-) -> None:
-  array_np = np.full(src_shape, 0.5, np.float32)
-  array = tf.Variable(tf.convert_to_tensor(array_np))
-  desired = resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=np.float32)
+# def experiment_image_optimized_for_spiral_resampling(
+#     num_steps=30,
+#     src_shape=(32, 32, 3),
+#     dst_shape=(64, 64),
+#     regularization_weight=0.0,
+#     smoothness_weight=0.0,
+# ) -> None:
+#   array_np = np.full(src_shape, 0.5, np.float32)
+#   array = tf.Variable(tf.convert_to_tensor(array_np))
+#   desired = resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=np.float32)
 
-  yx = ((np.indices(dst_shape).T + 0.5) / dst_shape - 0.5).T  # [-0.5, 0.5]^2
-  # pyrefly: ignore  # It is a Pyrefly internal error.
-  radius, angle = np.linalg.norm(yx, axis=0), np.arctan2(*yx)
-  angle += (0.8 - radius).clip(0, 1) * 2.0 - 0.6
-  coords = np.dstack((np.sin(angle) * radius, np.cos(angle) * radius)) + 0.5
+#   yx = ((np.indices(dst_shape).T + 0.5) / dst_shape - 0.5).T  # [-0.5, 0.5]^2
+#   # pyrefly: ignore  # It is a Pyrefly internal error.
+#   radius, angle = np.linalg.norm(yx, axis=0), np.arctan2(*yx)
+#   angle += (0.8 - radius).clip(0, 1) * 2.0 - 0.6
+#   coords = np.dstack((np.sin(angle) * radius, np.cos(angle) * radius)) + 0.5
 
-  def model(array) -> tf.Tensor:
-    return resampler.resample(array, coords)
+#   def model(array) -> tf.Tensor:
+#     return resampler.resample(array, coords)
 
-  def compute_loss(array, upsampled) -> tf.Tensor:
-    data_loss = tf.math.reduce_mean(tf.math.squared_difference(upsampled, desired))
-    regularization_loss = regularization_weight * tf.math.reduce_mean(array**2)
-    num_pixels = tf.size(array, out_type=tf.float32) / 3
-    smoothness_loss = smoothness_weight * (tf.image.total_variation(array) / num_pixels) ** 2
-    return data_loss + regularization_loss + smoothness_loss
+#   def compute_loss(array, upsampled) -> tf.Tensor:
+#     data_loss = tf.math.reduce_mean(tf.math.squared_difference(upsampled, desired))
+#     regularization_loss = regularization_weight * tf.math.reduce_mean(array**2)
+#     num_pixels = tf.size(array, out_type=tf.float32) / 3
+#     smoothness_loss = smoothness_weight * (tf.image.total_variation(array) / num_pixels) ** 2
+#     return data_loss + regularization_loss + smoothness_loss
 
-  learning_rate = 1e3
-  for _ in range(num_steps):
-    with tf.GradientTape() as tape:
-      loss = compute_loss(array, model(array))
-    gradient = tape.gradient(loss, array)
-    array.assign_sub(learning_rate * gradient)
-    if 0:
-      print(f'mse={get_rms(model(array), desired)**2:8.6f}  {loss=:8.6f}')
+#   learning_rate = 1e3
+#   for _ in range(num_steps):
+#     with tf.GradientTape() as tape:
+#       loss = compute_loss(array, model(array))
+#     gradient = tape.gradient(loss, array)
+#     array.assign_sub(learning_rate * gradient)
+#     if 0:
+#       print(f'mse={get_rms(model(array), desired)**2:8.6f}  {loss=:8.6f}')
 
-  resampled = model(array)
-  images = {'optimized': array, 'resampled': resampled, 'desired': desired}
-  media.show_images(images, height=192, border=True)
-  psnr = get_psnr(resampled, desired)
-  print(f'PSNR={psnr:.2f} dB')
-  assert np.allclose(psnr, 22.4, 0.05), (psnr, regularization_weight, smoothness_weight)
+#   resampled = model(array)
+#   images = {'optimized': array, 'resampled': resampled, 'desired': desired}
+#   media.show_images(images, height=192, border=True)
+#   psnr = get_psnr(resampled, desired)
+#   print(f'PSNR={psnr:.2f} dB')
+#   assert np.allclose(psnr, 22.4, 0.05), (psnr, regularization_weight, smoothness_weight)
 
 
-if EFFORT >= 1:
-  hh.display_html('Without regularization, unconstrained pixels keep their initial gray values:')
-  experiment_image_optimized_for_spiral_resampling()
+# if EFFORT >= 1:
+#   hh.display_html('Without regularization, unconstrained pixels keep their initial gray values:')
+#   experiment_image_optimized_for_spiral_resampling()
 
-  hh.display_html('With regularization, unconstrained regions get small values (black):')
-  experiment_image_optimized_for_spiral_resampling(regularization_weight=0.04)
+#   hh.display_html('With regularization, unconstrained regions get small values (black):')
+#   experiment_image_optimized_for_spiral_resampling(regularization_weight=0.04)
 
-  hh.display_html('Smoothness destroys the high-frequency content:')
-  experiment_image_optimized_for_spiral_resampling(smoothness_weight=1e-2)
+#   hh.display_html('Smoothness destroys the high-frequency content:')
+#   experiment_image_optimized_for_spiral_resampling(smoothness_weight=1e-2)
 
 # %% [markdown]
 # ## Block partition and timing
@@ -3149,15 +3016,6 @@ if EFFORT >= 2:
 # max_block_size=   400_000 12.285 s
 # max_block_size=   800_000 12.772 s
 # max_block_size= 4_000_000 13.195 s
-
-# tensorflow:
-# max_block_size=     4_000 12.112 s
-# max_block_size=    10_000 9.869 s
-# max_block_size=    40_000 8.055 s
-# max_block_size=   100_000 8.761 s
-# max_block_size=   400_000 11.052 s
-# max_block_size=   800_000 10.833 s
-# max_block_size= 4_000_000 12.151 s
 
 # torch:
 # max_block_size=     4_000 7.758 s
@@ -4593,28 +4451,6 @@ def experiment_with_convolution() -> None:
       filter = filter[..., None]
     return scipy.ndimage.convolve(array, filter, mode='reflect')
 
-  def tensorflow_convolve(array, filter, reflect=False) -> _NDArray:
-    """Convolve the array [*dims, *sample_shape] with the filter [*dims]."""
-    array = tf.convert_to_tensor(array)
-    filter = tf.convert_to_tensor(filter)
-    conv_ndim = filter.ndim
-    assert conv_ndim in (1, 2, 3)
-    assert array.ndim >= conv_ndim
-    if reflect:
-      pad = (*(np.array(filter.shape) // 2), *(0,) * (array.ndim - conv_ndim))
-      array = tf.pad(array, tuple(zip(pad, pad, strict=True)), mode='SYMMETRIC')
-    filter = filter[..., None, None]  # WCO, HWCO, or THWCO.
-    padding = 'VALID' if reflect else 'SAME'
-
-    def recurse(array) -> tf.Tensor:
-      if array.ndim > conv_ndim:
-        return tf.stack([recurse(array[..., i]) for i in range(array.shape[-1])], axis=-1)
-      array = array[None, ..., None]  # BWC, BHWC, or BTHWC.
-      return tf.nn.conv2d(array, filter, strides=1, padding=padding)[0, ..., 0]
-
-    # Note: separable_conv2d() might be simpler but is much slower on CPU.
-    return recurse(array).numpy()
-
   def torch_convolve(array, filter, reflect=False) -> _NDArray:
     """Convolve the array [*dims, *sample_shape] with the filter [*dims]."""
     array = torch.as_tensor(array)
@@ -4660,8 +4496,6 @@ def experiment_with_convolution() -> None:
       'scipy.sepfir2d': lambda: scipy_sepfir2d(array, filter1d),  # reflect
       'numpy_fftconvolve': lambda: numpy_fftconvolve(array, filter),  # periodic
       'ndimage.convolve': lambda: ndimage_convolve(array, filter),  # selectable
-      'tf_convolve': lambda: tensorflow_convolve(array, filter),  # zero-padding
-      'tf_convolve_r': lambda: tensorflow_convolve(array, filter, reflect=True),
       # 'torch_convolve': lambda: torch_convolve(array, filter),  # zero-padding
       'torch_convolve_r': lambda: torch_convolve(array, filter, reflect=True),
   }
@@ -4712,7 +4546,6 @@ if EFFORT >= 1:
 # - `scipy.ndimage.convolve`: nice flexible boundary conditions, but slower.
 # - `sepfir2d`: fast and supports `'reflect'` boundaries,
 #   but only operates in 2D and using the same filter for both axes.
-# - `tf.nn.separable_conv2d` is horribly slow on the CPU.
 # - `torch.nn.functional.conv2d` with padding is slow; instead we implement it ourselves.
 # - `scipy.convolve` and `torch.conv2d` are both fast!
 # - However, all these convolutions are ~10x slower than the "strided convolution" in the
@@ -4834,30 +4667,6 @@ def test_banded(debug=False) -> None:
     new = scipy.signal.filtfilt(b, a, array, axis=0, method='gust')
     if debug:
       print('filtfilt', new, matrix.dot(new))
-    assert np.allclose(matrix.dot(new), array)  # pyrefly: ignore[bad-argument-type]
-
-  if 1 and l == 1 and boundary == 'reflect':
-    # tensorflow does not support general banded solver.
-    # tf.linalg.banded_triangular_solve(): only upper or only lower diagonals.
-    # tf.linalg.tridiagonal_solve(): 1 lower diagonal and 1 upper diagonal.
-    # Possibly the matrix can be factored into a sequence of the above.
-    # tf.linalg.LinearOperatorCirculant().inverse() uses FFT (dense).
-    # For TF2: https://stackoverflow.com/a/63583413
-    # For splu using TF1: https://stackoverflow.com/a/46913675
-    # For tf.keras: https://stackoverflow.com/a/62921079
-    # Limitation of tf.py_function: the resulting model cannot be serialized!
-
-    ab = np.empty((2 * l + 1, size))
-    ab[:] = values[:, None]
-    ab[1, 0] = ab[1, 0] + values[0]
-    ab[0, -1] = UNDEFINED
-    ab[1, -1] = ab[1, -1] + values[2]
-    ab[-1, 0] = UNDEFINED
-    ab = tf.convert_to_tensor(ab)
-    array = tf.convert_to_tensor(array)
-    new = tf.linalg.tridiagonal_solve(ab, array, partial_pivoting=False)
-    if debug:
-      print('tf.tridiagonal', new, matrix.dot(new))
     assert np.allclose(matrix.dot(new), array)  # pyrefly: ignore[bad-argument-type]
 
   if 0:
@@ -5301,12 +5110,11 @@ visualize_example_filters('impulse box trapezoid triangle cubic lanczos3 lanczos
 #
 # | Library | `ndim` | Array type | Data type | Grid type | Upsample | Antialiased downsample | Boundary rule | Speed | Native code | Grad &nabla; |
 # |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-# | `resampler.resize` | any | `np`, `tf`, `torch`, `jax` | any | dual, primal | any filter | any filter | many | average | <font size="-2">`scipy.sparse`<br/>or `numba`</font> | yes |
+# | `resampler.resize` | any | `np`, `torch`, `jax` | any | dual, primal | any filter | any filter | many | average | <font size="-2">`scipy.sparse`<br/>or `numba`</font> | yes |
 # | `PIL.Image.resize` | 2D | custom | `float32`, `uint8` | dual | up to `'lanczos3'` | good | `'natural'` | slow | [C](https://github.com/python-pillow/Pillow/blob/main/src/libImaging/Resample.c) | no |
 # | `cv.resize` | 2D | custom | `float32` | dual | up to `'lanczos4'` | `'trapezoid'` (AREA) | `'clamp'` | fast | [C++](https://github.com/opencv/opencv/blob/next/modules/imgproc/src/resize.cpp) | no |
 # | `scipy.ndimage.`<br/>&nbsp;`map_coordinates` | any | `np` | any | dual, primal | cardinal B-splines | aliased &#9785; | several | very slow | [C](https://github.com/scipy/scipy/blob/main/scipy/ndimage/src/ni_interpolation.c) | no |
 # | `skimage.transform.`<br/>&nbsp;`resize` | any | `np` | any | dual, primal | cardinal B-splines | Gaussian &#9785; | several | very slow | [<font size="-2">`scipy.ndimage`</font>](https://github.com/scikit-image/scikit-image/blob/main/skimage/transform/_warps.py) | no |
-# | `tf.image.resize` | 2D | `tf` | `float32` | dual | up to `'lanczos5'` | good | `'natural'` | average | [C++](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/core/kernels/image/scale_and_translate_op.cc) | yes |
 # | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `'trapezoid'`, `'triangle'`, `'cubic'` | `'clamp'` | average | [C++](https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/UpSampleBicubic2d.cpp) | yes |
 # | `jax.image.resize` | any | `jax` | `float`, `complex` | dual | up to `'lanczos5'` | good but no `'trapezoid'` | `'natural'` | average | [<font size="-2">`opt_einsum`</font>](https://github.com/google/jax/blob/main/jax/_src/image/scale.py) | yes |
 #
@@ -5348,7 +5156,6 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0) -> None:
       'resize sharpcubic': lambda: resampler.resize(*a, filter='sharpcubic'),
       'resize cubic': lambda: resampler.resize(*a, filter='cubic'),
       'resize triangle': lambda: resampler.resize(*a, filter='triangle'),
-      'resize_in_tf lanczos3': lambda: resampler.resize_in_tensorflow(*a, filter='lanczos3'),
       'resize_in_torch lanczos3': lambda: resampler.resize_in_torch(*a, filter='lanczos3'),
       'resize_in_jax lanczos3': lambda: resampler.resize_in_jax(*a, filter='lanczos3'),
       'jaxjit_resize lanczos3': lambda: resampler.jaxjit_resize(*a, filter='lanczos3'),
@@ -5361,12 +5168,6 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0) -> None:
       'skimage.transform.resize': lambda: resampler._skimage_transform_resize(
           *a, filter='cardinal3'
       ),
-      'tf.resize lanczos5': lambda: resampler._tf_image_resize(*a, filter='lanczos5'),
-      'tf.resize lanczos3': lambda: resampler._tf_image_resize(*a, filter='lanczos3'),
-      # 'tf.resize cubic new': lambda: resampler._tf_image_resize(*a, filter='cubic'),  # newer; resize_with_scale_and_translate('keyscubic')
-      'tf.resize cubic (aa False)': lambda: resampler._tf_image_resize(
-          *a, filter='cubic', antialias=False
-      ),  # older; gen_image_ops.resize_bicubic()
       'torch.nn.interp sharpcubic': lambda: resampler._torch_nn_resize(*a, filter='sharpcubic'),
       'torch.nn.interpolate triangle': lambda: resampler._torch_nn_resize(*a, filter='triangle'),
       # 'torch.nn.interp cubic AA': lambda: resampler._torch_nn_resize(*a, filter='sharpcubic', antialias=True),
@@ -5406,8 +5207,6 @@ if EFFORT >= 3:
 # %% [markdown]
 # Conclusions for upsampling:
 # - The cardinal spline of `order=3` does as well as `'lanczos3'`.
-# - `tf.resize` using `'lanczos5'` and `boundary='natural'` is slightly worse
-#   than `resampler.resize` using `'lanczos5'` and `boundary='reflect'` near the boundary.
 # - `jaxjit_resize` gives good speedups.
 # - `resampler.resize` is generally fast, but is not as fast as `torch.nn.interp` for cubic upsampling or
 #   as fast as OpenCV for cubic and Lanczos upsampling.
@@ -5442,8 +5241,6 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
       'resize triangle': lambda: resampler.resize(*a, filter='triangle'),
       'resize trapezoid': lambda: resampler.resize(*a, filter='trapezoid'),
       'resize box': lambda: resampler.resize(*a, filter='box'),
-      'resize_in_tf lanczos3': lambda: resampler.resize_in_tensorflow(*a),
-      'resize_in_tf trapezoid': lambda: resampler.resize_in_tensorflow(*a, filter='trapezoid'),
       'resize_in_torch lanczos3': lambda: resampler.resize_in_torch(*a),
       'resize_in_torch trapezoid': lambda: resampler.resize_in_torch(*a, filter='trapezoid'),
       'resize_in_jax lanczos3': lambda: resampler.resize_in_jax(*a),
@@ -5459,8 +5256,6 @@ def experiment_compare_downsampling_with_other_libraries(gridscale=0.1, shape=(1
       'skimage.transform.resize': lambda: resampler._skimage_transform_resize(
           *a, filter='cardinal3'
       ),
-      'tf.resize lanczos3': lambda: resampler._tf_image_resize(*a, filter='lanczos3'),
-      'tf.resize trapezoid': lambda: resampler._tf_image_resize(*a, filter='trapezoid'),
       # 'torch.nn.interpolate cubic': lambda: resampler._torch_nn_resize(*a, filter='sharpcubic'),
       # 'torch.nn.interpolate triangle': lambda: resampler._torch_nn_resize(*a, filter='triangle'),
       'torch.nn.interp cubic AA': lambda: resampler._torch_nn_resize(
@@ -5539,9 +5334,8 @@ test_downsample_timing()
 # - The `skimage.transform.resize` also requires `anti_aliasing=True` and it introduces a
 #   Gaussian prefilter which prevents aliasing but is blurry.
 # - OpenCV's best downsampling filter is `AREA`, which is not as sharp as a Lanczos filter.
-# - The `resampler.resize` box-filtering (using `numba`) is as fast as the C++
-#   `tf.image.resize` and `OpenCV` implementations.
-# - `resampler.resize` achieves the fastest downsampling with a Lanczos filter.
+# - The `resampler.resize` box-filtering (using `numba`) is as fast as the C++ `OpenCV` implementation.
+# - `resampler.resize` achieves the fastest downsampling with a Lanczos or trapezoid filter.
 
 # %% [markdown]
 # ## Elongated arrays
@@ -5566,7 +5360,6 @@ if 0:
 # cv.resize                       : 50.6 µs
 # scipy.ndimage.map_coordinates   : 5.39 ms
 # skimage.transform.resize        : 3.24 ms
-# tf.image.resize                 : 2.69 ms
 # torch.nn.functional.interpolate : 237 µs
 # jax.image.scale_and_translate   : 72.6 ms
 
@@ -5639,10 +5432,13 @@ def run_lint() -> None:
   """Run checks on *.py notebook code (saved using jupytext or from menu)."""
   if pathlib.Path('resampler_notebook.py').is_file():
     # On SageMaker Studio Lab, if autopep8 sees ~/.config/pycodestyle, ./pyproject.toml is ignored.
-    hh.run('echo autopep8; autopep8 --global-config skip -j8 -d .')
-    hh.run('echo pyink; pyink --diff .')
-    hh.run('echo mypy; mypy . || true')
+    hh.run('echo pyink; pyink --diff . || true')
+    hh.run('echo ruff; ruff check || true')
+    hh.run('echo autopep8; autopep8 -j8 -d .')
+    hh.run('echo pyrefly; pyrefly check 2>/dev/null || true')
+    hh.run('echo mypy; mypy || true')
     hh.run('echo pylint; pylint -j8 . || true')
+    hh.run('echo pytest; pytest -qq')
 
 
 if EFFORT >= 2:
@@ -5652,7 +5448,7 @@ if EFFORT >= 2:
 # %% [markdown]
 # In Windows Emacs, use `compile` command:
 # ```shell
-# c:/windows/sysnative/wsl -e bash -lc 'echo autopep8; autopep8 -j8 -d .; echo pyink; pyink --diff .; echo mypy; mypy .; echo pylint; pylint -j8 .; echo All ran.'
+# wsl -e bash -lc 'echo pyink; pyink --diff .; echo ruff; ruff check; echo autopep8; autopep8 -j8 -d .; echo pyrefly; pyrefly check 2>/dev/null; echo mypy; mypy; echo pylint; pylint -j8 .; echo pytest; pytest -qq; echo All ran.'
 # ```
 
 # %%

@@ -33,7 +33,7 @@ It supports:
 - any **numeric type** (e.g., `uint8`, `float64`, `complex128`)
 
 - within several **array libraries**
-  (`numpy`, `tensorflow`, `torch`, and `jax`);
+  (`numpy`, `torch`, and `jax`);
 
 - either `'dual'` ("half-integer") or `'primal'` **grid-type** for each dimension;
 
@@ -45,13 +45,11 @@ It supports:
 
 - prefiltering for accurate **antialiasing** when `resize` downsampling;
 
-- efficient backpropagation of **gradients**
-  for `tensorflow`, `torch`, and `jax`;
+- efficient backpropagation of **gradients** for `torch` and `jax`;
 
 - few dependencies (only `numpy` and `scipy`) and **no C extension code**, yet
 
-- **faster resizing** than C++ implementations
-  in `tf.image` and `torch.nn`.
+- **faster resizing** than C++ implementation in `torch.nn`.
 
 A key strategy is to leverage existing sparse matrix representations and operations.
 
