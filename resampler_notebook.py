@@ -309,6 +309,7 @@
 
 # %%
 """Python notebook demonstrating the `resampler` package."""
+
 try:  # noqa: SIM105
   # WSL2 workaround: force early load to claim glibc static TLS before torch.
   import triton  # noqa: F401  # pylint: disable=unused-import
@@ -3427,20 +3428,16 @@ def visualize_all_boundary_rules_in_1d() -> None:
 
   display_markdown("**`gridtype='dual'`:**")
   visualize_boundary_rules_in_1d()
-  display_markdown(
-      """&emsp; &emsp; Graphics
+  display_markdown("""&emsp; &emsp; Graphics
     [texture sampling](https://www.khronos.org/opengl/wiki/Sampler_Object)
     supports a `'dual'` grid with the `'box'` or `'triangle'` filter, using the
-    `'reflect'`, `'wrap'`, `'clamp'`, `'reflect_clamp'`, or `'border'` boundary."""
-  )
+    `'reflect'`, `'wrap'`, `'clamp'`, `'reflect_clamp'`, or `'border'` boundary.""")
 
   display_markdown("<br/>**`gridtype='primal'`:**")
   visualize_boundary_rules_in_1d(gridtype='primal')
-  display_markdown(
-      r"""&emsp; &emsp; ${}^\dagger$To create a continuous periodic
+  display_markdown(r"""&emsp; &emsp; ${}^\dagger$To create a continuous periodic
     reconstruction, the last sample is ignored for the `'wrap'` boundary rule
-    on a `'primal'` grid."""
-  )
+    on a `'primal'` grid.""")
 
   display_markdown('<br/>**For filters_summary figure:**')
   boundaries = 'reflect wrap tile clamp natural linear quadratic'.split()
@@ -3466,9 +3463,7 @@ def visualize_boundary_rules_in_2d(
         table.show_images2 div div:nth-of-type(2) { padding-top: 5px; }
         .show_images2 td { padding:1px; }
       </style>
-    """.replace(
-        'FONT-SIZE', 'medium' if hh.in_colab() else 'small'
-    )
+    """.replace('FONT-SIZE', 'medium' if hh.in_colab() else 'small')
     hh.display_html(text)
 
   # array = np.array([[1.0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0], [0, 1, 0, 0]])
