@@ -2420,7 +2420,7 @@ def _apply_digital_filter_1d(
 
       return y, grad
 
-    return jax_inverse_convolution(array)
+    return typing.cast(Any, jax_inverse_convolution(array))
 
   assert arraylib == 'numpy'
   array_np: Any = array
