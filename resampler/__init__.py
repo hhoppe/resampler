@@ -244,8 +244,8 @@ class _DownsampleIn2dUsingBoxFilter:
       result = jitted_function(a)
     except RuntimeError:
       message = (
-          'resampler: This runtime error may be due to a corrupt resampler/__pycache__;'
-          ' try deleting that directory.'
+          'resampler: This runtime error may be due to a corrupt pycache; '
+          ' try deleting ~/.cache/numba/resampler_*/ and/or ./resampler/__pycache__/ .'
       )
       print(message, file=sys.stdout, flush=True)
       print(message, file=sys.stderr, flush=True)
