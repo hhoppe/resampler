@@ -1716,7 +1716,8 @@ def test_jit_timing() -> None:
 
 
 # We can re-save the file ./resampler/__init__.py to force rejitting.
-# Cached signatures in ./resampler/__pycache__/__init__._numba_serial_csr_dense_mult-*.py310.nbi
+# Cached signatures in ~/.cache/numba/resampler_*/__init__._numba_serial_csr_dense_mult-*.py3*.nbi
+#  or in ./resampler/__pycache__/__init__._numba_serial_csr_dense_mult-*.py3*.nbi
 test_jit_timing()  # 0.3 s; ~3.0 s!
 
 
@@ -2131,7 +2132,7 @@ if EFFORT >= 2:
 if EFFORT >= 2:
   # Occasional Numba error when invoking `jitted_function(a)`:
   # RuntimeError: In 'NRT_adapt_ndarray_to_python', 'descr' is NULL.
-  # The solution was to delete resampler/__pycache__.
+  # The solution is to delete ~/.cache/numba/resampler_*/ and/or ./resampler/__pycache__/ .
   test_profile_downsampling((8192, 8192, 3), (2048, 2048))
   test_profile_downsampling((8192, 8192, 1), (2048, 2048))
 
@@ -5291,7 +5292,7 @@ if EFFORT >= 1:
 # %%
 # Occasional Numba error in 'resize trapezoid' when invoking jitted_function(a):
 # RuntimeError: In 'NRT_adapt_ndarray_to_python', 'descr' is NULL.
-# The solution was to delete resampler/__pycache__.
+# The solution is to delete ~/.cache/numba/resampler_*/ and/or ./resampler/__pycache__/ .
 
 # %%
 if EFFORT >= 3:
