@@ -1,0 +1,4 @@
+# Allowlist for "python -m mypy.stubtest resampler --allowlist stubtest_allowlist.txt".
+# At runtime (outside typing.TYPE_CHECKING), these type aliases are all Any, so stubtest finds
+# neither their members nor their Union structure.
+resampler\._(NDArray|DType|AnyArray|ArrayLike|DTypeLike)(\..*)?

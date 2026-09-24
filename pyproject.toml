@@ -57,10 +57,15 @@ ignore_missing_imports = true
 strict = true
 warn_return_any = false  # numpy typing is buggy.
 files = ["."]
-exclude = "^(Other)/|^resampler_other"
+# The stub resampler/__init__.pyi provides the public types (seen by dependent packages through
+# py.typed, and by pdoc).  Exclude it here; otherwise mypy would resolve the module to the stub
+# and never check the implementation in resampler/__init__.py.
+exclude = "^(Other)/|^resampler_other|\\.pyi$"
 
 [[tool.mypy.overrides]]
-module = ["jax.*", "torch.*"]  # mypy seems to run forever on jax; and slowly on torch.
+# mypy seems to run forever on jax; and slowly on torch.  The numba annotations are incomplete
+# (e.g., prange is untyped), so treat it as Any, as does pyrefly (replace-imports-with-any).
+module = ["jax.*", "torch.*", "numba.*"]
 follow_imports = "skip"
 
 [tool.pyink]

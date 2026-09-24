@@ -9,7 +9,7 @@ from __future__ import annotations
 # __init__.pyi (for the actual content)!
 
 __docformat__ = 'google'
-__version__ = '1.1.0'
+__version__ = '1.1.1'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 import abc
@@ -177,7 +177,7 @@ class _DownsampleIn2dUsingBoxFilter:
     # Downsampling function for params (dtype, block_height, block_width, ch).
     self._jitted_function: dict[tuple[_DType, int, int, int], Callable[[_NDArray], _NDArray]] = {}
 
-  def __call__(self, array: _NDArray, shape: tuple[int, int]) -> _NDArray:
+  def __call__(self, array: _NDArray, shape: tuple[int, ...]) -> _NDArray:
     assert _USING_NUMBA
     assert array.ndim in (2, 3), array.ndim
     _check_eq(len(shape), 2)
@@ -2694,7 +2694,8 @@ def resize(
       and np.all(translate2 == 0.0)
   )
   if can_use_fast_box_downsampling:
-    array2 = _downsample_in_2d_using_box_filter(typing.cast(_NDArray, array), shape2)
+    # Casting to _NDArray is needed by pyrefly but is redundant for mypy, so cast to Any.
+    array2 = _downsample_in_2d_using_box_filter(typing.cast(Any, array), shape2)
     return typing.cast(_Array, dst_gamma2.encode(array2, dtype))
 
   # Multidimensional resize can be expressed using einsum() with multiple per-dim resize matrices,
@@ -2759,9 +2760,9 @@ def resize(
           array_flat, dst_gridtype2[dim], boundary_dim, cval, filter2[dim]
       )
     array_dim = _arr_reshape(array_flat, (_arr_shape(array_flat)[0], *_arr_shape(array_dim)[1:]))
-    array = _arr_moveaxis(array_dim, 0, dim)
+    array = typing.cast(_Array, _arr_moveaxis(array_dim, 0, dim))
 
-  array = dst_gamma2.encode(typing.cast(_Array, array), dtype)
+  array = dst_gamma2.encode(array, dtype)
   return array
 
 
@@ -3660,7 +3661,7 @@ def _jax_image_resize(
   )
 
 
-_CANDIDATE_RESIZERS = {
+_CANDIDATE_RESIZERS: dict[str, Callable[..., _AnyArray]] = {
     'resampler.resize': resize,
     'PIL.Image.resize': _pil_image_resize,
     'cv.resize': _cv_resize,
