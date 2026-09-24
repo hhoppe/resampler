@@ -1798,7 +1798,7 @@ def test_multithreading(tiny_test=False, verbose=False) -> None:
     csr = resize_matrix
     dst = np.empty((dst_size, width), np.float32)
     # Faster when default is 24.
-    numba.set_num_threads(min(6, numba.config.NUMBA_NUM_THREADS))  # type: ignore
+    numba.set_num_threads(min(6, numba.config.NUMBA_NUM_THREADS))
     resampler._numba_parallel_csr_dense_mult(csr.indptr, csr.indices, csr.data, src, dst)
     return dst
 
