@@ -2759,8 +2759,10 @@ def resize(
       array_flat = _apply_digital_filter_1d(
           array_flat, dst_gridtype2[dim], boundary_dim, cval, filter2[dim]
       )
-    array_dim = _arr_reshape(array_flat, (_arr_shape(array_flat)[0], *_arr_shape(array_dim)[1:]))
-    array = typing.cast(_Array, _arr_moveaxis(array_dim, 0, dim))
+    array_dim = typing.cast(
+        _Array, _arr_reshape(array_flat, (_arr_shape(array_flat)[0], *_arr_shape(array_dim)[1:]))
+    )
+    array = _arr_moveaxis(array_dim, 0, dim)
 
   array = dst_gamma2.encode(array, dtype)
   return array
