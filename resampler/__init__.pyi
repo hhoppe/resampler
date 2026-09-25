@@ -634,4 +634,5 @@ _DICT_GAMMAS: dict[str, Gamma]
 _RESIZERS: dict[str, Callable[..., _AnyArray]]
 
 _original_resize = resize
+
 def _find_closest_filter(filter: str, resizer: Callable[..., Any]) -> str: ...
