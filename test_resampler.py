@@ -431,7 +431,7 @@ class TestResampler(unittest.TestCase):
       with self.subTest(lst=lst):
         array = np.array(lst, np.float64)
         for shape in [(), (1,), (2,), (1, 1), (1, 2), (3, 1), (2, 2)]:
-          coords = np.full(shape, 0.4)
+          coords: _NDArray = np.full(shape, 0.4)
           try:
             new = resampler.resample(array, coords, filter='triangle', dtype=np.float32).tolist()
           except ValueError:
