@@ -2,7 +2,8 @@
 # -*- fill-column: 100; -*-
 """Tests for package resampler.
 
-c:/windows/sysnative/wsl -e bash -lc 'flake8 --indent-size 2 --max-line-length=1000 --extend-ignore E302,E741,E131,E305,E402 test_resampler.py && python3 test_resampler.py'
+Run them using `pytest` in the repository root (whose pyproject.toml also enables the doctests)
+or using `python3 test_resampler.py`.
 """
 
 import functools
@@ -58,7 +59,11 @@ class TestResampler(unittest.TestCase):
     array = np.array([3.0, 5.0, 8.0, 7.0])
     expected = np.array([2.84536097, 3.6902174, 5.58573019, 7.77282572, 7.8097826, 6.79608312])
     np.testing.assert_allclose(resampler.resize(array, (6,)), expected)
-    np.testing.assert_allclose(resampler.resize(np.array(array), (6,)), expected)
+    for arraylib in resampler.ARRAYLIBS:
+      with self.subTest(arraylib=arraylib):
+        new = resampler._original_resize(resampler._make_array(array, arraylib), (6,))
+        _check_eq(resampler._arr_arraylib(new), arraylib)
+        np.testing.assert_allclose(resampler._arr_numpy(new), expected)
 
   def test_precision(self) -> None:
     _check_eq(resampler._real_precision(np.dtype(np.float32)), np.float32)
@@ -128,7 +133,7 @@ class TestResampler(unittest.TestCase):
         for min_size in range(1, math.prod(shape) + 1):
           block_shape = resampler._block_shape_with_min_size(shape, min_size, compact=compact)
           assert np.all(np.array(block_shape) >= 1)
-          assert np.all(block_shape <= shape)
+          assert np.all(np.array(block_shape) <= shape)
           assert min_size <= math.prod(block_shape) <= math.prod(shape)
 
   def test_split_2d(self) -> None:
@@ -319,14 +324,15 @@ class TestResampler(unittest.TestCase):
             scale=0.5,
             translate=0.3,
         )
-        if cval_weight is None:
-          row_sum = np.asarray(resize_matrix.sum(axis=1)).ravel()
-          assert np.allclose(row_sum, 1.0, rtol=0, atol=1e-6), (resize_matrix.todense(), row_sum)
+        row_sum = np.asarray(resize_matrix.sum(axis=1)).ravel()
+        if cval_weight is not None:
+          row_sum += np.asarray(cval_weight)
+        assert np.allclose(row_sum, 1.0, rtol=0, atol=1e-6), (resize_matrix.todense(), row_sum)
 
   def test_linear_precision_of_1d_primal_upsampling(self) -> None:
     array = np.arange(7.0)
     new = resampler.resize(array, (13,), gridtype='primal', filter='triangle')
-    with np.printoptions(linewidth=300):
+    with np.printoptions(linewidth=300):  # (For the message of a failed check.)
       _check_eq(new, np.arange(13) / 2)
 
   def test_linear_precision_of_2d_primal_upsampling(self) -> None:
@@ -334,7 +340,7 @@ class TestResampler(unittest.TestCase):
     new_shape = 5, 9
     array = np.moveaxis(np.indices(shape, np.float32), 0, -1) @ [10, 1]
     new = resampler.resize(array, new_shape, gridtype='primal', filter='triangle')
-    with np.printoptions(linewidth=300):
+    with np.printoptions(linewidth=300):  # (For the message of a failed check.)
       expected = np.moveaxis(np.indices(new_shape, np.float32), 0, -1) @ [10, 1] / 2
       _check_eq(new, expected)
 
@@ -478,13 +484,207 @@ class TestResampler(unittest.TestCase):
     configs.append((resampler._jax_image_resize, 'lanczos3'))
     for config in configs:
       resizer, filter = config
-      if resizer not in resampler._RESIZERS.values():  # Skip if the package is not installed.
-        continue
+      is_external = not isinstance(resizer, functools.partial) and resizer != resampler.resize
+      if is_external and resizer not in resampler._RESIZERS.values():
+        continue  # Skip if the package is not installed.
+      # The older scipy.ndimage (e.g., 1.7.2 in the minimum-versions test) deviates by ~1.4e-4.
+      atol = 1e-3 if resizer == resampler._scipy_ndimage_resize else 1e-6
       with self.subTest(config=config):
-        tol: Any = dict(rtol=0, atol=1e-7)
-        np.allclose(resizer(np.ones((11,)), (13,), filter=filter), np.ones((13,)), **tol)
-        np.allclose(resizer(np.ones((8, 8)), (5, 20), filter=filter), np.ones((5, 20)), **tol)
-        np.allclose(resizer(np.ones((9, 8, 3)), (13, 7), filter=filter), np.ones((13, 7, 3)), **tol)
+        for src_shape, shape in [((11,), (13,)), ((8, 8), (5, 20)), ((9, 8, 3), (13, 7))]:
+          new = np.asarray(resizer(np.ones(src_shape), shape, filter=filter))
+          _check_eq(new.shape, shape + src_shape[len(shape) :])
+          assert np.allclose(new, 1.0, rtol=0, atol=atol), new
+
+  def test_boundary_names_match_their_keys(self) -> None:
+    for name in resampler.BOUNDARIES:
+      _check_eq(resampler._get_boundary(name).name, name)
+
+  def test_generalized_hamming_filters_with_different_a0_differ(self) -> None:
+    filter1 = resampler.GeneralizedHammingFilter(radius=3, a0=0.5)
+    filter2 = resampler.GeneralizedHammingFilter(radius=3, a0=0.9)
+    assert filter1 != filter2 and hash(filter1) != hash(filter2)
+
+  def test_bspline_filter_of_degree_0_is_discontinuous(self) -> None:
+    assert not resampler.BsplineFilter(degree=0).continuous
+    assert resampler.BsplineFilter(degree=1).continuous
+
+  def test_resample_cval_with_coords_ndim_differing_from_grid_ndim(self) -> None:
+    image = np.ones((4, 4))
+    coords = np.array([[0.5, 0.5], [0.5, 1.5], [1.5, 0.5]])  # Points along a line.
+    for boundary in ['border', 'constant']:
+      with self.subTest(boundary=boundary):
+        kwargs: Any = dict(boundary=boundary, cval=5.0, filter='triangle')
+        np.testing.assert_allclose(resampler.resample(image, coords, **kwargs), [1.0, 5.0, 5.0])
+        np.testing.assert_allclose(resampler.resample(image, coords[1], **kwargs), 5.0)
+        colormap = np.ones((8, 3))
+        new = resampler.resample(colormap, np.full((2, 2, 1), 1.5), **kwargs)
+        np.testing.assert_allclose(new, np.full((2, 2, 3), 5.0))
+
+  def test_resample_single_point_with_boundary_antialiasing(self) -> None:
+    image = np.ones((4, 4))
+    for boundary in ['natural', 'constant']:
+      with self.subTest(boundary=boundary):
+        np.testing.assert_allclose(resampler.resample(image, [0.5, 0.6], boundary=boundary), 1.0)
+        np.testing.assert_allclose(resampler.resample(image, [0.5, 1.2], boundary=boundary), 0.0)
+
+  def test_resample_with_jacobian_and_blocks(self) -> None:
+    rng = np.random.default_rng(1)
+    jacobian = np.broadcast_to(np.eye(2), (30, 30, 2, 2))
+    coords = rng.random((30, 30, 2))
+    new = resampler.resample(rng.random((8, 8)), coords, jacobian=jacobian, max_block_size=100)
+    _check_eq(new.shape, (30, 30))
+
+  def test_resample_block_partitioning_is_exact(self) -> None:
+    rng = np.random.default_rng(1)
+    array = rng.random((5, 7, 3))
+    coords = rng.random((30, 20, 2))
+    blocked = resampler.resample(array, coords, max_block_size=50)
+    unblocked = resampler.resample(array, coords, max_block_size=0)
+    np.testing.assert_allclose(blocked, unblocked, rtol=0, atol=1e-12)
+
+  def test_resize_noop_only_if_filter_and_dtype_are_unchanged(self) -> None:
+    array = np.random.default_rng(1).random((5, 6))
+    assert resampler.resize(array, array.shape) is array
+    new = resampler.resize(array, array.shape, filter='gaussian', prefilter='lanczos3')
+    assert not np.allclose(new, array)  # The (non-interpolating) filter is applied.
+    new = resampler.resize(array.astype(np.float32), array.shape, dtype=np.float64)
+    _check_eq(new.dtype, np.float64)
+
+  def test_minification_with_cardinal_prefilter_applies_digital_filter(self) -> None:
+    array = np.random.default_rng(1).random(40)
+    new = resampler.resize(array, (13,), filter='lanczos3', prefilter='cardinal3')
+    reconstructed = resampler.resize(array, (13,), filter='lanczos3', prefilter='bspline3')
+    expected = resampler._apply_digital_filter_1d(
+        reconstructed,
+        resampler._get_gridtype('dual'),
+        resampler._get_boundary('clamp'),  # The 'auto' boundary for minification.
+        0.0,
+        resampler._get_filter('cardinal3'),
+    )
+    np.testing.assert_allclose(new, expected, rtol=0, atol=1e-6)  # (The kernel is sampled.)
+
+  def test_digital_filter_of_single_sample(self) -> None:
+    for filter, boundary in [('omoms3', 'reflect'), ('cardinal3', 'clamp')]:
+      with self.subTest(filter=filter, boundary=boundary):
+        new = resampler.resize(np.array([0.3]), (3,), filter=filter, boundary=boundary)
+        np.testing.assert_allclose(new, 0.3, rtol=0, atol=1e-6)
+
+  def test_primal_wrap_with_cardinal_filter_is_interpolating(self) -> None:
+    array = np.random.default_rng(1).random(7)
+    array[-1] = array[0]  # For a primal grid with 'wrap', the last sample repeats the first one.
+    for filter in ['cardinal3', 'cardinal5', 'omoms3']:
+      with self.subTest(filter=filter):
+        kwargs: Any = dict(gridtype='primal', boundary='wrap', filter=filter)
+        new = resampler.resize(array, (13,), **kwargs)
+        np.testing.assert_allclose(new[::2], array, rtol=0, atol=1e-12)
+
+  def test_uniform_resize_uses_gridtype(self) -> None:
+    new = resampler.uniform_resize(np.ones((3, 5)), (3, 3), gridtype='primal', filter='triangle')
+    np.testing.assert_allclose(new[:, 0], [0.0, 1.0, 0.0])
+
+  def test_uniform_resize_rejects_scale_and_translate(self) -> None:
+    array = np.ones((5, 7))
+    kwargs_list: list[dict[str, Any]] = [dict(scale=2.0), dict(translate=0.1)]
+    for kwargs in kwargs_list:
+      with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+        resampler.uniform_resize(array, (4, 4), **kwargs)
+
+  def test_resize_parameter_validation_and_invariants(self) -> None:
+    array = np.random.default_rng(1).random((5, 7, 3))
+    expected = resampler.resize(array, (8, 4))
+    with self.assertRaises(ValueError):
+      resampler.resize(array, (8, 4), dim_order=[0, 0])
+    np.testing.assert_allclose(resampler.resize(array, (8, 4), dim_order=[1, 0]), expected)
+    np.testing.assert_allclose(resampler.resize(array, (8, 4), num_threads=1), expected)
+    with self.assertRaises(ValueError):  # Both src_gamma and dst_gamma must be specified.
+      resampler.resize(np.zeros((4, 4), np.uint8), (3, 3), src_gamma='srgb')
+
+  def test_resize_rounds_negative_integers(self) -> None:
+    for value in [-3, -2, 2, 3]:
+      with self.subTest(value=value):
+        new = resampler.resize(np.full(3, value, np.int16), (5,))
+        _check_eq(new.dtype, np.int16)
+        _check_eq(new, np.full(5, value, np.int16))
+
+  def test_resize_of_uint8_with_default_gamma(self) -> None:
+    new = resampler.resize(np.full((6, 6, 3), 200, np.uint8), (8, 4))
+    _check_eq(new.dtype, np.uint8)
+    _check_eq(new, np.full((8, 4, 3), 200, np.uint8))
+
+  def test_resize_in_arraylib_and_jaxjit_match_numpy(self) -> None:
+    array = np.random.default_rng(1).random((5, 7, 3))
+    expected = resampler.resize(array, (8, 4))
+    for arraylib in resampler.ARRAYLIBS:
+      with self.subTest(arraylib=arraylib):
+        new = resampler.resize_in_arraylib(array, (8, 4), arraylib=arraylib)
+        np.testing.assert_allclose(new, expected, rtol=0, atol=1e-12)
+    if 'jax' in resampler.ARRAYLIBS:
+      import jax.numpy as jnp
+
+      new = resampler.jaxjit_resize(jnp.asarray(array), (8, 4))
+      np.testing.assert_allclose(np.asarray(new), expected, rtol=0, atol=1e-12)
+
+  def test_rotate_image_about_center(self) -> None:
+    image = np.random.default_rng(1).random((6, 8, 3))
+    new = resampler.rotate_image_about_center(image, 0.0)
+    np.testing.assert_allclose(new, image, rtol=0, atol=1e-12)
+    new = resampler.rotate_image_about_center(image, np.pi / 2, new_shape=(8, 6), filter='impulse')
+    _check_eq(new.shape, (8, 6, 3))
+    np.testing.assert_allclose(new, np.rot90(image, 1), rtol=0, atol=1e-12)
+    matrix = resampler.rotation_about_center_in_2d((6, 8), 0.3)
+    _check_eq(matrix.shape, (3, 3))
+    np.testing.assert_allclose(matrix @ [0.5, 0.5, 1.0], [0.5, 0.5, 1.0])  # The center is fixed.
+
+  def test_rotate_image_multiple_times_with_new_shape(self) -> None:
+    image = np.random.default_rng(1).random((4, 6))
+    kwargs: Any = dict(new_shape=(6, 6), filter='triangle')
+    once = resampler.rotate_image_about_center(image, 0.2, **kwargs)
+    expected = resampler.rotate_image_about_center(once, 0.2, **kwargs)
+    new = resampler.rotate_image_about_center(image, 0.2, num_rotations=2, **kwargs)
+    np.testing.assert_allclose(new, expected, rtol=0, atol=1e-12)
+
+  @unittest.skipIf('torch' not in resampler.ARRAYLIBS, 'Requires torch.')
+  def test_torch_parameter_and_unsupported_dtype(self) -> None:
+    import torch
+
+    new = resampler.resize(torch.nn.Parameter(torch.ones(4, 4)), (2, 2))
+    np.testing.assert_allclose(new.detach().numpy(), 1.0)
+    with self.assertRaises(ValueError):
+      resampler.resize(torch.ones(4, 4, dtype=torch.float16), (2, 2))
+
+  @unittest.skipIf('torch' not in resampler.ARRAYLIBS, 'Requires torch.')
+  def test_resize_is_differentiable_in_torch(self) -> None:
+    import torch
+
+    tensor = torch.tensor(np.random.default_rng(1).random((5, 7, 3)), requires_grad=True)
+    resampler.resize(tensor, (8, 4)).sum().backward()
+    assert tensor.grad is not None
+    np.testing.assert_allclose(float(tensor.grad.sum()), 8 * 4 * 3)  # The rows sum to one.
+
+  @unittest.skipIf('torch' not in resampler.ARRAYLIBS, 'Requires torch.')
+  def test_gradient_of_digital_filter_in_torch(self) -> None:
+    import torch
+
+    rng = np.random.default_rng(1)
+    for config in itertools.product(resampler.GRIDTYPES, ['reflect', 'wrap', 'clamp']):
+      gridtype, boundary = config
+      with self.subTest(config=config):
+        tensor = torch.tensor(rng.random(6), requires_grad=True)
+        kwargs: Any = dict(gridtype=gridtype, boundary=boundary, filter='cardinal3')
+        func: Any = functools.partial(resampler.resize, shape=(11,), **kwargs)
+        assert torch.autograd.gradcheck(func, (tensor,))
+
+  @unittest.skipIf('torch' not in resampler.ARRAYLIBS, 'Requires torch.')
+  @unittest.skipIf(not resampler._USING_NUMBA, 'The fast box downsampling requires numba.')
+  def test_fast_box_downsampling_matches_general_path(self) -> None:
+    array = np.random.default_rng(1).random((12, 8, 3)).astype(np.float32)
+    for filter in ['box', 'trapezoid']:
+      with self.subTest(filter=filter):
+        fast = resampler.resize(array, (3, 2), filter=filter)
+        general = resampler.resize_in_arraylib(array, (3, 2), filter=filter, arraylib='torch')
+        np.testing.assert_allclose(fast, general, rtol=0, atol=1e-6)
+        expected = array.reshape(3, 4, 2, 4, 3).mean(axis=(1, 3))
+        np.testing.assert_allclose(fast, expected, rtol=0, atol=1e-6)
 
 
 if __name__ == '__main__':

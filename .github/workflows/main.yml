@@ -1,13 +1,12 @@
 name: Build, test, and publish Python distributions to PyPI
 
-# My strategy is test, build, and publish on all push events to main.  The publish step skips the
+# My strategy is to test, build, and publish on all push events to main.  The publish step skips the
 # upload if PyPI already has this version, so a release happens when __version__ is bumped.
 # Publishing uses PyPI Trusted Publishing (OIDC), so no API token is stored in the repository.
 
 on:
   push:
     branches: [main]
-    # tags: "v*.*.*"  # Tag push is not associated with a branch, so OR this.
   pull_request:
     branches: [main]
   schedule:
@@ -22,7 +21,8 @@ permissions:
 concurrency:
   # Include the event, so that a push does not cancel a scheduled run.
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel only superseded pull-request runs; a run on main may be publishing or deploying.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:
@@ -217,12 +217,11 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    # if: github.repository == 'hhoppe/some_repo'
-    # if: startsWith(github.ref, 'refs/tags/v')
     if: github.ref == 'refs/heads/main' && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [validate, test-backends]  # Not lint or notebook, so that tool releases or flaky downloads cannot block it.
+    # Not lint or notebook, so that tool releases or flaky downloads cannot block publishing.
+    needs: [validate, test-min, test-backends]
     environment: pypi
     permissions:
       contents: write  # Required to create the release tag.

@@ -32,6 +32,8 @@ import numpy as np
 
 import resampler
 
+# pylint: disable=invalid-name  # Module-level variables in this notebook.
+
 # %% [markdown]
 # ### Upsample (magnify) an image
 

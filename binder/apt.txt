@@ -1,1 +1,5 @@
+# System packages (via apt) for Binder environments (mybinder.org and similar notebook hosting
+# services).  (repo2docker ignores such files in the repository root when binder/ exists.)
+
+# Used by mediapy to write and show videos.
 ffmpeg

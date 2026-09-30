@@ -1,5 +1,6 @@
+# Use the CPU-only torch, which is much smaller than the default CUDA build.
+--extra-index-url https://download.pytorch.org/whl/cpu
 autopep8
-flake8
 hhoppe-tools
 IPython
 jax[cpu]
@@ -12,9 +13,12 @@ numpy
 opencv-python-headless
 pdoc
 Pillow
+pyink
 pylint
+pyrefly
 pytest
 resampler
-scipy
+ruff
 scikit-image
+scipy
 torch

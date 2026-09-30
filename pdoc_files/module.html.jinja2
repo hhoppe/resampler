@@ -6,11 +6,12 @@ We want to extend the default template instead of defining everything ourselves.
 
 {#
 We adjust which members are documented by overriding the is_public macro.
-(doing this is not recommended, see https://pdoc.dev/docs/pdoc.html#control-what-is-documented.)
+(Doing this is not recommended; see https://pdoc.dev/docs/pdoc.html#control-what-is-documented.)
 
 It is useful to see the default code in:
 https://github.com/mitmproxy/pdoc/blob/main/pdoc/templates/default/module.html.jinja2
 
+Examples:
     {% if doc.qualname == "DualGridtype.min_size" %}
     {% if doc.qualname.startswith("DualGridtype.") %}
     {% if "PrimalGridtype." in doc.qualname %}

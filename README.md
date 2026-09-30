@@ -22,7 +22,7 @@
 
 The notebook
 [<samp>resampler_notebook.ipynb</samp>](https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb)
-demonstrates the 
+demonstrates the
 [<samp>resampler</samp> library](https://pypi.org/project/resampler/)
 and contains documentation, usage examples, unit tests, and experiments.
 
@@ -54,7 +54,7 @@ It supports:
 
 - few dependencies (only `numpy` and `scipy`) and **no C extension code**, yet
 
-- **faster resizing** than C++ implementation in `torch.nn`.
+- **faster resizing** than the C++ implementation in `torch.nn`.
 
 A key strategy is to leverage existing sparse matrix representations and operations.
 
@@ -126,7 +126,7 @@ Most examples above use the default
 - default `precision` and output `dtype`.
 
 
-## Advanced usage:
+## Advanced usage
 
 Map an image to a wider grid using custom `scale` and `translate` vectors,
 with horizontal `'reflect'` and vertical `'natural'` boundary rules,
@@ -158,10 +158,10 @@ media.show_images({'image': image, 'resampled': resampled})
 ```
 > <img src="https://github.com/hhoppe/resampler/raw/main/media/example_warp.png"/>
 
-## Limitations:
+## Limitations
 
 - Filters are assumed to be [separable](https://en.wikipedia.org/wiki/Separable_filter).
 - Although `resize` implements prefiltering, `resample` does not yet have it (and therefore
   may have aliased results if downsampling).
 - Differentiability is only with respect to the grid values,
-  not wrt the resize shape, scale, translation, or the resampling coordinates.
+  not with respect to the resize shape, scale, translation, or the resampling coordinates.
