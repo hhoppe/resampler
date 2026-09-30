@@ -1,3 +1,7 @@
+[![CI](https://img.shields.io/github/actions/workflow/status/hhoppe/resampler/main.yml?branch=main&label=CI)](https://github.com/hhoppe/resampler/actions/workflows/main.yml)
+[![PyPI](https://img.shields.io/pypi/v/resampler)](https://pypi.org/project/resampler/)
+[![License](https://img.shields.io/github/license/hhoppe/resampler)](https://github.com/hhoppe/resampler/blob/main/LICENSE)
+
 [Hugues Hoppe](https://hhoppe.com/)
 &nbsp;&nbsp; 2026
 
