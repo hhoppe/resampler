@@ -89,7 +89,8 @@ jobs:
       uses: actions/setup-python@v7
       with:
         # Not '3.x', which becomes 3.15 in October 2026: torch, numba, and scikit-image lack wheels for it,
-        # and pylint's parallel mode (-j) fails on it (co_lnotab was removed).
+        # and pylint's parallel mode (-j) fails on it (dill 0.4.1 reads the removed co_lnotab;
+        # dill's main branch has the fix).
         # Return to '3.x' once they support 3.15.
         python-version: '3.14'
 
