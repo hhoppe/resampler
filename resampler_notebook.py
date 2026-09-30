@@ -2876,65 +2876,6 @@ if 0:
 # # !nvcc --version  # CUDA version.
 
 # %% [markdown]
-# - Use Tensorflow to solve for an image whose spiral upsampling matches a desired image: ??
-
-
-# %%
-# def experiment_image_optimized_for_spiral_resampling(
-#     num_steps=30,
-#     src_shape=(32, 32, 3),
-#     dst_shape=(64, 64),
-#     regularization_weight=0.0,
-#     smoothness_weight=0.0,
-# ) -> None:
-#   array_np = np.full(src_shape, 0.5, np.float32)
-#   array = tf.Variable(tf.convert_to_tensor(array_np))
-#   desired = resampler.resize(EXAMPLE_IMAGE, dst_shape, gamma='identity', dtype=np.float32)
-
-#   yx = ((np.indices(dst_shape).T + 0.5) / dst_shape - 0.5).T  # [-0.5, 0.5]^2
-#   # pyrefly: ignore  # It is a Pyrefly internal error.
-#   radius, angle = np.linalg.norm(yx, axis=0), np.arctan2(*yx)
-#   angle += (0.8 - radius).clip(0, 1) * 2.0 - 0.6
-#   coords = np.dstack((np.sin(angle) * radius, np.cos(angle) * radius)) + 0.5
-
-#   def model(array) -> tf.Tensor:
-#     return resampler.resample(array, coords)
-
-#   def compute_loss(array, upsampled) -> tf.Tensor:
-#     data_loss = tf.math.reduce_mean(tf.math.squared_difference(upsampled, desired))
-#     regularization_loss = regularization_weight * tf.math.reduce_mean(array**2)
-#     num_pixels = tf.size(array, out_type=tf.float32) / 3
-#     smoothness_loss = smoothness_weight * (tf.image.total_variation(array) / num_pixels) ** 2
-#     return data_loss + regularization_loss + smoothness_loss
-
-#   learning_rate = 1e3
-#   for _ in range(num_steps):
-#     with tf.GradientTape() as tape:
-#       loss = compute_loss(array, model(array))
-#     gradient = tape.gradient(loss, array)
-#     array.assign_sub(learning_rate * gradient)
-#     if 0:
-#       print(f'mse={get_rms(model(array), desired)**2:8.6f}  {loss=:8.6f}')
-
-#   resampled = model(array)
-#   images = {'optimized': array, 'resampled': resampled, 'desired': desired}
-#   media.show_images(images, height=192, border=True)
-#   psnr = get_psnr(resampled, desired)
-#   print(f'PSNR={psnr:.2f} dB')
-#   assert np.allclose(psnr, 22.4, 0.05), (psnr, regularization_weight, smoothness_weight)
-
-
-# if EFFORT >= 1:
-#   hh.display_html('Without regularization, unconstrained pixels keep their initial gray values:')
-#   experiment_image_optimized_for_spiral_resampling()
-
-#   hh.display_html('With regularization, unconstrained regions get small values (black):')
-#   experiment_image_optimized_for_spiral_resampling(regularization_weight=0.04)
-
-#   hh.display_html('Smoothness destroys the high-frequency content:')
-#   experiment_image_optimized_for_spiral_resampling(smoothness_weight=1e-2)
-
-# %% [markdown]
 # ## Block partition and timing
 
 

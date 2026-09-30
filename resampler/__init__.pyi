@@ -55,6 +55,7 @@ else:
 
 __docformat__: str
 __version_info__: tuple[int, ...]
+_USING_NUMBA: bool
 
 ARRAYLIBS: list[str]
 

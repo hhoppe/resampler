@@ -32,13 +32,17 @@ repository = "https://github.com/hhoppe/resampler"
 documentation = "https://hhoppe.github.io/resampler/resampler.html"
 # Other: changelog
 
-[project.optional-dependencies]
-# Development deps (unittest, linting, formatting,...)
-# Installed through `pip install .[dev]`
-dev = [
-    # "pytest",
-    # "pytest-xdist",
-    # "pylint>=2.6.0",
+# Development requirements (PEP 735), which are not part of the published package metadata.
+# CI installs them with `pip install . --group test` or `pip install . --group lint`.
+# Install CPU-only torch first ("pip install torch --index-url
+# https://download.pytorch.org/whl/cpu"); otherwise pip fetches the large CUDA build.
+[dependency-groups]
+test = ["pytest"]
+lint = [
+    "mypy", "pyink", "pylint", "pyrefly", "ruff",
+    # Optional imports, so that the checkers see the same modules as locally.
+    "hhoppe-tools", "IPython", "jax", "matplotlib", "mediapy", "numba", "opencv-python-headless",
+    "pdoc", "Pillow", "scikit-image", "torch",
 ]
 
 [build-system]

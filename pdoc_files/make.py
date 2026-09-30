@@ -68,7 +68,6 @@ def main() -> None:
         ('DTypeLike', None),
         ('NDArray', 'np.ndarray'),
         ('DType', 'np.dtype'),
-        ('TensorflowTensor', None),
         ('TorchTensor', None),
         ('JaxArray', None),
         ('Array', None),

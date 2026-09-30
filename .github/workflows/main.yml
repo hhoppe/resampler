@@ -36,20 +36,47 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Install any requirements
-      run: pip install .[dev]
+    - name: Install the package and the test requirements
+      run: pip install . --group test
 
     - name: Run tests including doctest
-      run: |
-        python -m pip install pytest
-        pytest  # The options, including --doctest-modules, are in pyproject.toml.
+      run: pytest  # The options, including --doctest-modules, are in pyproject.toml.
+
+  lint:
+    name: Lint and type-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python 3.x
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.x'
+
+    - name: Install CPU-only torch, which is much smaller than the default CUDA build
+      run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+    - name: Install the package, the lint tools, and the optional imports
+      run: pip install . --group lint
+
+    - name: Run pyink
+      run: pyink --check --diff .
+
+    - name: Run ruff
+      run: ruff check .
 
     - name: Run mypy
-      if: false  # mypy is slow (5 minutes) and has problems with numpy.
-      run: |
-        python -m pip install mypy
-        # Omit "--strict" because numpy on github has type stubs.
-        mypy --exclude 'build/|setup.py' .
+      run: mypy
+
+    - name: Run pyrefly
+      run: pyrefly check
+
+    - name: Run pylint
+      run: pylint -j0 .
+
+    - name: Run stubtest
+      run: python -m mypy.stubtest resampler --allowlist stubtest_allowlist.txt --mypy-config-file pyproject.toml
 
   publish:
     name: Publish to PyPI
@@ -58,7 +85,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: validate
+    needs: validate  # Not lint, so that a new release of a lint tool cannot block publishing.
     environment: pypi
     permissions:
       id-token: write  # Required for Trusted Publishing.
