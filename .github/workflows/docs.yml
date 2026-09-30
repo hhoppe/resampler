@@ -35,7 +35,7 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: pdoc_files/html/
-      
+
   # Deploy the artifact to GitHub pages.
   # This is a separate job so that only actions/deploy-pages has the necessary permissions.
   deploy:
