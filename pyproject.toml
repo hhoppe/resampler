@@ -38,11 +38,14 @@ documentation = "https://hhoppe.github.io/resampler/resampler.html"
 # https://download.pytorch.org/whl/cpu"); otherwise pip fetches the large CUDA build.
 [dependency-groups]
 test = ["pytest"]
+# The optional array libraries and JIT compiler, which CI tests in a separate job.
+backends = ["jax", "numba", "torch"]
 lint = [
     "mypy", "pyink", "pylint", "pyrefly", "ruff",
     # Optional imports, so that the checkers see the same modules as locally.
-    "hhoppe-tools", "IPython", "jax", "matplotlib", "mediapy", "numba", "opencv-python-headless",
-    "pdoc", "Pillow", "scikit-image", "torch",
+    {include-group = "backends"},
+    "hhoppe-tools", "IPython", "matplotlib", "mediapy", "opencv-python-headless", "pdoc", "Pillow",
+    "scikit-image",
 ]
 
 [build-system]
