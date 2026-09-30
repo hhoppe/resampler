@@ -1,0 +1,11 @@
+# Keep the versions of the actions used in .github/workflows up to date.
+# (The pypi-publish action is referenced by its release/v1 branch, which Dependabot leaves alone.)
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:  # Combine all the updates into a single pull request.
+        patterns: ['*']

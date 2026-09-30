@@ -27,12 +27,16 @@ concurrency:
 jobs:
   validate:
     name: Validate code
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
-      fail-fast: false  # Report the results for every Python version.
+      fail-fast: false  # Report the results for every configuration.
       matrix:
+        os: [ubuntu-latest]
         python-version: ['3.10', '3.x']
+        include:
+          - os: windows-latest
+            python-version: '3.x'
     steps:
     - uses: actions/checkout@v7
 
@@ -40,6 +44,8 @@ jobs:
       uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
     - name: Install the package and the test requirements
       run: pip install . --group test
@@ -58,6 +64,8 @@ jobs:
       uses: actions/setup-python@v7
       with:
         python-version: '3.x'
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
     - name: Install CPU-only torch, which is much smaller than the default CUDA build
       run: pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -83,6 +91,29 @@ jobs:
     - name: Run stubtest
       run: python -m mypy.stubtest resampler --allowlist stubtest_allowlist.txt --mypy-config-file pyproject.toml
 
+  test-backends:
+    name: Test with the optional backends (numba, jax, torch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python 3.x
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.x'
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install CPU-only torch, which is much smaller than the default CUDA build
+      run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+    - name: Install the package, the test requirements, and the optional backends
+      run: pip install . --group test --group backends
+
+    - name: Run tests including doctest
+      run: pytest
+
   publish:
     name: Publish to PyPI
     # if: github.repository == 'hhoppe/some_repo'
@@ -90,7 +121,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: validate  # Not lint, so that a new release of a lint tool cannot block publishing.
+    needs: [validate, test-backends]  # Not lint, so that a new release of a lint tool cannot block publishing.
     environment: pypi
     permissions:
       id-token: write  # Required for Trusted Publishing.
