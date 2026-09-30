@@ -18,9 +18,10 @@ classifiers = [
 keywords = []
 
 # pip dependencies of the project
+# The lower bounds are the oldest versions with wheels for Python 3.10; CI tests them.
 dependencies = [
-    "numpy",
-    "scipy",
+    "numpy>=1.21.2",
+    "scipy>=1.7.2",
 ]
 
 # This is set automatically by flit using `*.__version__`
@@ -40,12 +41,16 @@ documentation = "https://hhoppe.github.io/resampler/resampler.html"
 test = ["pytest"]
 # The optional array libraries and JIT compiler, which CI tests in a separate job.
 backends = ["jax", "numba", "torch"]
-lint = [
-    "mypy", "pyink", "pylint", "pyrefly", "ruff",
-    # Optional imports, so that the checkers see the same modules as locally.
+# The imports of resampler_notebook.py and example_usage.py, which CI runs in a separate job.
+notebook = [
     {include-group = "backends"},
     "hhoppe-tools", "IPython", "matplotlib", "mediapy", "opencv-python-headless", "pdoc", "Pillow",
     "scikit-image",
+]
+lint = [
+    "mypy", "pyink", "pylint", "pyrefly", "ruff",
+    # Optional imports, so that the checkers see the same modules as locally.
+    {include-group = "notebook"},
 ]
 
 [build-system]

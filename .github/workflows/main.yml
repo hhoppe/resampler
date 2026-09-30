@@ -51,6 +51,30 @@ jobs:
     - name: Run tests including doctest
       run: pytest  # The options, including --doctest-modules, are in pyproject.toml.
 
+  test-min:
+    name: Test with the minimum dependency versions (Python 3.10)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.10'
+
+    - name: Install uv, whose resolver can select the lowest allowed versions
+      run: pip install uv
+
+    - name: Install the package and the test requirements, with the dependencies at their lower bounds
+      run: |
+        uv pip compile pyproject.toml --python-version 3.10 --resolution lowest-direct --only-binary numpy,scipy -o min.txt
+        cat min.txt
+        uv pip install --system . --group test -c min.txt
+
+    - name: Run tests including doctest
+      run: pytest
+
   lint:
     name: Lint and type-check
     runs-on: ubuntu-latest
@@ -108,6 +132,32 @@ jobs:
     - name: Run tests including doctest
       run: pytest
 
+  notebook:
+    name: Run the example and the notebook
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python 3.x
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.x'
+
+    - name: Install CPU-only torch, which is much smaller than the default CUDA build
+      run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+    - name: Install the package and the imports of the notebook
+      run: pip install . --group notebook
+
+    - name: Run example_usage.py
+      run: python example_usage.py
+
+    - name: Run resampler_notebook.py, whose assertions check the results
+      env:
+        EFFORT: 1  # Levels range from 0 (quickest) to 3; the default is 2.
+      run: python resampler_notebook.py
+
   publish:
     name: Publish to PyPI
     # if: github.repository == 'hhoppe/some_repo'
@@ -115,7 +165,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [validate, test-backends]  # Not lint, so that a new release of a lint tool cannot block publishing.
+    needs: [validate, test-backends]  # Not lint or notebook, so that tool releases or flaky downloads cannot block it.
     environment: pypi
     permissions:
       contents: write  # Required to create the release tag.
