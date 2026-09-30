@@ -44,8 +44,6 @@ jobs:
       uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
-        cache: pip
-        cache-dependency-path: pyproject.toml
 
     - name: Install the package and the test requirements
       run: pip install . --group test
@@ -64,8 +62,6 @@ jobs:
       uses: actions/setup-python@v7
       with:
         python-version: '3.x'
-        cache: pip
-        cache-dependency-path: pyproject.toml
 
     - name: Install CPU-only torch, which is much smaller than the default CUDA build
       run: pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -102,8 +98,6 @@ jobs:
       uses: actions/setup-python@v7
       with:
         python-version: '3.x'
-        cache: pip
-        cache-dependency-path: pyproject.toml
 
     - name: Install CPU-only torch, which is much smaller than the default CUDA build
       run: pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -124,6 +118,7 @@ jobs:
     needs: [validate, test-backends]  # Not lint, so that a new release of a lint tool cannot block publishing.
     environment: pypi
     permissions:
+      contents: write  # Required to create the release tag.
       id-token: write  # Required for Trusted Publishing.
     steps:
     - uses: actions/checkout@v7
@@ -142,3 +137,15 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         skip-existing: true  # Succeed without uploading if PyPI already has this version.
+
+    - name: Create a GitHub release, with tag v<version>, for a new version
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        version=$(basename dist/*.tar.gz .tar.gz)  # The sdist is <name>-<version>.tar.gz.
+        tag=v${version##*-}
+        if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+          echo "Tag $tag already exists."
+        else
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+        fi
