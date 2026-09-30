@@ -37,6 +37,8 @@ jobs:
         include:
           - os: windows-latest
             python-version: '3.x'
+          - os: macos-latest
+            python-version: '3.x'
     steps:
     - uses: actions/checkout@v7
 
