@@ -68,7 +68,8 @@ jobs:
 
     - name: Install the package and the test requirements, with the dependencies at their lower bounds
       run: |
-        uv pip compile pyproject.toml --python-version 3.10 --resolution lowest-direct --only-binary numpy,scipy -o min.txt
+        uv pip compile pyproject.toml --python-version 3.10 --resolution lowest-direct \
+          --only-binary numpy,scipy -o min.txt
         cat min.txt
         uv pip install --system . --group test -c min.txt
 
@@ -146,6 +147,9 @@ jobs:
 
     - name: Install CPU-only torch, which is much smaller than the default CUDA build
       run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+    - name: Install ffmpeg, which mediapy uses to show videos
+      run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
     - name: Install the package and the imports of the notebook
       run: pip install . --group notebook
