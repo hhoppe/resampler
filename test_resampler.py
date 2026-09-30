@@ -106,6 +106,7 @@ class TestResampler(unittest.TestCase):
     assert np.allclose(result['scipy'], result['expected'], rtol=0, atol=1e-6)
     assert np.allclose(result['obtained'], result['expected'], rtol=0, atol=1e-6)
 
+  @unittest.skipIf(not resampler._USING_NUMBA, 'The box-filter downsampling requires numba.')
   def test_downsample_in_2d_using_box_filter(self) -> None:
     for shape in [(6, 6), (4, 4)]:
       for ch in [1, 2, 3, 4]:

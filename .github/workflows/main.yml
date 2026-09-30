@@ -1,7 +1,8 @@
 name: Build, test, and publish Python distributions to PyPI
 
-# My strategy is test, build, and (try to) publish on all push events.  The
-# publish step fails silently if the pypi version already exists.
+# My strategy is test, build, and publish on all push events to main.  The publish step skips the
+# upload if PyPI already has this version, so a release happens when __version__ is bumped.
+# Publishing uses PyPI Trusted Publishing (OIDC), so no API token is stored in the repository.
 
 on:
   push:
@@ -10,6 +11,10 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+# Security: restrict permissions for CI jobs.
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -37,7 +42,7 @@ jobs:
     - name: Run tests including doctest
       run: |
         python -m pip install pytest
-        pytest --doctest-modules ./resampler
+        pytest  # The options, including --doctest-modules, are in pyproject.toml.
 
     - name: Run mypy
       if: false  # mypy is slow (5 minutes) and has problems with numpy.
@@ -54,6 +59,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: validate
+    environment: pypi
+    permissions:
+      id-token: write  # Required for Trusted Publishing.
     steps:
     - uses: actions/checkout@v7
 
@@ -70,5 +78,4 @@ jobs:
     - name: Publish distribution to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
-        password: ${{ secrets.PYPI_API_TOKEN }}
-      continue-on-error: true  # Ignore if pypi already has this version.
+        skip-existing: true  # Succeed without uploading if PyPI already has this version.

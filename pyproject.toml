@@ -109,7 +109,7 @@ missing-import = false
 untyped-import = false
 
 [tool.pytest.ini_options]
-addopts = "--ignore-glob '*.#*' --doctest-modules --ignore Old --ignore Other --ignore resampler_other.py --ignore resampler_other_big.py --ignore example_usage.py --ignore resampler_notebook.py"
+addopts = "--ignore-glob '*.#*' --doctest-modules --ignore Old --ignore Other --ignore pdoc_files --ignore resampler_other.py --ignore resampler_other_big.py --ignore example_usage.py --ignore resampler_notebook.py"
 
 [tool.ruff]
 extend-exclude = ["*.ipynb"]
