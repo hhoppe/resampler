@@ -83,10 +83,13 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    - name: Set up Python 3.x
+    - name: Set up Python 3.14
       uses: actions/setup-python@v7
       with:
-        python-version: '3.x'
+        # Not '3.x', which becomes 3.15 in October 2026: torch, numba, and scikit-image lack wheels for it,
+        # and pylint's parallel mode (-j) fails on it (co_lnotab was removed).
+        # Return to '3.x' once they support 3.15.
+        python-version: '3.14'
 
     - name: Install CPU-only torch, which is much smaller than the default CUDA build
       run: pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -119,10 +122,12 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    - name: Set up Python 3.x
+    - name: Set up Python 3.14
       uses: actions/setup-python@v7
       with:
-        python-version: '3.x'
+        # Not '3.x', which becomes 3.15 in October 2026: torch and numba lack wheels for it.
+        # Return to '3.x' once they support 3.15.
+        python-version: '3.14'
 
     - name: Install CPU-only torch, which is much smaller than the default CUDA build
       run: pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -140,10 +145,12 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    - name: Set up Python 3.x
+    - name: Set up Python 3.14
       uses: actions/setup-python@v7
       with:
-        python-version: '3.x'
+        # Not '3.x', which becomes 3.15 in October 2026: torch, numba, and scikit-image lack wheels for it.
+        # Return to '3.x' once they support 3.15.
+        python-version: '3.14'
 
     - name: Install CPU-only torch, which is much smaller than the default CUDA build
       run: pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -161,6 +168,49 @@ jobs:
       env:
         EFFORT: 1  # Levels range from 0 (quickest) to 3; the default is 2.
       run: python resampler_notebook.py
+
+  docs:
+    name: Build the documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python 3.x
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.x'
+
+    - name: Install the package and pdoc
+      run: pip install . pdoc
+
+    - name: Build the documentation into pdoc_files/html/
+      run: python pdoc_files/make.py
+
+    - uses: actions/upload-pages-artifact@v5
+      with:
+        path: pdoc_files/html/
+
+  deploy-docs:
+    name: Deploy the documentation to GitHub Pages
+    # Deploy for pushes and manual runs on main (not for pull requests or scheduled runs), and only
+    # after the tests pass.  This separate job alone gets the permissions that deploy-pages needs.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'schedule'
+    needs: [validate, docs]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:  # Let a deployment in progress finish, as GitHub recommends for Pages.
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - id: deployment
+      uses: actions/deploy-pages@v5
 
   publish:
     name: Publish to PyPI
