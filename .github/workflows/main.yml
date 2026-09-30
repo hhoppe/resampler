@@ -229,6 +229,8 @@ jobs:
       id-token: write  # Required for Trusted Publishing.
     steps:
     - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0  # The full history and tags, for the release notes.
 
     - name: Set up Python 3.x
       uses: actions/setup-python@v7
@@ -245,7 +247,7 @@ jobs:
       with:
         skip-existing: true  # Succeed without uploading if PyPI already has this version.
 
-    - name: Create a GitHub release, with tag v<version>, for a new version
+    - name: Create a GitHub release, with tag v<version> and the commits as notes, for a new version
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
@@ -254,5 +256,12 @@ jobs:
         if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
           echo "Tag $tag already exists."
         else
-          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
+          prev=$(git describe --tags --abbrev=0 HEAD)  # The previous release, since HEAD is untagged.
+          {
+            git log --format='- %s (%h)' "$prev..HEAD"
+            echo
+            echo "**Full Changelog**: https://github.com/$GITHUB_REPOSITORY/compare/$prev...$tag"
+          } >release_notes.md
+          cat release_notes.md
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --notes-file release_notes.md
         fi
