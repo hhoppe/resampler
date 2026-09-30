@@ -49,14 +49,15 @@
 #
 # - optional [**gamma**](#Gamma-correction) transfer functions for correct linear-space filtering;
 #
-# - prefiltering for accurate **antialiasing** when `resize` downsampling;
+# - prefiltering for accurate **antialiasing** when downsampling with `resize`;
 #
 # - efficient backpropagation of [**gradients**](#Gradient-backpropagation)
-#   for `torch`, and `jax`;
+#   for `torch` and `jax`;
 #
 # - few dependencies (only `numpy` and `scipy`) and **no C extension code**, yet
 #
-# - [**faster resizing**](#Test-other-libraries) than C++ implementation in`torch.nn`.
+# - [**faster resizing**](#Comparisons-with-other-libraries) than the C++ implementation
+#   in `torch.nn`.
 #
 # A key strategy is to leverage existing sparse matrix representations and tensor operations.
 
@@ -242,7 +243,7 @@
 #   The operation also supports translation and non-uniform scaling
 #   from the source to the destination domain.
 #
-# - The [**resample_affine**](#resample-affine-function) operation allows an
+# - The [**resample_affine**](#Resample) operation allows an
 #   [affine map](https://en.wikipedia.org/wiki/Affine_transformation)
 #   (i.e., including rotation and shear) from the source to the destination domain.
 #
@@ -373,7 +374,7 @@ EFFORT = typing.cast(Literal[0, 1, 2, 3], hh.get_env_int('EFFORT', 2))
 """Controls the breadth and precision of the notebook experiments; 0 <= value <= 3.
   EFFORT=0 ~15 s
   EFFORT=1 ~130 s
-  EFFORT=2 ~1450 s (for archived notebook)
+  EFFORT=2 ~1100 s (for archived notebook)
   EFFORT=3 ~1480 s
 """
 assert 0 <= EFFORT <= 3
@@ -384,7 +385,7 @@ hh.start_timing_notebook_cells()
 
 # %%
 # Silence "...but a CUDA-enabled jaxlib is not installed. Falling back to cpu."
-# See https://github.com/google/jax/issues/6805.
+# See https://github.com/jax-ml/jax/issues/6805.
 jax.config.update('jax_platforms', 'cpu')
 
 # %%
@@ -675,7 +676,7 @@ if EFFORT >= 1:
 # <a name="Array-libraries"></a>
 
 # %% [markdown]
-# The [`resize`](#resize-function) and [`resample`](#Resample)
+# The [`resize`](#Resize) and [`resample`](#Resample)
 # functions operate transparently on multidimensional arrays from several libraries,
 # listed in `ARRAYLIBS`:
 
@@ -692,7 +693,7 @@ show_var_docstring('resampler.ARRAYLIBS')
 # some missing features include:
 # - Support for `einsum()` using a `str` subscripts argument.
 # - The equivalent of `_make_sparse_matrix` and `_arr_matmul_sparse_dense`.
-# - Support for `_make_array(array, arraylib)` and `arr_arraylib(array)`; or use `ep.get_dummy(str)`?
+# - Support for `_make_array(array, arraylib)` and `_arr_arraylib(array)`; or use `ep.get_dummy(str)`?
 # - Alternatively, use of subclassing for extensibility.
 # - Use of `np.dtype` as a shared standard for `dtype` attributes and `astype(...)` functions.
 # - Implementations of `moveaxis()` and `swapaxes()` in the base class `eagerpy.Tensor` using `transpose()`.
@@ -769,7 +770,7 @@ show_var_docstring('resampler.GRIDTYPES')
 # Steps 1, 2, and 4 are specified by the classes `RemapCoordinates`, `ExtendSamples`,
 # and `OverrideExteriorValue`, all of which are components of the class `Boundary`.
 #
-# Here are some [predefined `boundary` settings](#Predefined-boundary-rules):
+# Here are some predefined `boundary` settings:
 
 # %%
 show_var_docstring('resampler.BOUNDARIES')
@@ -787,15 +788,15 @@ show_var_docstring('resampler.BOUNDARIES')
 # [*filter kernel*](https://en.wikipedia.org/wiki/Kernel_(statistics))
 # $\phi$.
 # <!-- (A kernel is a [window function](https://en.wikipedia.org/wiki/Window_function),
-# i.e., it has value zero outside of some some radius.) -->
+# i.e., it has value zero outside of some radius.) -->
 #
 # The [Nyquist-Shannon sampling
 # theorem](https://en.wikipedia.org/wiki/Nyquist%E2%80%93Shannon_sampling_theorem)
 # states that a function $f$ is exactly reconstructed
 # from its samples $a_i = f(\frac{i+0.5}{N})$ if $\phi(x)$ is the
 # [*sinc function*](https://en.wikipedia.org/wiki/Sinc_function)
-# $\text{sinc}(x) = \frac{sin(\pi x)}{\pi x}$
-# and $f$ has no frequencies higher than $2N$, i.e., twice the sample rate $N$.
+# $\text{sinc}(x) = \frac{\sin(\pi x)}{\pi x}$
+# and $f$ has no frequencies higher than $N/2$, i.e., half the sample rate $N$.
 #
 # Because the sinc function has infinite support,
 # in practice it is approximated by multiplying it with a window function $w(x)$.
@@ -839,7 +840,7 @@ show_var_docstring('resampler.FILTERS')
 # To reduce this problem, it is common to transform physical ("linear-space") intensities $l$
 # to more perceptual ("lightness space") values $e$
 # using a nonlinear transfer function
-# (a.k.a. [gamma correction](https://en.wikipedia.org/wiki/Gamma_correction)\)
+# (a.k.a. [gamma correction](https://en.wikipedia.org/wiki/Gamma_correction))
 # prior to quantization.
 #
 # Here are the predefined schemes:
@@ -972,7 +973,7 @@ hh.pdoc_help(resampler.rotate_image_about_center)
 # destination image's unit axis vectors.  I.e., if the norm of the first column is less than 1,
 # then the resampling operation from source to destination performs upsampling along the X axis of
 # the destination image.  Internally, the column vectors of the Jacobian are orthogonalized and
-# rescaled as desired for sampling if the options.adjust_jacobian is set to True.
+# rescaled as desired for sampling.
 
 # %%
 # Currently we cannot apply jax.jit to resampler.resample() because the `coords` argument is
@@ -1271,7 +1272,7 @@ def test_resample_scenario5() -> None:
 
 def test_resample_scenario6() -> None:
   """Map a grayscale image through a color map by using `array.shape = 256, 3` and
-  `coords.shape = height, width`."""
+  `coords.shape = height, width, 1`."""
   array = np.array([1000, 1100, 1400, 2000])
   coords = [[[0.1], [0.3]], [[0.7], [0.9]]]
   new = resampler.resample(array, coords)
@@ -1294,11 +1295,12 @@ def test_that_all_resize_and_resample_agree(shape=(3, 2, 2), new_shape=(4, 2, 4)
   # Sublists of resampler.ARRAYLIBS, resampler.BOUNDARIES, resampler.FILTERS, and resampler.GAMMAS.
   arraylibs = [arraylib for arraylib in resampler.ARRAYLIBS if arraylib != 'numpy']
   dtypes = 'float32 uint8 complex64 complex128 int32 uint32 float64'.split()
+  gridtypes = resampler.GRIDTYPES
   boundaries = 'border clamp quadratic reflect wrap'.split()
   filters = 'box bspline3 impulse lanczos3 narrowbox triangle cardinal3 omoms5'.split()
   gammas = 'identity power2'.split()
-  sequences = [arraylibs, dtypes, resampler.GRIDTYPES, boundaries, filters, gammas]
-  configs = itertools.product(*sequences)  # len(configs) = math.prod([4, 7, 5, 8, 2]) = 2240.
+  sequences = [arraylibs, dtypes, gridtypes, boundaries, filters, gammas]
+  configs = itertools.product(*sequences)  # len(configs) = math.prod([2, 7, 2, 5, 8, 2]) = 2240.
   step = 1 if EFFORT >= 2 else 73
   assert step == 1 or all(len(sequence) % step != 0 for sequence in sequences)
   for config in itertools.islice(configs, 0, None, step):
@@ -1462,7 +1464,7 @@ if EFFORT >= 2:
 #  Uses FFT.  Assumes that signal is periodic.
 
 # https://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.map_coordinates.html
-# https://docs.scipy.org/doc/scipy/reference/tutorial/ndimage.html#ndimage-interpolation-modes
+# https://docs.scipy.org/doc/scipy/tutorial/ndimage.html#ndimage-interpolation-modes
 #  mode='constant'  # or 'reflect', 'nearest', 'mirror', 'wrap', 'grid-wrap',
 #                   #  'grid-constant'; grid-* are correct for dual sampling.
 #  cval=0.0  # used for 'constant'.
@@ -1538,7 +1540,7 @@ test_skimage_transform_resize()
 # **torch.nn.functional.interpolate:**
 
 # %%
-# https://pytorch.org/docs/master/generated/torch.nn.functional.interpolate.html
+# https://pytorch.org/docs/stable/generated/torch.nn.functional.interpolate.html
 # It is differentiable.
 # It does not apply prefiltering/antialiasing when downsampling:
 #  mode='nearest'  # or 'bilinear', 'bicubic' (sharpcubic), 'area'.
@@ -1618,7 +1620,7 @@ def test_jax_image_resize() -> None:
   scales = [1.0, 1.3, 0.8]
   translates = [0.0, 0.25]
   configs = itertools.product(at_boundaries, gridscales, filters, scales, translates)
-  step = 1 if EFFORT >= 1 else 13  # len(configs) = 5 * 4 * 3 * 2 = 120
+  step = 1 if EFFORT >= 1 else 13  # len(configs) = 2 * 5 * 4 * 3 * 2 = 240
   for config in itertools.islice(configs, 0, None, step):
     at_boundary, gridscale, filter, scale, translate = config
     if (scale != 1.0 or translate != 0.0) and (
@@ -1631,7 +1633,6 @@ def test_jax_image_resize() -> None:
     original = np.array(row, np.float32)
     shape = (int(original.shape[0] * gridscale),)
     kwargs: Any = dict(filter=filter, scale=scale, translate=translate)
-    # to_py() deprecated.
     result = np.asarray(resampler._jax_image_resize(original, shape, **kwargs))
     reference = resampler.resize(original, shape, **kwargs, boundary='natural')
     assert np.allclose(result, reference, rtol=0, atol=1e-5), (config, result, reference)
@@ -1643,7 +1644,7 @@ if EFFORT >= 1:
 
 # %%
 # Pure jax implementation of scipy.ndimage.map_coordinates:
-# https://jax.readthedocs.io/en/latest/_autosummary/jax.scipy.ndimage.map_coordinates.html
+# https://docs.jax.dev/en/latest/_autosummary/jax.scipy.ndimage.map_coordinates.html
 # "Only nearest neighbor (order=0), linear interpolation (order=1) and
 # modes 'constant', 'nearest', 'wrap' 'mirror' and 'reflect' are currently supported."
 
@@ -1723,7 +1724,7 @@ test_jit_timing()  # 0.3 s; ~3.0 s!
 
 # %%
 # This analysis is only for 1D resize; it fails to account for the fact that for 2D resize,
-# np.ascontiguous() becomes necessary for good performance, and can become the bottleneck.
+# np.ascontiguousarray() becomes necessary for good performance, and can become the bottleneck.
 def test_multithreading(tiny_test=False, verbose=False) -> None:
   # pyrefly: ignore[missing-attribute]
   matvecs = scipy.sparse._sparsetools.csr_matvecs  # pylint: disable=c-extension-no-member
@@ -1823,8 +1824,8 @@ if EFFORT >= 1:  # Uses numba.
 # Conclusions:
 # - Compared to the standard "csr @ src", we can get a small speedup (1.35x) by calling the C++
 #   scipy.sparse._sparsetools.csr_matvecs directly; however, it is a private scipy function.
-# - A jitted numba function provides a larger speedup (1.6x); however it requires initial jitting.
-# - The numba prange() multithreading (default "omp') is slightly faster (1.05x) than
+# - A jitted numba function provides a larger speedup (1.6x); however, it requires initial jitting.
+# - The numba prange() multithreading (default 'omp') is slightly faster (1.05x) than
 #   a ThreadPoolExecutor.
 # - Moreover, the numba multithreading has lower overhead, possibly because it reuses the threads.
 
@@ -2208,14 +2209,14 @@ if EFFORT >= 1:
 #         0.011    0.011 numpy.ndarray.ravel
 #         0.005    0.005 scipy.sparse._sparsetools.csr_matvecs (built-in)
 
-# BEFORE np.ascontiguous()
+# BEFORE np.ascontiguousarray()
 # ** (1024, 1024, 1) -> (2048, 2048) lanczos3 float32:
 # resize_in_numpy     : 0.132 s
 # Prun: tottime    0.133 overall_cumtime
 #         0.130    0.130 _numba_serial_csr_dense_mult (/mnt/c/Users/hhoppe/Dropbox/proj/resampler/resampler/__init__.py:246)
 #         0.000    0.003 _create_resize_matrix (/mnt/c/Users/hhoppe/Dropbox/proj/resampler/resampler/__init__.py:2248)
 
-# AFTER np.ascontiguous()
+# AFTER np.ascontiguousarray()
 # ** (1024, 1024, 1) -> (2048, 2048) lanczos3 float32:
 # resize_in_numpy     : 0.015 s
 # Prun: tottime    0.016 overall_cumtime
@@ -2392,7 +2393,7 @@ def experiment_visualize_rotation_boundaries(
   if 1:
     means = [image.mean() for image in images.values()]
     expected = [123, 123, 123, 123, 114, 26, 26, 26, 26, 113, 26, 82, 111]
-    assert np.allclose(means, expected, 0.5), (means, expected)
+    assert np.allclose(means, expected, atol=0.5), (means, expected)
 
 
 experiment_visualize_rotation_boundaries()
@@ -2464,7 +2465,7 @@ if EFFORT >= 1:
 
 # %%
 def experiment_zoom_rotate_image(src_size=128, dst_size=128, num_frames=60) -> None:
-  """The `resampler` function lacks a prefilter, so shows aliasing during minification."""
+  """The `resample` function lacks a prefilter, so shows aliasing during minification."""
   original_image = resampler.resize(EXAMPLE_IMAGE, (src_size,) * 2)
   videos = collections.defaultdict(list)
   for frame_index in range(num_frames):
@@ -2588,7 +2589,7 @@ if EFFORT >= 1:
 #
 # e = a / c
 # f = b - a / c * d
-# g = t - a / c * d
+# g = t - a / c * u
 # h, i, j = c, d, u
 
 # Overall, we can just use A*B and choose a pre-transposition and a post-transposition,
@@ -2630,7 +2631,7 @@ def experiment_shear_image(
   }
   media.show_images(images, height=image.shape[0] * 1)
   if expected:
-    assert np.allclose(psnrs, expected, 0.005), (psnrs, expected)
+    assert np.allclose(psnrs, expected, rtol=0.005), (psnrs, expected)
 
 
 if EFFORT >= 1:
@@ -2817,7 +2818,7 @@ def test_jax1(filter='cubic') -> None:
   hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_time=0)
   hh.print_time(lambda: resampler.resize(array, (3, 3), filter=filter), max_time=0)
   if not resampler._get_filter(filter).requires_digital_filter:
-    # Else: TracerArrayConversionError in np.asarray() in jax_inverse_convolution().
+    # Else: TracerArrayConversionError in np.asarray() in _apply_digital_filter_1d().
     hh.print_time(lambda: resampler.jaxjit_resize(array, (3, 3), filter=filter), max_time=0)
     hh.print_time(lambda: resampler.jaxjit_resize(array, (3, 3), filter=filter), max_time=0)
     hh.print_time(lambda: resampler.jaxjit_resize(array, (3, 3), filter=filter), max_time=0)
@@ -3120,7 +3121,7 @@ def visualize_filter_frequency_response(filters: Mapping[str, resampler.Filter])
     ax.set(title=name, xlabel='Normalized frequency (cycles/sample)', ylabel='Gain (dB)')
     ax.set(xlim=[0.0, 2.0], ylim=[-80, 8])
     ax.grid(True, lw=0.3)
-    params1 = dict(colors='gray', ls='dotted', lw=2, color='green')
+    params1 = dict(ls='dotted', lw=2, color='green')
     ax.vlines(x=0.5, ymin=-200, ymax=0, **params1)
     ax.hlines(y=0, xmin=0, xmax=0.5, **params1)
     bbox = dict(boxstyle='square,pad=0.2', fc='white', lw=0)
@@ -3231,7 +3232,7 @@ def experiment_kaiser_filter_beta_parameters(n: int = 12, s: float = 2.0) -> Non
   # The two filter parameters are the number n of taps and the filter
   # half-width f_h.  The filter half-width f_h defines transition band;
   # high f_h in the low-res layers to maximize attenuation in the stopband;
-  # low f_h in hig-res layers to recover image detail.
+  # low f_h in high-res layers to recover image detail.
   for f_h in [s / 2, (np.sqrt(2) - 1) * (s / 2)]:
     # L is the spatial extent of the filter (2*radius); s is the sampling rate.
     # n is the number of discrete taps: odd for primal and even for dual.
@@ -3365,7 +3366,7 @@ def visualize_boundary_rules_in_1d(
 # %%
 def visualize_all_boundary_rules_in_1d() -> None:
   """Create 1D boundary rule plots similar to
-  https://docs.scipy.org/doc/scipy/reference/tutorial/ndimage.html#ndimage-interpolation-modes"""
+  https://docs.scipy.org/doc/scipy/tutorial/ndimage.html#ndimage-interpolation-modes"""
   hh.no_vertical_scroll()
 
   display_markdown("**`gridtype='dual'`:**")
@@ -3381,7 +3382,7 @@ def visualize_all_boundary_rules_in_1d() -> None:
     reconstruction, the last sample is ignored for the `'wrap'` boundary rule
     on a `'primal'` grid.""")
 
-  display_markdown('<br/>**For filters_summary figure:**')
+  display_markdown('<br/>**For boundary_summary figure:**')
   boundaries = 'reflect wrap tile clamp natural linear quadratic'.split()
   visualize_boundary_rules_in_1d(filters=['lanczos3'], boundaries=boundaries)
 
@@ -3437,7 +3438,7 @@ def visualize_boundary_rules_in_2d(
     images = {'(samples)': image_samples} | images
     images2: Any = images if row_index == 0 else images.values()
     # Benefit of show_images() over matplotlib.imshow() is no pixel resampling.
-    ylabel = f"filter='{filter}'&nbsp;&nbsp;&nbsp" if row_index == 0 else f"'{filter}'"
+    ylabel = f"filter='{filter}'&nbsp;&nbsp;&nbsp;" if row_index == 0 else f"'{filter}'"
     media.show_images(images2, ylabel=ylabel, html_class='show_images2')
 
   display_markdown(
@@ -3506,7 +3507,6 @@ def compare_boundary_rules_on_cropped_windows_of_images(
       )
       reference = reference[scaled_pad:-scaled_pad, scaled_pad:-scaled_pad]
 
-      images = {}
       for boundary in boundaries:
         new_shape = must_be_int(np.array(window.shape[:2]) * scale)
         resized = resampler.resize(
@@ -3569,7 +3569,7 @@ elif EFFORT >= 1:
 
 # %% [markdown]
 # Conclusions (particularly from the slower results archived in the next cell):
-# - `'reflect'` is the best boundary rule for upsamping, and
+# - `'reflect'` is the best boundary rule for upsampling, and
 # - `'clamp'` is always among the best boundary rules for downsampling,
 #   especially for `'lanczos3'`.
 # - For downsampling with smaller filter kernels like `'cubic'`,
@@ -3798,7 +3798,7 @@ if EFFORT >= 1:
 # - The `'mitchell'` filter is inferior to `'cubic'` on all images, for both MSE and SSIM.
 # - Clipping the image pixel values (to `[0, 1]` using `clip=True`) has little visual effect.
 #   For the vector graphics, it reduces PSNR but helps SSIM.
-# - The cardinal B-spline and O-MOMS filters behave similar to Lanczos.
+# - The cardinal B-spline and O-MOMS filters behave similarly to Lanczos.
 # - Overall, `'trapezoid'` is best for downsampling vector graphics, and
 #   `'lanczos3'` is a good choice for downsampling natural images like photos.
 
@@ -3886,7 +3886,7 @@ if EFFORT >= 1:
 # - On natural photos, `'lanczos10'` has the best PSNR and SSIM,
 #   although `'lanczos3'` is not too far behind.
 # - On vector graphics, `'lanczos5'` has the best PSNR,
-#   and `'cubic' / 'lanczos3'` have the best SSIM.
+#   and `'cubic' / 'lanczos3' / 'hamming3'` have the best SSIM.
 #   The problem is that the higher-order Lanczos filters (`'lanczos5'` and `'lanczos10'`) introduce
 #   too much ringing near step discontinuities.
 # - The cardinal B-spline and O-MOMS filters have similar behavior to Lanczos.
@@ -4123,12 +4123,12 @@ if EFFORT >= 2:
 # This aliased reconstruction can be prevented in one of two ways:
 # 1. Define a different analytic function that is in fact bandlimited in linear
 #   space.  A trivial way is to sample a chirp function in linear space and convert it to lightness space.
-#   However this looks perceptually poor because the bright concentric rings overwhelm the dark ones.
-# 3. Prefilter the linear-space function such that it is bandlimited.  A simple
+#   However, this looks perceptually poor because the bright concentric rings overwhelm the dark ones.
+# 2. Prefilter the linear-space function such that it is bandlimited.  A simple
 #   approach is to supersample the function in linear space, then convert the supersampled values into lightness space.
 #   As seen in the image results, the coarse image looks similar to the original with respect to
-#  the uniformity of the concentric bands (though it is subtly different),
-#  and its upsampling now has fewer aliasing artifacts.
+#   the uniformity of the concentric bands (though it is subtly different),
+#   and its upsampling now has fewer aliasing artifacts.
 
 # %% [markdown]
 # ## Higher diagonal frequencies
@@ -4198,7 +4198,7 @@ if EFFORT >= 1:
 
 
 # %%
-def visualize_prefiltering_a_discontinuity_in_1D(size=400, x_step=0.5) -> None:
+def visualize_prefiltering_a_discontinuity_in_1d(size=400, x_step=0.5) -> None:
   x = (np.arange(size) + 0.5) / size
   array = np.where(x < x_step, 0.0, 1.0)
   new_sizes = [10, 11, 12, 13]  # range(10, 21)
@@ -4229,7 +4229,7 @@ def visualize_prefiltering_a_discontinuity_in_1D(size=400, x_step=0.5) -> None:
     assert np.allclose(maxs, expected, atol=0.0005), maxs
 
 
-visualize_prefiltering_a_discontinuity_in_1D()
+visualize_prefiltering_a_discontinuity_in_1d()
 
 
 # %% [markdown]
@@ -4243,7 +4243,7 @@ visualize_prefiltering_a_discontinuity_in_1D()
 
 
 # %%
-def visualize_prefiltering_a_discontinuity_in_2D(
+def visualize_prefiltering_a_discontinuity_in_2d(
     shape=(100, 100), radius=0.2, new_shape=(20, 20)
 ) -> None:
   mapped_radius = np.linalg.norm((np.indices(shape).T + 0.5) / np.array(shape) - 0.5, axis=-1).T
@@ -4263,7 +4263,7 @@ def visualize_prefiltering_a_discontinuity_in_2D(
     assert np.allclose(maxs, expected, atol=0.005), maxs
 
 
-visualize_prefiltering_a_discontinuity_in_2D()
+visualize_prefiltering_a_discontinuity_in_2d()
 
 
 # %% [markdown]
@@ -4398,7 +4398,7 @@ def experiment_with_convolution() -> None:
     sample_shape = array.shape[conv_ndim:]
     padding: Any = tuple(np.array(filter.shape) // 2)
     array = array.view(1, *array.shape[:conv_ndim], -1)  # BWC, BHWC, or BTHWC.
-    array = array.moveaxis(-1, 1)  # BCW, BCHW , or BCTHW.
+    array = array.moveaxis(-1, 1)  # BCW, BCHW, or BCTHW.
     while filter.ndim < array.ndim:
       filter = filter[None]
     filter = filter.expand((array.shape[1], 1, *filter.shape[2:]))  # OCW, OCHW, or OCTHW.
@@ -5022,6 +5022,7 @@ visualize_example_filters('impulse box trapezoid triangle cubic lanczos3 lanczos
 
 # %% [markdown]
 # # Comparisons with other libraries
+# <a name="Comparisons-with-other-libraries"></a>
 
 # %%
 # Useful references:
@@ -5053,7 +5054,7 @@ visualize_example_filters('impulse box trapezoid triangle cubic lanczos3 lanczos
 # | `scipy.ndimage.`<br/>&nbsp;`map_coordinates` | any | `np` | any | dual, primal | cardinal B-splines | aliased &#9785; | several | very slow | [C](https://github.com/scipy/scipy/blob/main/scipy/ndimage/src/ni_interpolation.c) | no |
 # | `skimage.transform.`<br/>&nbsp;`resize` | any | `np` | any | dual, primal | cardinal B-splines | Gaussian &#9785; | several | very slow | [<font size="-2">`scipy.ndimage`</font>](https://github.com/scikit-image/scikit-image/blob/main/skimage/transform/_warps.py) | no |
 # | `torch.nn.functional.`<br/>&nbsp;`interpolate` | 1D-3D | `torch` | `float32`, `float64` | dual | up to cubic | `'trapezoid'`, `'triangle'`, `'cubic'` | `'clamp'` | average | [C++](https://github.com/pytorch/pytorch/blob/main/aten/src/ATen/native/UpSampleBicubic2d.cpp) | yes |
-# | `jax.image.resize` | any | `jax` | `float`, `complex` | dual | up to `'lanczos5'` | good but no `'trapezoid'` | `'natural'` | average | [<font size="-2">`opt_einsum`</font>](https://github.com/google/jax/blob/main/jax/_src/image/scale.py) | yes |
+# | `jax.image.resize` | any | `jax` | `float`, `complex` | dual | up to `'lanczos5'` | good but no `'trapezoid'` | `'natural'` | average | [<font size="-2">`opt_einsum`</font>](https://github.com/jax-ml/jax/blob/main/jax/_src/image/scale.py) | yes |
 #
 # The `resampler` library does not require installing any new native code;
 # it instead leverages the existing sparse matrix representations and operations in `scipy.sparse`
@@ -5108,7 +5109,7 @@ def experiment_compare_upsampling_with_other_libraries(gridscale=2.0) -> None:
       'torch.nn.interp sharpcubic': lambda: resampler._torch_nn_resize(*a, filter='sharpcubic'),
       'torch.nn.interpolate triangle': lambda: resampler._torch_nn_resize(*a, filter='triangle'),
       # 'torch.nn.interp cubic AA': lambda: resampler._torch_nn_resize(*a, filter='sharpcubic', antialias=True),
-      # 'torch.nn.interp triangle AA': lambda: resampler._torch_nn_resize(*a, 'filter=triangle', antialias=True),
+      # 'torch.nn.interp triangle AA': lambda: resampler._torch_nn_resize(*a, filter='triangle', antialias=True),
       'jax.image.resize lanczos3': lambda: resampler._jax_image_resize(*a, filter='lanczos3'),
       'jax.image.resize triangle': lambda: resampler._jax_image_resize(*a, filter='triangle'),
       'cv.resize lanczos4': lambda: resampler._cv_resize(*a, filter='lanczos4'),
@@ -5266,7 +5267,7 @@ test_downsample_timing()
 #   introduces aliasing.
 # - With `ndimage`, it is difficult to create the right transform / coords to exactly resize
 #   a 'dual' grid.
-#   The `zoom()` in the more recent `scipy` has new `grid_mode='True'` to assist with this.
+#   The `zoom()` in the more recent `scipy` has new `grid_mode=True` to assist with this.
 # - The `torch.nn` requires `antialias=True` for prefiltering.
 # - The `skimage.transform.resize` also requires `anti_aliasing=True` and it introduces a
 #   Gaussian prefilter which prevents aliasing but is blurry.
@@ -5323,10 +5324,10 @@ def visualize_boundary_rules_across_libraries(*, filter='triangle', cval=0.0) ->
 if EFFORT >= 1:
   visualize_boundary_rules_across_libraries(filter='high_quality', cval=0.6)
 
-# The grid below let us identify what boundary conditions are implemented in the other libraries.
+# The grid above lets us identify what boundary conditions are implemented in the other libraries.
 # The results generally match ours.
 
-# The discrepancy for filter='cardinal5' and filter='clamp','border' may be due to the interaction
+# The discrepancy for filter='cardinal5' and boundary='clamp','border' may be due to the interaction
 # of the digital filter and the boundary clamp extension, e.g., which comes first.
 
 # For `jax.image.scale_and_translate`, the value of the function outside the unit domain is
@@ -5337,12 +5338,12 @@ if EFFORT >= 1:
 if EFFORT >= 1:
   visualize_boundary_rules_across_libraries(filter='triangle', cval=0.0)
 
-# Note that for triangle='filter' (as well as 'box_like'), the function value within the domain
+# Note that for filter='triangle' (as well as 'box_like'), the function value within the domain
 # interior is the same for boundary in ['reflect', 'clamp', 'natural'], so we cannot deduce what
 # boundary condition is implemented in the other libraries in this particular case.
 
 # There is a discrepancy between our boundary='border' and that in `scipy.ndimage.map_coordinates`.
-# Our 'border' definition overrides values of the sample values outside the domain.
+# Our 'border' definition overrides the sample values outside the domain.
 # Their 'border' definition overrides the value of the reconstructed function immediately beyond
 # the last domain-interior samples.
 # It seems that our definition matches that of `skimage.transform.resize`.
@@ -5497,27 +5498,27 @@ hh.show_notebook_cell_top_times()
 # In[119] def test_jax_optimize_image_for_desired_upsampling(\n        1.908 s
 
 # EFFORT=2
-# Total time: 1487.66 s
-# In[ 96] def experiment_with_resize_timing() -> None:\n  def run(    397.904 s
-# In[127] def experiment_find_the_best_max_block_size(src_size=64,    303.484 s
-# In[142] def compare_boundary_rules_on_cropped_windows_of_images(\n  160.067 s
-# In[ 98] def test_profile_downsampling(\n    shape, new_shape,       157.586 s
-# In[ 95] def test_best_dimension_ordering_for_resize_timing(dtype=   139.139 s
-# In[ 94] def test_gamma_conversion_from_and_to_uint8_timings() ->    66.550 s
-# In[103] if EFFORT >= 2:\n  test_profile_upsampling((1024, 1024, 3), 50.498 s
-# In[185] def run_lint() -> None:\n  """Run checks on *.py notebook   49.730 s
-# In[159] def experiment_with_convolution() -> None:\n  # https://    16.024 s
-# In[ 62] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2) 15.911 s
-# In[101] if EFFORT >= 1:\n  test_profile_upsampling((1024, 1024, 1), 13.100 s
-# In[161] def test_inverse_convolution_2d(\n    gridscale=2.0,        13.083 s
-# In[175] def experiment_compare_downsampling_with_other_libraries(    9.291 s
-# In[ 52] def test_profile_resample() -> None:\n  def run(src_shape,   8.076 s
-# In[173] def experiment_compare_upsampling_with_other_libraries(      8.017 s
-# In[ 97] def test_compare_timing_of_resize_and_media_show_image() ->  6.615 s
-# In[115] def experiment_shear_image(\n    downscale=4, degrees=30,    4.682 s
-# In[130] if EFFORT >= 1:\n  visualize_filters({f"\'{name}\'":         3.850 s
-# In[ 92] def experiment_measure_executor_overhead(task=lambda _:      3.788 s
-# In[ 38] hh.pdoc_help(resampler.resize)\nhh.no_vertical_scroll()      3.756 s
+# Total time: 1094.50 s
+# In[121] def experiment_find_the_best_max_block_size(src_size=64,    251.111 s
+# In[ 92] def experiment_with_resize_timing() -> None:\n  def run(    181.926 s
+# In[ 91] def test_best_dimension_ordering_for_resize_timing(dtype=   161.734 s
+# In[136] def compare_boundary_rules_on_cropped_windows_of_images(\n  145.068 s
+# In[ 94] def test_profile_downsampling(\n    shape, new_shape,       73.370 s
+# In[ 90] def test_gamma_conversion_from_and_to_uint8_timings() ->    57.838 s
+# In[ 99] if EFFORT >= 2:\n  test_profile_upsampling((1024, 1024, 3), 42.627 s
+# In[179] def run_lint() -> None:\n  """Run checks on *.py notebook   33.871 s
+# In[153] def experiment_with_convolution() -> None:\n  # https://    15.706 s
+# In[ 60] def test_that_all_resize_and_resample_agree(shape=(3, 2, 2) 15.674 s
+# In[ 97] if EFFORT >= 1:\n  test_profile_upsampling((1024, 1024, 1), 11.852 s
+# In[ 50] def test_profile_resample() -> None:\n  def run(src_shape,   9.834 s
+# In[155] def test_inverse_convolution_2d(\n    gridscale=2.0,         8.271 s
+# In[169] def experiment_compare_downsampling_with_other_libraries(    7.882 s
+# In[167] def experiment_compare_upsampling_with_other_libraries(      5.841 s
+# In[111] def experiment_shear_image(\n    downscale=4, degrees=30,    5.465 s
+# In[ 93] def test_compare_timing_of_resize_and_media_show_image() ->  5.418 s
+# In[124] if EFFORT >= 1:\n  visualize_filters({f"\'{name}\'":         4.166 s
+# In[ 75] def test_jax_image_resize() -> None:\n  at_boundaries = [    3.896 s
+# In[ 81] # This analysis is only for 1D resize; it fails to account   2.985 s
 
 # EFFORT=3
 # Total time: ? s

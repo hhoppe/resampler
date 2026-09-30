@@ -3,13 +3,13 @@ name = "resampler"
 description = "Fast differentiable resizing and warping of arbitrary grids"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {file = "LICENSE"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{name = "Hugues Hoppe", email="hhoppe@gmail.com"}]
 classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Education",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
@@ -21,23 +21,26 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Processing",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-keywords = []
+keywords = [
+    "resize", "resample", "warp", "interpolation", "antialiasing", "image", "differentiable",
+    "numpy", "torch", "jax",
+]
 
-# pip dependencies of the project
+# The pip dependencies of the project.
 # The lower bounds are the oldest versions with wheels for Python 3.10; CI tests them.
 dependencies = [
     "numpy>=1.21.2",
     "scipy>=1.7.2",
 ]
 
-# This is set automatically by flit using `*.__version__`
+# Flit sets the version from `resampler.__version__`.
 dynamic = ["version"]
 
 [project.urls]
 homepage = "https://colab.research.google.com/github/hhoppe/resampler/blob/main/resampler_notebook.ipynb"
 repository = "https://github.com/hhoppe/resampler"
 documentation = "https://hhoppe.github.io/resampler/resampler.html"
-# Other: changelog
+changelog = "https://github.com/hhoppe/resampler/releases"
 
 # Development requirements (PEP 735), which are not part of the published package metadata.
 # CI installs them with `pip install . --group test` or `pip install . --group lint`.
@@ -60,7 +63,7 @@ lint = [
 ]
 
 [build-system]
-requires = ["flit_core >=3.5,<4"]
+requires = ["flit_core >=3.12,<4"]  # For PEP 639 `license`.
 build-backend = "flit_core.buildapi"
 
 [tool.autopep8]
@@ -100,7 +103,8 @@ disable = [
     "too-many-lines", "too-few-public-methods", "too-many-arguments", "too-many-locals",
     "use-dict-literal", "unnecessary-lambda-assignment",
     # Local.
-    "too-many-statements", "too-many-branches", "too-many-nested-blocks", "too-many-positional-arguments",
+    "too-many-statements", "too-many-branches", "too-many-nested-blocks",
+    "too-many-positional-arguments",
     "no-member",  # Some members unrecognized for 'torch', 'cv2'.
     "duplicate-code",
 ]
@@ -108,9 +112,11 @@ reports = false
 score = false
 recursive = true
 ignore-paths = [".*ipynb_checkpoints", "Other", "resampler_other.*"]
+# The default ignores Emacs lock files; the stub would make pylint lint __init__.py twice.
+ignore-patterns = ["^\\.#", ".*\\.pyi$"]
 
 [tool.pylint.basic]
-good-names-rgxs = "^[a-z][a-z0-9]?|[A-Z]([A-Z_]*[A-Z])?$"
+good-names-rgxs = "^([a-z][a-z0-9]?|[A-Z]([A-Z_]*[A-Z])?)$"
 
 [tool.pylint.format]
 indent-string = "  "
@@ -119,7 +125,8 @@ expected-line-ending-format = "LF"
 [tool.pyrefly]
 min-severity = "warn"
 replace-imports-with-any = ["numba.*"]
-project-excludes = ["*.ipynb", "Other/**", "resampler_other*"]
+project-includes = ["**/*.py", "**/*.pyi"]
+project-excludes = ["Other/**", "resampler_other*"]
 
 [tool.pyrefly.errors]
 redundant-condition = false
@@ -127,9 +134,11 @@ missing-import = false
 untyped-import = false
 
 [tool.pytest.ini_options]
-addopts = "--ignore-glob '*.#*' --doctest-modules --ignore Old --ignore Other --ignore pdoc_files --ignore resampler_other.py --ignore resampler_other_big.py --ignore example_usage.py --ignore resampler_notebook.py"
+addopts = ["--doctest-modules", "--ignore-glob=*.#*"]  # (Emacs lock files end in ".py".)
+testpaths = ["resampler", "test_resampler.py"]
 
 [tool.ruff]
+line-length = 100
 extend-exclude = ["*.ipynb"]
 
 [tool.ruff.lint]
