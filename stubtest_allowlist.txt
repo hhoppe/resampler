@@ -1,4 +1,6 @@
-# Allowlist for "python -m mypy.stubtest resampler --allowlist stubtest_allowlist.txt".
+# Allowlist for "python -m mypy.stubtest resampler --allowlist stubtest_allowlist.txt
+#   --mypy-config-file pyproject.toml" (the config supplies ignore_missing_imports for jax and torch).
 # At runtime (outside typing.TYPE_CHECKING), these type aliases are all Any, so stubtest finds
-# neither their members nor their Union structure.
-resampler\._(NDArray|DType|AnyArray|ArrayLike|DTypeLike)(\..*)?
+# neither their members nor their Union structure.  The array-library aliases matter only when
+# jax or torch is installed.
+resampler\._(NDArray|DType|AnyArray|ArrayLike|DTypeLike|JaxArray|TorchTensor)(\..*)?

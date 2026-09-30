@@ -9,7 +9,7 @@ from __future__ import annotations
 # __init__.pyi (for the actual content)!
 
 __docformat__ = 'google'
-__version__ = '1.1.1'
+__version__ = '1.1.2'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 import abc
@@ -660,7 +660,6 @@ class _JaxArraylib(_Arraylib[_JaxArray]):
   def best_dims_order_for_resize(self, dst_shape: tuple[int, ...]) -> list[int]:
     # Jax/XLA does not have strides.  Arrays are contiguous, almost always in C order; see
     # https://github.com/google/jax/discussions/7544#discussioncomment-1197038.
-    # We use a heuristic similar to `_TensorflowArraylib`.
     src_shape: tuple[int, ...] = self.array.shape[: len(dst_shape)]
     dims = list(range(len(src_shape)))
     if len(dims) > 1 and dst_shape[0] / src_shape[0] > 1.0:
@@ -866,9 +865,6 @@ def _make_array(array: _ArrayLike, arraylib: str, /) -> Any:
 #
 # torch.Tensor also supports strides, so torch.movedim() is constant-time and
 # Tensor.reshape() has the same copy-when-necessary behavior as numpy.
-#
-# In contrast, tf.Tensor does not support strides, so tf.transpose() returns a new permuted
-# tensor.  However, tf.reshape() is always efficient.
 #
 # For jax.Array, both operations lower to XLA ops; under jit the compiler often fuses away
 # the transpose and turns the reshape into a bitcast, so neither has a fixed cost.
@@ -2701,9 +2697,8 @@ def resize(
   # Multidimensional resize can be expressed using einsum() with multiple per-dim resize matrices,
   # e.g., as in jax.image.resize().  A benefit is to seek the optimal order of multiplications.
   # However, efficiency often requires sparse resize matrices, which are unsupported in einsum().
-  # Sparse tensors requested for tf.einsum: https://github.com/tensorflow/tensorflow/issues/43497
   # https://github.com/tensor-compiler/taco: C++ library that computes tensor algebra expressions
-  # on sparse and dense tensors; however it does not interoperate with tensorflow, torch, or jax.
+  # on sparse and dense tensors; however it does not interoperate with torch or jax.
 
   for dim in dim_order:
     skip_resize_on_this_dim = (
