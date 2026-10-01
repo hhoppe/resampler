@@ -88,7 +88,7 @@ jobs:
     - name: Set up Python 3.14
       uses: actions/setup-python@v7
       with:
-        # Not '3.x', which becomes 3.15 in October 2026: torch, numba, and scikit-image lack wheels for it,
+        # Not '3.x', which becomes 3.15 in October 2026: torch and scikit-image lack wheels for it,
         # and pylint's parallel mode (-j) fails on it (dill 0.4.1 reads the removed co_lnotab;
         # dill's main branch has the fix).
         # Return to '3.x' once they support 3.15.
@@ -128,8 +128,8 @@ jobs:
     - name: Set up Python 3.14
       uses: actions/setup-python@v7
       with:
-        # Not '3.x', which becomes 3.15 in October 2026: torch and numba lack wheels for it.
-        # Return to '3.x' once they support 3.15.
+        # Not '3.x', which becomes 3.15 in October 2026: torch lacks wheels for it.
+        # Return to '3.x' once torch supports 3.15.
         python-version: '3.14'
 
     - name: Install CPU-only torch, which is much smaller than the default CUDA build
@@ -151,7 +151,7 @@ jobs:
     - name: Set up Python 3.14
       uses: actions/setup-python@v7
       with:
-        # Not '3.x', which becomes 3.15 in October 2026: torch, numba, and scikit-image lack wheels for it.
+        # Not '3.x', which becomes 3.15 in October 2026: torch and scikit-image lack wheels for it.
         # Return to '3.x' once they support 3.15.
         python-version: '3.14'
 
