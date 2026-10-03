@@ -134,6 +134,7 @@ dmypy.json
 /docs
 /pdoc_files/html
 
+/CLAUDE.md
 /Notes.txt
 /resampler_other*
 /no_code.ipynb
