@@ -4102,7 +4102,7 @@ def experiment_visualize_gamma_upsample_video(shape=(24, 48), source_pow=1) -> N
   media.show_videos(videos, codec='gif', fps=10, height=shape[0] * 8, border=True, ylabel=ylabel)
 
 
-if EFFORT >= 2:
+if EFFORT >= 3:  # The resulting videos are quite large; avoid inserting them into saved notebook.
   experiment_visualize_gamma_upsample_video()
   experiment_visualize_gamma_upsample_video(source_pow=0.5)
 
