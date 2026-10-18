@@ -134,6 +134,7 @@ project-excludes = ["Other/**", "resampler_other*"]
 redundant-condition = false
 missing-import = false
 untyped-import = false
+unreachable = false
 
 [tool.pytest.ini_options]
 addopts = ["--doctest-modules", "--ignore-glob=*.#*"]  # (Emacs lock files end in ".py".)

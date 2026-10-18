@@ -2309,7 +2309,7 @@ def _create_resize_matrix(
     x = src_float_index[:, None] - src_index.astype(dtype)
     return filter(x)
 
-  weight = get_weight_matrix().astype(dtype, copy=False)
+  weight: _NDArray = get_weight_matrix().astype(dtype, copy=False)
 
   if filter.name != 'narrowbox' and (is_minification or not filter.partition_of_unity):
     weight = weight / weight.sum(axis=-1)[..., None]
