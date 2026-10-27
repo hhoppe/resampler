@@ -193,7 +193,7 @@ class Boundary:
   @property
   def uses_cval(self) -> bool: ...
   def preprocess_coordinates(self, point: _NDArray, /) -> _NDArray: ...
-  def apply(
+  def fold(
       self, index: _NDArray, weight: _NDArray, point: _NDArray, size: int, gridtype: Gridtype, /
   ) -> tuple[_NDArray, _NDArray]: ...
   def override_reconstruction(self, weight: _NDArray, point: _NDArray, /) -> None: ...
@@ -366,6 +366,19 @@ def uniform_resize(
 ) -> _Array: ...
 
 #
+def compute_coefficients(
+    array: _Array,
+    /,
+    grid_ndim: int,
+    *,
+    gridtype: str | Gridtype | Iterable[str | Gridtype] = 'dual',
+    boundary: str | Boundary | Iterable[str | Boundary] = 'auto',
+    cval: _ArrayLike = 0.0,
+    filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
+    gamma: str | Gamma | None = None,
+    src_gamma: str | Gamma | None = None,
+    precision: _DTypeLike | None = None,
+) -> _Array: ...
 def resample(
     array: _Array,
     /,
@@ -382,6 +395,7 @@ def resample(
     jacobian: _ArrayLike | None = None,
     precision: _DTypeLike | None = None,
     dtype: _DTypeLike | None = None,
+    from_coefficients: bool = False,
     max_block_size: int = 40_000,
     debug: bool = False,
 ) -> _Array: ...
@@ -546,6 +560,8 @@ def _get_boundary(boundary: str | Boundary, /) -> Boundary: ...
 def _get_filter(filter: str | Filter, /) -> Filter: ...
 def _to_float_01(array: _Array, /, dtype: _DTypeLike) -> _Array: ...
 def _from_float(array: _Array, /, dtype: _DTypeLike) -> _Array: ...
+def _decode_table(gamma: Gamma, dtype: _DType, num: int, arraylib: str, /) -> Any: ...
+def _decode_using_table(gamma: Gamma, array: _Array, dtype: _DType, /) -> _Array | None: ...
 def _get_gamma(gamma: str | Gamma, /) -> Gamma: ...
 def _get_src_dst_gamma(
     gamma: str | Gamma | None,
@@ -567,6 +583,46 @@ def _create_resize_matrix(
     dtype: _DTypeLike = ...,
     arraylib: str = ...,
 ) -> tuple[Any, _AnyArray | None]: ...
+def _create_resize_matrix_cached(*args: Any) -> tuple[Any, _AnyArray | None]: ...
+def _create_resize_matrix_uncached(
+    src_size: int,
+    dst_size: int,
+    src_gridtype: Gridtype,
+    dst_gridtype: Gridtype,
+    boundary: Boundary,
+    filter: Filter,
+    prefilter: Filter | None = ...,
+    scale: float = ...,
+    translate: float = ...,
+    dtype: _DTypeLike = ...,
+    arraylib: str = ...,
+) -> tuple[Any, _AnyArray | None]: ...
+@dataclasses.dataclass(frozen=True)
+class _DigitalFilterSystem:
+  cval_weight: _NDArray | None
+  banded: tuple[int, int, _NDArray] | None
+  is_symmetric: bool
+  lu: Any
+
+def _digital_filter_system(
+    gridtype: Gridtype,
+    boundary: Boundary,
+    filter: Filter,
+    size: int,
+    dtype: _DTypeLike,
+    compute_backward: bool,
+    /,
+) -> _DigitalFilterSystem: ...
+def _digital_filter_system_cached(*args: Any) -> _DigitalFilterSystem: ...
+def _digital_filter_system_uncached(
+    gridtype: Gridtype,
+    boundary: Boundary,
+    filter: Filter,
+    size: int,
+    dtype: _DType,
+    compute_backward: bool,
+    /,
+) -> _DigitalFilterSystem: ...
 def _apply_digital_filter_1d(
     array: _Array,
     gridtype: Gridtype,

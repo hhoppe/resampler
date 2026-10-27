@@ -9,7 +9,7 @@ from __future__ import annotations
 # __init__.pyi (for the actual content)!
 
 __docformat__ = 'google'
-__version__ = '1.1.5'
+__version__ = '1.1.6'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 import abc
@@ -1221,7 +1221,8 @@ class BorderExtendSamples(ExtendSamples):
 @dataclasses.dataclass(frozen=True)
 class ValidExtendSamples(ExtendSamples):
   """Assign all domain samples weight 1 and all outside samples weight 0.
-  Compute a weighted reconstruction and divide by the reconstructed weight."""
+  Compute a weighted reconstruction and divide by the reconstructed weight.
+  (A row without exterior samples keeps its weights unchanged.)"""
 
   def __init__(self) -> None:
     super().__init__(uses_cval=True)
@@ -1236,8 +1237,8 @@ class ValidExtendSamples(ExtendSamples):
     weight[high] = 0.0
     index[high] = size - 1
     sum_weight = weight.sum(axis=-1)
-    nonzero_sum = sum_weight != 0.0
-    np.divide(weight, sum_weight[..., None], out=weight, where=nonzero_sum[..., None])
+    renormalize = (low | high).any(axis=-1) & (sum_weight != 0.0)
+    np.divide(weight, sum_weight[..., None], out=weight, where=renormalize[..., None])
     return index, weight
 
 
@@ -1412,10 +1413,10 @@ class Boundary:
     point = self.coord_remap(point)
     return point
 
-  def apply(
+  def fold(
       self, index: _NDArray, weight: _NDArray, point: _NDArray, size: int, gridtype: Gridtype, /
   ) -> tuple[_NDArray, _NDArray]:
-    """Replace exterior samples by combinations of interior samples."""
+    """Fold the kernel taps that reference exterior samples onto interior samples (and `cval`)."""
     index, weight = self.extend_samples(index, weight, size, gridtype)
     self.override_reconstruction(weight, point)
     return index, weight
@@ -2115,6 +2116,20 @@ class IdentityGamma(Gamma):
     return _arr_astype(array, dtype)
 
 
+@functools.lru_cache(maxsize=16)
+def _decode_table(gamma: Gamma, dtype: _DType, num: int, arraylib: str, /) -> Any:
+  """Return the decoded values of the `num` unsigned-integer sample values, as a lookup table."""
+  return _make_array(gamma.decode(np.arange(num, dtype=dtype) / (num - 1), dtype), arraylib)
+
+
+def _decode_using_table(gamma: Gamma, array: _Array, dtype: _DType, /) -> _Array | None:
+  """Decode 8- or 16-bit unsigned samples through a lookup table, or return None for other types."""
+  num = {np.dtype(np.uint8): 256, np.dtype(np.uint16): 65536}.get(_arr_dtype(array))
+  if num is None:
+    return None
+  return _arr_getitem(_decode_table(gamma, dtype, num, _arr_arraylib(array)), array)
+
+
 class PowerGamma(Gamma):
   """Gamma correction using a power function."""
 
@@ -2125,10 +2140,8 @@ class PowerGamma(Gamma):
   def decode(self, array: _Array, /, dtype: _DTypeLike = np.float32) -> _Array:
     dtype = np.dtype(dtype)
     assert np.issubdtype(dtype, np.floating)
-    if _arr_dtype(array) == np.uint8 and self.power != 2:
-      arraylib = _arr_arraylib(array)
-      decode_table = _make_array(self.decode(np.arange(256, dtype=dtype) / 255), arraylib)
-      return _arr_getitem(decode_table, array)
+    if self.power != 2 and (decoded := _decode_using_table(self, array, dtype)) is not None:
+      return decoded
 
     array = _to_float_01(array, dtype)
     return _arr_square(array) if self.power == 2 else typing.cast(_Array, array**self.power)
@@ -2151,10 +2164,8 @@ class SrgbGamma(Gamma):
   def decode(self, array: _Array, /, dtype: _DTypeLike = np.float32) -> _Array:
     dtype = np.dtype(dtype)
     assert np.issubdtype(dtype, np.floating)
-    if _arr_dtype(array) == np.uint8:
-      arraylib = _arr_arraylib(array)
-      decode_table = _make_array(self.decode(np.arange(256, dtype=dtype) / 255), arraylib)
-      return _arr_getitem(decode_table, array)
+    if (decoded := _decode_using_table(self, array, dtype)) is not None:
+      return decoded
 
     x = _to_float_01(array, dtype)
     return _arr_where(typing.cast(_Array, x > 0.04045), ((x + 0.055) / 1.055) ** 2.4, x / 12.92)
@@ -2225,6 +2236,45 @@ def _get_src_dst_gamma(
 
 
 def _create_resize_matrix(
+    src_size: int,
+    dst_size: int,
+    src_gridtype: Gridtype,
+    dst_gridtype: Gridtype,
+    boundary: Boundary,
+    filter: Filter,
+    prefilter: Filter | None = None,
+    scale: float = 1.0,
+    translate: float = 0.0,
+    dtype: _DTypeLike = np.float64,
+    arraylib: str = 'numpy',
+) -> tuple[Any, _AnyArray | None]:
+  """Cached version of `_create_resize_matrix_uncached()`; do not modify the returned objects."""
+  args = (
+      src_size,
+      dst_size,
+      src_gridtype,
+      dst_gridtype,
+      boundary,
+      filter,
+      prefilter,
+      scale,
+      translate,
+      np.dtype(dtype),
+      arraylib,
+  )
+  try:
+    hash(args)
+  except TypeError:  # E.g., a user-defined Boundary or Filter holding an unhashable attribute.
+    return _create_resize_matrix_uncached(*args)
+  return _create_resize_matrix_cached(*args)
+
+
+@functools.lru_cache(maxsize=64)
+def _create_resize_matrix_cached(*args: Any) -> tuple[Any, _AnyArray | None]:
+  return _create_resize_matrix_uncached(*args)
+
+
+def _create_resize_matrix_uncached(
     src_size: int,
     dst_size: int,
     src_gridtype: Gridtype,
@@ -2314,7 +2364,7 @@ def _create_resize_matrix(
   if filter.name != 'narrowbox' and (is_minification or not filter.partition_of_unity):
     weight = weight / weight.sum(axis=-1)[..., None]
 
-  src_index, weight = boundary.apply(src_index, weight, src_position, src_size, src_gridtype)
+  src_index, weight = boundary.fold(src_index, weight, src_position, src_size, src_gridtype)
   shape = dst_size, src_size
 
   def prepare_sparse_resize_matrix() -> tuple[_NDArray, _NDArray, _NDArray]:
@@ -2461,14 +2511,90 @@ def _apply_digital_filter_1d_numpy(
     )
 
   array_dim = np.moveaxis(array, axis, 0)
-  l = original_l = math.ceil(filter.radius) - 1
-  x = np.arange(-l, l + 1, dtype=array.real.dtype)
-  values = filter(x)
   size = array_dim.shape[0]
+  system = _digital_filter_system(gridtype, boundary, filter, size, array.dtype, compute_backward)
+
+  if system.cval_weight is not None:
+    if array_dim.ndim == 2:  # Handle the case that we have array_flat.
+      cval = np.tile(cval.reshape(-1), array_dim[0].size // cval.size)
+    array_dim = array_dim - system.cval_weight.reshape(-1, *(1,) * array_dim[0].ndim) * cval
+
+  array_flat = array_dim.reshape(array_dim.shape[0], -1)
+
+  if system.banded is not None:
+    l, u, ab = system.banded
+    options = dict(check_finite=False, overwrite_ab=False, overwrite_b=False)  # `ab` is shared.
+    if system.is_symmetric:
+      array_flat = scipy.linalg.solveh_banded(ab, array_flat, **options)
+    else:
+      array_flat = scipy.linalg.solve_banded((l, u), ab, array_flat, **options)
+  else:
+    array_flat = system.lu.solve(array_flat)
+
+  array_dim = np.asarray(array_flat).reshape(array_dim.shape)
+  return np.moveaxis(array_dim, 0, axis)
+
+
+@dataclasses.dataclass(frozen=True)
+class _DigitalFilterSystem:
+  """The linear system of a digital filter along one grid dimension, shared by all calls with the
+  same gridtype, boundary, filter, size, dtype, and direction; its arrays must not be modified."""
+
+  cval_weight: _NDArray | None
+  """The weight of `cval` in each row, or None if the boundary does not reference `cval`."""
+
+  banded: tuple[int, int, _NDArray] | None
+  """The lower bandwidth, upper bandwidth, and band storage `ab` of a banded matrix (in the layout
+  of `scipy.linalg.solve_banded`, or of `scipy.linalg.solveh_banded` if `is_symmetric`), else
+  None."""
+
+  is_symmetric: bool
+  """Whether the banded matrix is symmetric, so that `solveh_banded` applies."""
+
+  lu: Any
+  """The `scipy.sparse.linalg.SuperLU` factorization of a non-banded matrix (e.g. for 'wrap'), else
+  None."""
+
+
+def _digital_filter_system(
+    gridtype: Gridtype,
+    boundary: Boundary,
+    filter: Filter,
+    size: int,
+    dtype: _DTypeLike,
+    compute_backward: bool,
+    /,
+) -> _DigitalFilterSystem:
+  """Return the (cached) linear system that `_apply_digital_filter_1d_numpy()` solves."""
+  args = (gridtype, boundary, filter, size, np.dtype(dtype), compute_backward)
+  try:
+    hash(args)
+  except TypeError:  # E.g., a user-defined Boundary or Filter holding an unhashable attribute.
+    return _digital_filter_system_uncached(*args)
+  return _digital_filter_system_cached(*args)
+
+
+@functools.lru_cache(maxsize=64)
+def _digital_filter_system_cached(*args: Any) -> _DigitalFilterSystem:
+  return _digital_filter_system_uncached(*args)
+
+
+def _digital_filter_system_uncached(
+    gridtype: Gridtype,
+    boundary: Boundary,
+    filter: Filter,
+    size: int,
+    dtype: _DType,
+    compute_backward: bool,
+    /,
+) -> _DigitalFilterSystem:
+  l = original_l = math.ceil(filter.radius) - 1
+  x = np.arange(-l, l + 1, dtype=np.empty(0, dtype).real.dtype)
+  values = filter(x)
   src_index = np.arange(size)[:, None] + np.arange(len(values)) - l
   weight: _NDArray = np.full((size, len(values)), values)
   src_position = np.broadcast_to(0.5, len(values))
-  src_index, weight = boundary.apply(src_index, weight, src_position, size, gridtype)
+  src_index, weight = boundary.fold(src_index, weight, src_position, size, gridtype)
   if gridtype.name == 'primal' and boundary.name == 'wrap':
     # Overwrite redundant last row to preserve unreferenced last sample and thereby make the
     # matrix non-singular.
@@ -2478,39 +2604,29 @@ def _apply_digital_filter_1d_numpy(
   is_banded = bandwidth <= l + 1  # Add one for quadratic boundary and l == 1.
   # Currently, matrix is always banded unless boundary.name == 'wrap'.
 
-  data = weight.reshape(-1).astype(array.dtype, copy=False)
+  data = weight.reshape(-1).astype(dtype, copy=False)
   row_ind = np.arange(size).repeat(src_index.shape[1])
   col_ind = src_index.reshape(-1)
   matrix = scipy.sparse.csr_matrix((data, (row_ind, col_ind)), shape=(size, size))
   if compute_backward:
     matrix = matrix.transpose()
 
+  cval_weight = None
   if boundary.uses_cval and not compute_backward:
     cval_weight = 1.0 - np.asarray(matrix.sum(axis=-1))[:, 0]
-    if array_dim.ndim == 2:  # Handle the case that we have array_flat.
-      cval = np.tile(cval.reshape(-1), array_dim[0].size // cval.size)
-    array_dim = array_dim - cval_weight.reshape(-1, *(1,) * array_dim[0].ndim) * cval
-
-  array_flat = array_dim.reshape(array_dim.shape[0], -1)
 
   if is_banded:
     matrix = matrix.todia()
     assert np.all(np.diff(matrix.offsets) == 1)  # Consecutive, often [-l, l].
     l, u = -matrix.offsets[0], matrix.offsets[-1]
     assert l <= original_l + 1 and u <= original_l + 1, (l, u, original_l)
-    options = dict(check_finite=False, overwrite_ab=True, overwrite_b=False)
-    if _is_symmetric(matrix):
-      array_flat = scipy.linalg.solveh_banded(matrix.data[l:][::-1], array_flat, **options)
-    else:
-      array_flat = scipy.linalg.solve_banded((l, u), matrix.data[::-1], array_flat, **options)
+    is_symmetric = _is_symmetric(matrix)
+    ab = matrix.data[l:][::-1] if is_symmetric else matrix.data[::-1]
+    return _DigitalFilterSystem(cval_weight, (l, u, ab), is_symmetric, None)
 
-  else:
-    lu = scipy.sparse.linalg.splu(matrix.tocsc(), permc_spec='NATURAL')
-    assert all(s <= size * len(values) for s in (lu.L.nnz, lu.U.nnz))  # Sparse.
-    array_flat = lu.solve(array_flat)
-
-  array_dim = np.asarray(array_flat).reshape(array_dim.shape)
-  return np.moveaxis(array_dim, 0, axis)
+  lu = scipy.sparse.linalg.splu(matrix.tocsc(), permc_spec='NATURAL')
+  assert all(s <= size * len(values) for s in (lu.L.nnz, lu.U.nnz))  # Sparse.
+  return _DigitalFilterSystem(cval_weight, None, False, lu)
 
 
 def resize(
@@ -2903,6 +3019,64 @@ def uniform_resize(
 _MAX_BLOCK_SIZE_RECURSING = -999  # Special value to indicate re-invocation on partitioned blocks.
 
 
+def compute_coefficients(
+    array: _Array,
+    /,
+    grid_ndim: int,
+    *,
+    gridtype: str | Gridtype | Iterable[str | Gridtype] = 'dual',
+    boundary: str | Boundary | Iterable[str | Boundary] = 'auto',
+    cval: _ArrayLike = 0.0,
+    filter: str | Filter | Iterable[str | Filter] = _DEFAULT_FILTER,
+    gamma: str | Gamma | None = None,
+    src_gamma: str | Gamma | None = None,
+    precision: _DTypeLike | None = None,
+) -> _Array:
+  """Return the reconstruction coefficients of `array`, for repeated calls to `resample`.
+
+  Before each evaluation, `resample` decodes the samples of `array` through the source gamma and,
+  for a kernel that requires it (e.g., `'cardinal3'` or `'omoms5'`), transforms them by a digital
+  filter.  This function performs just those steps, so that `resample(coefficients, coords,
+  from_coefficients=True, ...)` can skip them when the same `array` is resampled many times (as
+  in a warp sequence), given the same `gridtype`, `boundary`, `cval`, `filter`, and gamma settings.
+
+  Args:
+    array: Grid of samples whose first `grid_ndim` dimensions define the grid.
+    grid_ndim: Number of grid dimensions (`coords.shape[-1]` in the later calls to `resample`).
+    gridtype: Placement of samples on the grid, as in `resample`.
+    boundary: Boundary rule for each grid dimension, as in `resample`.
+    cval: Constant value used beyond the input domain, as in `resample`.
+    filter: Reconstruction kernel for each grid dimension, as in `resample`.
+    gamma: Component transfer function applied to both the source and destination samples, as in
+      `resample`.
+    src_gamma: Component transfer function used to "decode" `array` samples, as in `resample`.
+    precision: Inexact precision of the coefficients.  If `None`, it is determined based on
+      the `array` dtype as in `resample`.
+
+  Returns:
+    An array of floating-point coefficients with the shape of `array` and the same array library
+    type as the source array.
+  """
+  array_ndim = len(_arr_shape(array))
+  if not 0 < grid_ndim <= array_ndim:
+    raise ValueError(f'{grid_ndim=} must lie in [1, array.ndim={array_ndim}].')
+  gridtype2 = [_get_gridtype(g) for g in np.broadcast_to(np.array(gridtype), grid_ndim)]
+  boundary2 = np.broadcast_to(np.array(boundary), grid_ndim).tolist()
+  boundary2 = [_get_boundary('reflect' if b == 'auto' else b) for b in boundary2]
+  filter2 = [_get_filter(f) for f in np.broadcast_to(np.array(filter), grid_ndim)]
+  src_dtype = _arr_dtype(array)
+  src_gamma2, _ = _get_src_dst_gamma(gamma, src_gamma, src_gamma, src_dtype, src_dtype)
+  precision = _get_precision(precision, [src_dtype], [])
+  cval = np.broadcast_to(cval, _arr_shape(array)[grid_ndim:])
+  array = src_gamma2.decode(array, precision)
+  for dim in range(grid_ndim):
+    if filter2[dim].requires_digital_filter:
+      array = _apply_digital_filter_1d(
+          array, gridtype2[dim], boundary2[dim], cval, filter2[dim], axis=dim
+      )
+  return array
+
+
 def resample(
     array: _Array,
     /,
@@ -2919,6 +3093,7 @@ def resample(
     jacobian: _ArrayLike | None = None,
     precision: _DTypeLike | None = None,
     dtype: _DTypeLike | None = None,
+    from_coefficients: bool = False,
     max_block_size: int = 40_000,
     debug: bool = False,
 ) -> _Array:
@@ -2995,6 +3170,9 @@ def resample(
     dtype: Desired data type of the output array.  If `None`, it is taken to be `array.dtype`.
       If it is a uint type, the intermediate float values are rescaled from the [0.0, 1.0] range
       to the uint range.
+    from_coefficients: If True, `array` already holds the reconstruction coefficients returned by
+      `compute_coefficients` (its samples decoded by `src_gamma` and transformed by the digital
+      filter of `filter`), so those two steps are skipped; `src_gamma` still decodes `cval`.
     max_block_size: If nonzero, maximum number of grid points in `coords` before the resampling
       evaluation gets partitioned into smaller blocks for reduced memory usage and better caching.
     debug: Show internal information.
@@ -3071,13 +3249,17 @@ def resample(
     boundary2[dim] = _get_boundary(boundary2[dim])
 
   if max_block_size != _MAX_BLOCK_SIZE_RECURSING:
-    array = src_gamma2.decode(array, precision)
-    for dim in range(grid_ndim):
-      assert not is_minification
-      if filter2[dim].requires_digital_filter:
-        array = _apply_digital_filter_1d(
-            array, gridtype2[dim], boundary2[dim], cval, filter2[dim], axis=dim
-        )
+    if from_coefficients:
+      if not np.issubdtype(_arr_dtype(array), np.inexact):
+        raise ValueError(f'Coefficients must be inexact, unlike {_arr_dtype(array)=}.')
+    else:
+      array = src_gamma2.decode(array, precision)
+      for dim in range(grid_ndim):
+        assert not is_minification
+        if filter2[dim].requires_digital_filter:
+          array = _apply_digital_filter_1d(
+              array, gridtype2[dim], boundary2[dim], cval, filter2[dim], axis=dim
+          )
     cval = _arr_numpy(src_gamma2.decode(cval, precision))
 
   if math.prod(resampled_shape) > max_block_size > 0:
@@ -3156,7 +3338,7 @@ def resample(
       ):
         weight[dim] = weight[dim] / weight[dim].sum(axis=-1)[..., None]
 
-    src_index[dim], weight[dim] = boundary_dim.apply(
+    src_index[dim], weight[dim] = boundary_dim.fold(
         src_index[dim], weight[dim], coords_dim, src_size, gridtype2[dim]
     )
     if boundary_dim.uses_cval or filter2[dim].name == 'narrowbox':

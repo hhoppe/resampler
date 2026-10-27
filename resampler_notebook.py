@@ -4535,7 +4535,7 @@ def test_banded(debug=False) -> None:
     weight = np.broadcast_to(values[None], (size, len(values)))
     src_position = np.broadcast_to(0.5, len(values))
     src_gridtype = resampler._get_gridtype('dual')
-    src_index, weight = resampler._get_boundary(boundary).apply(
+    src_index, weight = resampler._get_boundary(boundary).fold(
         src_index, weight, src_position, size, src_gridtype
     )
     data = weight.reshape(-1)
@@ -4652,7 +4652,7 @@ def test_inverse_convolution_2d(
       weight = np.full((size, len(values)), values, array.dtype)
       src_position = np.broadcast_to(0.5, len(values))
       src_gridtype = resampler._get_gridtype(gridtype)
-      src_index, weight = resampler._get_boundary(boundary).apply(
+      src_index, weight = resampler._get_boundary(boundary).fold(
           src_index, weight, src_position, size, src_gridtype
       )
       if gridtype == 'primal' and boundary == 'wrap':

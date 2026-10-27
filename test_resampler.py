@@ -687,5 +687,110 @@ class TestResampler(unittest.TestCase):
         np.testing.assert_allclose(fast, expected, rtol=0, atol=1e-6)
 
 
+class TestResamplerReuse(unittest.TestCase):
+  """Tests of the cached resize matrices and digital filters, and of reusing coefficients."""
+
+  def test_resize_matrix_is_cached(self) -> None:
+    kwargs: Any = dict(
+        src_gridtype=resampler._get_gridtype('dual'),
+        dst_gridtype=resampler._get_gridtype('dual'),
+        boundary=resampler._get_boundary('reflect'),
+        filter=resampler._get_filter('cubic'),
+    )
+    matrix1, cval_weight1 = resampler._create_resize_matrix(10, 23, **kwargs)
+    matrix2, _ = resampler._create_resize_matrix(10, 23, **kwargs)
+    self.assertIs(matrix1, matrix2)
+    self.assertIsNone(cval_weight1)
+    matrix3, _ = resampler._create_resize_matrix_uncached(10, 23, **kwargs)
+    np.testing.assert_array_equal(matrix1.toarray(), matrix3.toarray())
+
+  def test_digital_filter_system_is_cached_and_not_modified_by_solving(self) -> None:
+    array = np.random.default_rng(2).random((9, 4))
+    gridtype = resampler._get_gridtype('dual')
+    for filter_name, boundary_name in [
+        ('omoms3', 'reflect'),
+        ('omoms3', 'wrap'),
+        ('cardinal5', 'clamp'),
+    ]:
+      with self.subTest(filter=filter_name, boundary=boundary_name):
+        filter, boundary = resampler._get_filter(filter_name), resampler._get_boundary(
+            boundary_name
+        )
+        results = [
+            resampler._apply_digital_filter_1d(array, gridtype, boundary, 0.0, filter)
+            for _ in range(2)
+        ]
+        np.testing.assert_array_equal(results[0], results[1])
+        systems = [
+            resampler._digital_filter_system(
+                gridtype, boundary, filter, 9, np.dtype(np.float64), False
+            )
+            for _ in range(2)
+        ]
+        self.assertIs(systems[0], systems[1])
+
+  def test_resample_from_coefficients(self) -> None:
+    array = np.random.default_rng(3).random((8, 6, 3)).astype(np.float32)
+    coords = np.random.default_rng(4).random((5, 7, 2))
+    for filter in ['cubic', 'cardinal3', 'omoms5']:
+      with self.subTest(filter=filter):
+        expected = resampler.resample(array, coords, filter=filter)
+        coefficients = resampler.compute_coefficients(array, 2, filter=filter)
+        result = resampler.resample(coefficients, coords, filter=filter, from_coefficients=True)
+        np.testing.assert_allclose(result, expected, rtol=0, atol=1e-6)  # atol: float32 values.
+    image = (array * 255 + 0.5).astype(np.uint8)  # Truncation after the shift rounds to nearest.
+    expected = resampler.resample(image, coords, filter='cardinal3', gamma='srgb')
+    coefficients = resampler.compute_coefficients(image, 2, filter='cardinal3', gamma='srgb')
+    self.assertTrue(np.issubdtype(coefficients.dtype, np.floating))
+    result = resampler.resample(
+        coefficients,
+        coords,
+        filter='cardinal3',
+        gamma='srgb',
+        from_coefficients=True,
+        dtype=np.uint8,
+    )
+    # atol: the two paths may round a uint8 value differently after float arithmetic.
+    np.testing.assert_allclose(result, expected, rtol=0, atol=1)
+
+  def test_natural_boundary_keeps_interior_rows_unchanged(self) -> None:
+    kwargs: Any = dict(
+        src_gridtype=resampler._get_gridtype('dual'),
+        dst_gridtype=resampler._get_gridtype('dual'),
+        filter=resampler._get_filter('cubic'),
+    )
+    natural, _ = resampler._create_resize_matrix(
+        10, 23, boundary=resampler._get_boundary('natural'), **kwargs
+    )
+    border, cval_weight = resampler._create_resize_matrix(
+        10, 23, boundary=resampler._get_boundary('border'), **kwargs
+    )
+    interior = np.asarray(cval_weight) == 0.0
+    self.assertTrue(interior.sum() > 0 and not interior.all())
+    np.testing.assert_array_equal(natural.toarray()[interior], border.toarray()[interior])
+
+  def test_uint16_decode_uses_cached_table(self) -> None:
+    for gamma_name in ['srgb', 'power22']:
+      with self.subTest(gamma=gamma_name):
+        gamma = resampler._get_gamma(gamma_name)
+        values = np.array([0, 1, 32768, 65535], np.uint16)
+        expected = gamma.decode(values.astype(np.float64) / 65535, np.float32)
+        # rtol: the table is computed in float32 by the same expression.
+        np.testing.assert_allclose(gamma.decode(values), expected, rtol=1e-6, atol=0)
+        tables = [
+            resampler._decode_table(gamma, np.dtype(np.float32), 65536, 'numpy') for _ in range(2)
+        ]
+        self.assertIs(tables[0], tables[1])
+
+  def test_boundary_fold(self) -> None:
+    index = np.array([[-2, -1, 0, 1], [7, 8, 9, 10]])
+    weight = np.full(index.shape, 0.25)
+    position = np.array([0.05, 0.95])
+    gridtype = resampler._get_gridtype('dual')
+    index2, weight2 = resampler._get_boundary('reflect').fold(index, weight, position, 10, gridtype)
+    np.testing.assert_array_equal(index2, [[1, 0, 0, 1], [7, 8, 9, 9]])
+    np.testing.assert_array_equal(weight2, weight)
+
+
 if __name__ == '__main__':
   unittest.main()
