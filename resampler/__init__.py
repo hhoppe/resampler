@@ -9,7 +9,7 @@ from __future__ import annotations
 # __init__.pyi (for the actual content)!
 
 __docformat__ = 'google'
-__version__ = '1.1.6'
+__version__ = '1.1.7'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 import abc
@@ -401,7 +401,7 @@ class _NumpyArraylib(_Arraylib[_NDArray]):
 
   @staticmethod
   def recognize(array: Any) -> bool:
-    return isinstance(array, (np.ndarray, np.number))
+    return isinstance(array, (np.ndarray, np.number, np.bool_))
 
   def numpy(self) -> _NDArray:
     return self.array
@@ -3232,7 +3232,7 @@ def resample(
   cval = np.broadcast_to(cval, sample_shape)
   prefilter = filter if prefilter is None else prefilter
   filter2 = [_get_filter(f) for f in np.broadcast_to(np.array(filter), grid_ndim)]
-  prefilter2 = [_get_filter(f) for f in np.broadcast_to(np.array(prefilter), resampled_ndim)]
+  prefilter2 = [_get_filter(f) for f in np.broadcast_to(np.array(prefilter), grid_ndim)]
   dtype = _arr_dtype(array) if dtype is None else np.dtype(dtype)
   src_gamma2, dst_gamma2 = _get_src_dst_gamma(gamma, src_gamma, dst_gamma, _arr_dtype(array), dtype)
   del gridtype, boundary, filter, prefilter, src_gamma, dst_gamma
@@ -3473,7 +3473,7 @@ def resample_affine(
   )
   prefilter = filter if prefilter is None else prefilter
   filter2 = [_get_filter(f) for f in np.broadcast_to(np.array(filter), src_ndim)]
-  prefilter2 = [_get_filter(f) for f in np.broadcast_to(np.array(prefilter), dst_ndim)]
+  prefilter2 = [_get_filter(f) for f in np.broadcast_to(np.array(prefilter), src_ndim)]
   del src_gridtype, dst_gridtype, filter, prefilter
   dtype = _arr_dtype(array) if dtype is None else np.dtype(dtype)
   precision = _get_precision(precision, [_arr_dtype(array), dtype], [])

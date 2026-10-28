@@ -520,6 +520,32 @@ class TestResampler(unittest.TestCase):
         new = resampler.resample(colormap, np.full((2, 2, 1), 1.5), **kwargs)
         np.testing.assert_allclose(new, np.full((2, 2, 3), 5.0))
 
+  def test_per_dim_filter_with_output_ndim_differing_from_grid_ndim(self) -> None:
+    # The default prefilter (the filter) has an entry per dimension of the grid, not of the output.
+    image = np.random.default_rng(0).random((4, 5))
+    filter = ('cubic', 'lanczos3')
+    coords = np.array([[0.2, 0.3], [0.6, 0.7], [0.9, 0.1]])  # Points along a line.
+    expected = resampler.resample(image, coords[:, None], filter=filter)[:, 0]
+    np.testing.assert_allclose(resampler.resample(image, coords, filter=filter), expected)
+    np.testing.assert_allclose(resampler.resample(image, coords[0], filter=filter), expected[0])
+    # An affine map from the 1D output domain into the 2D grid.
+    matrix = np.array([[0.5, 0.1], [0.3, 0.2]])
+    np.testing.assert_allclose(
+        resampler.resample_affine(image, (6,), matrix, filter=filter),
+        resampler.resample_affine(image, (6,), matrix, filter=filter, prefilter='cubic'),
+    )
+
+  def test_srgb_gamma_of_scalar_samples(self) -> None:
+    # The comparisons in SrgbGamma of a 0-d array (e.g., the cval of a grid of scalars) yield a
+    # numpy bool.
+    gamma = resampler._get_gamma('srgb')
+    decoded = gamma.decode(np.array(0.5), np.float32)
+    np.testing.assert_allclose(gamma.encode(decoded, np.float32), 0.5, atol=1e-6)
+    for array in [np.array([0.0, 0.5, 1.0]), np.array([0, 128, 255], np.uint8)]:
+      with self.subTest(dtype=array.dtype):
+        expected = resampler.resize(array[:, None], (4,), gamma='srgb')[:, 0]
+        np.testing.assert_array_equal(resampler.resize(array, (4,), gamma='srgb'), expected)
+
   def test_resample_single_point_with_boundary_antialiasing(self) -> None:
     image = np.ones((4, 4))
     for boundary in ['natural', 'constant']:
