@@ -9,7 +9,7 @@ from __future__ import annotations
 # __init__.pyi (for the actual content)!
 
 __docformat__ = 'google'
-__version__ = '1.1.7'
+__version__ = '1.1.8'
 __version_info__ = tuple(int(num) for num in __version__.split('.'))
 
 import abc
@@ -3753,9 +3753,12 @@ def _skimage_transform_resize(
   shape_all = shape + array.shape[len(shape) :]
   # Default anti_aliasing=None automatically enables (poor) Gaussian prefilter if downsampling.
   # clip=False is the default behavior in `resampler` if the output type is non-integer.
-  return skimage.transform.resize(
-      array, shape_all, order=order, mode=mode, cval=cval, clip=False
-  )  # type: ignore[no-untyped-call]
+  # With numpy 2.5, pyrefly infers a union including an array-API `Array`, so narrow it.
+  return np.asarray(
+      skimage.transform.resize(
+          array, shape_all, order=order, mode=mode, cval=cval, clip=False
+      )  # type: ignore[no-untyped-call]
+  )
 
 
 _TORCH_INTERPOLATE_MODE_FROM_FILTER = {
